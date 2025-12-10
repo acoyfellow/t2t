@@ -1,0 +1,7 @@
+target/
+node_modules/
+.svelte-kit/
+build/
+.env
+*.lock
+.DS_Store
