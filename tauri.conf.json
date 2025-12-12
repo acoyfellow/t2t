@@ -35,7 +35,8 @@
     "active": true,
     "icon": [],
     "macOS": {
-      "entitlements": "./entitlements.plist"
+      "entitlements": "./entitlements.plist",
+      "infoPlist": "./macos-info.plist"
     }
   },
   "plugins": {}

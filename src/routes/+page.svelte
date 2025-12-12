@@ -5,6 +5,7 @@
   let processing = $state(false);
   let mediaRecorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
+  let stream: MediaStream | null = null;
 
   function createWavHeader(dataSize: number, sampleRate = 16000): ArrayBuffer {
     const header = new ArrayBuffer(44);
@@ -60,48 +61,35 @@
 
   onMount(async () => {
     try {
-      const { writeText } = await import(
-        "@tauri-apps/plugin-clipboard-manager"
-      );
       const { invoke } = await import("@tauri-apps/api/core");
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const feLog = async (msg: string) => {
+        try {
+          await invoke("log_event", { message: msg });
+        } catch {
+          // ignore
+        }
+      };
 
-      (window as any).__startRecording = () => {
+      // UI only. Audio capture/transcription is native-side now.
+      (window as any).__startRecording = async () => {
         if (recording) return;
         recording = true;
-        chunks = [];
-
-        mediaRecorder = new MediaRecorder(stream);
-        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-          processing = true;
-          const blob = new Blob(chunks);
-          try {
-            const wav = await blobToWav(blob);
-            const text = (
-              (await invoke("transcribe", {
-                audioData: Array.from(wav),
-              })) as string
-            ).trim();
-
-            if (text && !text.includes("[BLANK")) {
-              await writeText(text);
-              await invoke("paste_text");
-            }
-          } catch (e) {
-            console.error("Transcribe error:", e);
-          }
-          processing = false;
-        };
-        mediaRecorder.start();
+        await feLog("UI: startRecording");
       };
 
       (window as any).__stopRecording = () => {
-        if (!recording || !mediaRecorder) return;
+        if (!recording) return;
         recording = false;
-        mediaRecorder.stop();
+        feLog("UI: stopRecording");
       };
+
+      (window as any).__setProcessing = (v: boolean) => {
+        processing = v;
+      };
+      await feLog(
+        "Frontend initialized (__startRecording/__stopRecording set)."
+      );
     } catch (e) {
       console.error("Init error:", e);
     }

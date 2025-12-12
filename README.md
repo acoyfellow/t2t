@@ -5,7 +5,7 @@ Hold **Fn key** to record audio, release to transcribe and auto-paste.
 ## How It Works
 
 - Press and hold Fn key → records microphone audio
-- Release Fn key → transcribes using local Whisper model, copies to clipboard, and pastes automatically
+- Release Fn key → transcribes using a local Whisper model, copies to clipboard, and pastes automatically
 - Visual feedback: red orb while recording, orange while processing
 
 ## Setup
@@ -15,17 +15,17 @@ Hold **Fn key** to record audio, release to transcribe and auto-paste.
 npm install
 
 # Development
-npm run tauri dev
+bun tauri dev
 
 # Build
-npm run tauri build
+bun tauri build
 ```
 
 ## Requirements
 
 - **Rust** (install via rustup)
-- **Node.js 18+** (or Bun)
-- **macOS** (currently macOS only)
+- **Bun** (recommended) or Node.js 18+
+- **macOS** (currently macOS only; tested on Apple Silicon)
 
 ## First Run
 
@@ -35,7 +35,7 @@ On first launch, the app automatically downloads the Whisper model (~150MB) to `
 
 Grant these in **System Settings > Privacy & Security**:
 
-- **Accessibility** - Required for global Fn key detection and auto-paste
+- **Accessibility** - Required for Fn key detection and focusing the correct field before paste
 - **Microphone** - Required for audio recording
 
 The app will prompt you if permissions are missing.
@@ -45,7 +45,13 @@ The app will prompt you if permissions are missing.
 - **Frontend**: Svelte 5 + SvelteKit
 - **Backend**: Rust + Tauri
 - **STT**: whisper-rs (local Whisper.cpp model)
-- **Hotkey**: rdev (global key listener)
+- **Hotkey**: macOS event monitoring (Fn key) + fallbacks
+- **Audio capture**: native (Rust via cpal)
+
+## Notes / Debugging
+
+- **Logs**: `~/Library/Logs/t2t.log`
+- **Model location**: `~/.cache/whisper/ggml-base.en.bin`
 
 ## License
 
