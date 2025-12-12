@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Watch your agents browse. Tell them what to click. Natural language control via Stagehand. Real-time screencasting via CDP."/> <meta name="keywords" content="agentcast, browser automation, ai agents, cloudflare, stagehand, playwright"/> <link rel="canonical" href="https://coey.dev/agentcast"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="AgentCast: Live browser sessions for AI agents"/> <meta property="og:description" content="Watch your agents browse. Tell them what to click. Natural language control via Stagehand. Real-time screencasting via CDP."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/agentcast"/> <meta property="og:image" content="https://api.coey.dev/?title=AgentCast%3A%20Live%20browser%20sessions%20for%20AI%20agents&amp;description=Watch%20your%20agents%20browse.%20Tell%20them%20what%20to%20click.%20Natural%20language%20control%20via%20Stagehand.%20Real-time%20screencasting%20via%20CDP."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="AgentCast: Live browser sessions for AI agents"/> <meta name="twitter:description" content="Watch your agents browse. Tell them what to click. Natural language control via Stagehand. Real-time screencasting via CDP."/> <meta name="twitter:image" content="https://api.coey.dev/?title=AgentCast%3A%20Live%20browser%20sessions%20for%20AI%20agents&amp;description=Watch%20your%20agents%20browse.%20Tell%20them%20what%20to%20click.%20Natural%20language%20control%20via%20Stagehand.%20Real-time%20screencasting%20via%20CDP."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-12-08"/> <meta property="article:modified_time" content="2025-12-08"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,ai,browser-automation"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "AgentCast: Live browser sessions for AI agents",
+  "description": "Watch your agents browse. Tell them what to click. Natural language control via Stagehand. Real-time screencasting via CDP.",
+  "image": "https://api.coey.dev/?title=AgentCast%3A%20Live%20browser%20sessions%20for%20AI%20agents&description=Watch%20your%20agents%20browse.%20Tell%20them%20what%20to%20click.%20Natural%20language%20control%20via%20Stagehand.%20Real-time%20screencasting%20via%20CDP.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-12-08",
+  "dateModified": "2025-12-08",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/agentcast"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>AgentCast: Live browser sessions for AI agents</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">AGENTCAST: LIVE BROWSER SESSIONS FOR AI AGENTS</h1> <p class="text-xl font-mono">Watch your agents browse. Tell them what to click. In natural language.</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">BROWSER AUTOMATION</span> <span class="ml-4">2025.12.08</span></div></header> <section class="mb-12 grid grid-cols-1 md:grid-cols-2 gap-4"><a href="https://github.com/nicholasoxford/AgentCast" target="_blank" rel="noopener noreferrer" class="bg-black text-white px-8 py-6 text-2xl font-black border-4 border-black hover:bg-white hover:text-black transition-colors duration-100 text-center flex items-center justify-center gap-3"><svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"></path></svg> GITHUB</a> <a href="https://www.npmjs.com/package/agentcast" target="_blank" rel="noopener noreferrer" class="bg-white text-black px-8 py-6 text-2xl font-black border-4 border-black hover:bg-black hover:text-white transition-colors duration-100 text-center flex items-center justify-center gap-3"><svg class="w-8 h-8" viewBox="0 0 256 256" fill="currentColor"><path d="M0 256V0h256v256H0zm42.7-42.7h42.6V85.3H128v128h85.3V42.7H42.7v170.6z"></path></svg> NPM</a></section> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE PROBLEM</h2> <p class="text-lg leading-relaxed mb-4"><strong>Problem:</strong> AI agents can call APIs. But most of the web isn't APIs. 
+        It's forms, buttons, dropdowns, CAPTCHAs, and JavaScript SPAs. Your agent needs to actually browse.</p> <p class="text-lg leading-relaxed mb-4"><strong>Solution:</strong> AgentCast extends the Cloudflare Agents SDK with real browser sessions. 
+        Natural language control via Stagehand. Live screencasting via CDP. Watch your agent work in real-time.</p> <div class="bg-black text-white p-4 font-mono"><pre>Browser Session Flow:
+
+Client → Worker → BrowserAgent (DO)
+                       ↓
+              Container (Bun + Playwright)
+                       ↓
+              Chrome DevTools Protocol
+                       ↓
+              Stagehand (NL → Actions)
+                       ↓
+              Live Screencast Frames
+                       ↓
+              WebSocket → Client</pre></div></section> <section class="mb-12 border-2 border-black p-6 bg-yellow-50"><h3 class="text-xl font-bold font-mono mb-3">THE FUN PART</h3> <p class="leading-relaxed">Watching an AI agent navigate a website is genuinely entertaining. It's like watching a very 
+        fast intern who can't read social cues but somehow always finds the submit button. 
+        You'll catch yourself narrating: <em>"No, not that dropdown... yes, that one... good robot."</em></p></section></div></main> <section class="p-8"><div class="max-w-4xl mx-auto space-y-10"><div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE OVERVIEW</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">CORE COMPONENTS</h3> <ul class="space-y-2"><li>• <strong>BrowserAgent</strong> - Extends Cloudflare Agent class</li> <li>• <strong>Container</strong> - Bun + Playwright + Chrome</li> <li>• <strong>Stagehand</strong> - Natural language → browser actions</li> <li>• <strong>CDP</strong> - Chrome DevTools Protocol for screencasting</li> <li>• <strong>WebSocket</strong> - Bidirectional control</li></ul></div> <div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">TECH STACK</h3> <ul class="space-y-2"><li>• <strong>Cloudflare Workers</strong> - Orchestration layer</li> <li>• <strong>Cloudflare Containers</strong> - Chrome instances</li> <li>• <strong>Durable Objects</strong> - Session state</li> <li>• <strong>Playwright</strong> - Browser automation</li> <li>• <strong>Zod</strong> - Typed data extraction</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">KEY FEATURES</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Live screencasting</strong> - Real-time video stream of browser actions</li> <li><strong>Natural language control</strong> - "click the login button" just works</li> <li><strong>Bidirectional control</strong> - Viewers can click and type in the browser</li> <li><strong>Structured extraction</strong> - Use Zod schemas to extract typed data</li> <li><strong>Session tracking</strong> - Monitor status, activity timestamps, URLs</li> <li><strong>Agents SDK compatible</strong> - Extends the official Cloudflare Agent class</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">QUICK START</h2> <div class="border-2 border-black mb-4"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Install the SDK
+npm install agentcast
+
+// or
+bun add agentcast</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">BROWSER AGENT</h2> <p class="mb-3 font-mono">Extend BrowserAgent. Use goto, act, extract. Natural language all the way down.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// agent.ts
+import { BrowserAgent, type BrowserAgentEnv } from "agentcast";
+
+export class MyAgent extends BrowserAgent&lt;BrowserAgentEnv> {
+  
+  async onTask(task: string) {
+    // Navigate to a page
+    await this.goto("https://example.com");
+    
+    // Natural language actions via Stagehand
+    await this.act("click the login button");
+    await this.act("fill in username with 'demo@example.com'");
+    await this.act("fill in password with 'secret123'");
+    await this.act("click submit");
+    
+    // Extract structured data with Zod
+    const data = await this.extract({
+      instruction: "Get the user profile info",
+      schema: z.object({
+        name: z.string(),
+        email: z.string(),
+        plan: z.enum(["free", "pro", "enterprise"])
+      })
+    });
+    
+    return data;
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">WORKER</h2> <p class="mb-3 font-mono">Expose endpoints for starting sessions and streaming video.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// worker.ts
+import { Hono } from "hono";
+import { MyAgent } from "./agent";
+
+const app = new Hono&lt;{ Bindings: Env }>();
+
+// Start a new browser session
+app.post("/session", async (c) => {
+  const { task } = await c.req.json();
+  
+  const id = c.env.AGENT.newUniqueId();
+  const stub = c.env.AGENT.get(id);
+  
+  // Agent spins up container, starts browser, begins task
+  const result = await stub.startTask(task);
+  
+  return c.json({ sessionId: id.toString(), result });
+});
+
+// Stream live video of agent actions
+app.get("/session/:id/stream", async (c) => {
+  const id = c.env.AGENT.idFromString(c.req.param("id"));
+  const stub = c.env.AGENT.get(id);
+  
+  // Returns WebSocket upgrade for live screencast
+  return stub.fetch(c.req.raw);
+});
+
+export default app;
+export { MyAgent };</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">STRUCTURED EXTRACTION</h2> <p class="mb-3 font-mono">Define Zod schemas. Get typed data from any page. No HTML parsing.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Structured data extraction with Zod schemas
+import { z } from "zod";
+
+const productSchema = z.object({
+  title: z.string(),
+  price: z.number(),
+  rating: z.number().optional(),
+  inStock: z.boolean()
+});
+
+// Agent extracts typed data from any page
+const product = await agent.extract({
+  instruction: "Get the main product details",
+  schema: productSchema
+});
+
+// TypeScript knows the shape
+console.log(product.title);  // string
+console.log(product.price);  // number
+console.log(product.inStock); // boolean</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">LIVE VIEWER</h2> <p class="mb-3 font-mono">WebSocket for screencast frames. Canvas rendering. Bidirectional control.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// SvelteKit viewer component
+&lt;script lang="ts">
+  let canvas: HTMLCanvasElement;
+  let ws: WebSocket;
+  
+  function connect(sessionId: string) {
+    ws = new WebSocket(`wss://your-worker.workers.dev/session/${sessionId}/stream`);
+    
+    ws.onmessage = (e) => {
+      const frame = JSON.parse(e.data);
+      
+      if (frame.type === 'screencast') {
+        // Render CDP screencast frame to canvas
+        const img = new Image();
+        img.onload = () => {
+          canvas.getContext('2d')?.drawImage(img, 0, 0);
+        };
+        img.src = `data:image/jpeg;base64,${frame.data}`;
+      }
+    };
+  }
+  
+  function sendClick(x: number, y: number) {
+    // Bidirectional control - viewer can interact
+    ws.send(JSON.stringify({ type: 'click', x, y }));
+  }
+  
+  function sendInstruction(text: string) {
+    // Natural language control
+    ws.send(JSON.stringify({ type: 'act', instruction: text }));
+  }
+&lt;/script>
+
+&lt;canvas bind:this={canvas} on:click={(e) => sendClick(e.offsetX, e.offsetY)} />
+&lt;input type="text" on:keydown={(e) => e.key === 'Enter' &amp;&amp; sendInstruction(e.target.value)} /></code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">WRANGLER CONFIG</h2> <p class="mb-3 font-mono">Enable containers. Bind the Durable Object.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// wrangler.toml
+name = "agentcast-demo"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
+
+[containers]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "AGENT"
+class_name = "MyAgent"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyAgent"]</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">USE CASES</h2> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Use cases
+
+// 1. E-COMMERCE MONITORING
+await agent.goto("https://competitor.com/products");
+const prices = await agent.extract({
+  instruction: "Get all product prices on this page",
+  schema: z.array(z.object({ name: z.string(), price: z.number() }))
+});
+
+// 2. FORM AUTOMATION
+await agent.act("fill in the contact form with our support email");
+await agent.act("select 'Enterprise' from the plan dropdown");
+await agent.act("click submit and wait for confirmation");
+
+// 3. SCRAPING WITH INTERACTION
+await agent.act("click 'Load More' until all results are visible");
+const results = await agent.extract({
+  instruction: "Extract all search results",
+  schema: searchResultsSchema
+});
+
+// 4. TESTING &amp; QA
+await agent.goto("https://staging.myapp.com");
+await agent.act("log in as test user");
+await agent.act("navigate to settings");
+const settings = await agent.extract({ instruction: "Get current settings", schema: settingsSchema });
+expect(settings.notifications).toBe(true);</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE PATTERNS</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">SESSION LIFECYCLE</h4> <ul class="text-sm space-y-1"><li>• Worker creates BrowserAgent DO</li> <li>• DO spins up container with Chrome</li> <li>• Stagehand translates NL to actions</li> <li>• CDP captures screencast frames</li> <li>• WebSocket streams to viewers</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">BIDIRECTIONAL CONTROL</h4> <ul class="text-sm space-y-1"><li>• Viewer sends click coordinates</li> <li>• Viewer sends NL instructions</li> <li>• Agent processes and executes</li> <li>• Results stream back to viewer</li> <li>• Human-in-the-loop when needed</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">STAGEHAND INTEGRATION</h4> <ul class="text-sm space-y-1"><li>• NL instruction → DOM analysis</li> <li>• Element identification via AI</li> <li>• Action execution via Playwright</li> <li>• No XPath, no CSS selectors</li> <li>• Works on any page layout</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">DATA EXTRACTION</h4> <ul class="text-sm space-y-1"><li>• Define schema with Zod</li> <li>• AI reads visible content</li> <li>• Returns typed, validated data</li> <li>• No scraping, no parsing</li> <li>• Handles dynamic content</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PRODUCTION USE CASES</h2> <div class="space-y-4"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">COMPETITOR MONITORING</h4> <p class="text-sm">Navigate to competitor sites, extract pricing, inventory, product details. 
+            Works even when they change their HTML structure.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">FORM AUTOMATION</h4> <p class="text-sm">Fill out complex multi-step forms with natural language. 
+            Handle dropdowns, date pickers, file uploads.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">END-TO-END TESTING</h4> <p class="text-sm">Write tests in natural language. "Log in, go to settings, change notification preferences." 
+            Watch them run in real-time.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">LEAD RESEARCH</h4> <p class="text-sm">Visit company websites, LinkedIn profiles. Extract contact info, company details, recent news. 
+            Structured data, not raw HTML.</p></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PERFORMANCE CHARACTERISTICS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Container startup:</strong> ~2-5s for Chrome initialization</li> <li><strong>Screencast latency:</strong> ~100-200ms frame delay</li> <li><strong>Action execution:</strong> ~1-3s per natural language instruction</li> <li><strong>Extraction:</strong> ~2-5s depending on page complexity</li> <li><strong>Session duration:</strong> Limited by container timeout (configurable)</li> <li><strong>Concurrent sessions:</strong> Limited by account container limits</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">OPERATIONAL CONSIDERATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Container limits:</strong> Check your Cloudflare plan for container quotas</li> <li><strong>Memory usage:</strong> Chrome is hungry; allocate accordingly</li> <li><strong>Session cleanup:</strong> Implement timeouts to prevent runaway sessions</li> <li><strong>Rate limiting:</strong> Don't hammer target sites; add delays between actions</li> <li><strong>Authentication:</strong> Store credentials securely; consider secrets manager</li> <li><strong>Error handling:</strong> Pages fail; implement retry logic with backoff</li></ul></div> <div class="border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Related patterns</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/agentic-architecture">Agentic AI Architectures</a></li> <li><a class="underline" href="/agents-patterns">Cloudflare Agents Patterns</a></li> <li><a class="underline" href="/trust-broker">Trust Broker: Human-mediated agent communication</a></li> <li><a class="underline" href="/ditto">Ditto: Parallel LLM orchestration</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern: Hierarchical Durable Objects</a></li></ul></div></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 4],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{installTs:"// Install the SDK\nnpm install agentcast\n\n// or\nbun add agentcast",browserAgentTs:"// agent.ts\nimport { BrowserAgent, type BrowserAgentEnv } from \"agentcast\";\n\nexport class MyAgent extends BrowserAgent\u003CBrowserAgentEnv> {\n  \n  async onTask(task: string) {\n    // Navigate to a page\n    await this.goto(\"https://example.com\");\n    \n    // Natural language actions via Stagehand\n    await this.act(\"click the login button\");\n    await this.act(\"fill in username with 'demo@example.com'\");\n    await this.act(\"fill in password with 'secret123'\");\n    await this.act(\"click submit\");\n    \n    // Extract structured data with Zod\n    const data = await this.extract({\n      instruction: \"Get the user profile info\",\n      schema: z.object({\n        name: z.string(),\n        email: z.string(),\n        plan: z.enum([\"free\", \"pro\", \"enterprise\"])\n      })\n    });\n    \n    return data;\n  }\n}",workerTs:"// worker.ts\nimport { Hono } from \"hono\";\nimport { MyAgent } from \"./agent\";\n\nconst app = new Hono\u003C{ Bindings: Env }>();\n\n// Start a new browser session\napp.post(\"/session\", async (c) => {\n  const { task } = await c.req.json();\n  \n  const id = c.env.AGENT.newUniqueId();\n  const stub = c.env.AGENT.get(id);\n  \n  // Agent spins up container, starts browser, begins task\n  const result = await stub.startTask(task);\n  \n  return c.json({ sessionId: id.toString(), result });\n});\n\n// Stream live video of agent actions\napp.get(\"/session/:id/stream\", async (c) => {\n  const id = c.env.AGENT.idFromString(c.req.param(\"id\"));\n  const stub = c.env.AGENT.get(id);\n  \n  // Returns WebSocket upgrade for live screencast\n  return stub.fetch(c.req.raw);\n});\n\nexport default app;\nexport { MyAgent };",extractTs:"// Structured data extraction with Zod schemas\nimport { z } from \"zod\";\n\nconst productSchema = z.object({\n  title: z.string(),\n  price: z.number(),\n  rating: z.number().optional(),\n  inStock: z.boolean()\n});\n\n// Agent extracts typed data from any page\nconst product = await agent.extract({\n  instruction: \"Get the main product details\",\n  schema: productSchema\n});\n\n// TypeScript knows the shape\nconsole.log(product.title);  // string\nconsole.log(product.price);  // number\nconsole.log(product.inStock); // boolean",viewerTs:"// SvelteKit viewer component\n\u003Cscript lang=\"ts\">\n  let canvas: HTMLCanvasElement;\n  let ws: WebSocket;\n  \n  function connect(sessionId: string) {\n    ws = new WebSocket(`wss://your-worker.workers.dev/session/${sessionId}/stream`);\n    \n    ws.onmessage = (e) => {\n      const frame = JSON.parse(e.data);\n      \n      if (frame.type === 'screencast') {\n        // Render CDP screencast frame to canvas\n        const img = new Image();\n        img.onload = () => {\n          canvas.getContext('2d')?.drawImage(img, 0, 0);\n        };\n        img.src = `data:image/jpeg;base64,${frame.data}`;\n      }\n    };\n  }\n  \n  function sendClick(x: number, y: number) {\n    // Bidirectional control - viewer can interact\n    ws.send(JSON.stringify({ type: 'click', x, y }));\n  }\n  \n  function sendInstruction(text: string) {\n    // Natural language control\n    ws.send(JSON.stringify({ type: 'act', instruction: text }));\n  }\n\u003C/script>\n\n\u003Ccanvas bind:this={canvas} on:click={(e) => sendClick(e.offsetX, e.offsetY)} />\n\u003Cinput type=\"text\" on:keydown={(e) => e.key === 'Enter' && sendInstruction(e.target.value)} />",wranglerTs:"// wrangler.toml\nname = \"agentcast-demo\"\nmain = \"src/worker.ts\"\ncompatibility_date = \"2024-12-01\"\n\n[containers]\nenabled = true\n\n[[durable_objects.bindings]]\nname = \"AGENT\"\nclass_name = \"MyAgent\"\n\n[[migrations]]\ntag = \"v1\"\nnew_classes = [\"MyAgent\"]",architectureTxt:"Browser Session Flow:\n\nClient → Worker → BrowserAgent (DO)\n                       ↓\n              Container (Bun + Playwright)\n                       ↓\n              Chrome DevTools Protocol\n                       ↓\n              Stagehand (NL → Actions)\n                       ↓\n              Live Screencast Frames\n                       ↓\n              WebSocket → Client",useCasesTs:"// Use cases\n\n// 1. E-COMMERCE MONITORING\nawait agent.goto(\"https://competitor.com/products\");\nconst prices = await agent.extract({\n  instruction: \"Get all product prices on this page\",\n  schema: z.array(z.object({ name: z.string(), price: z.number() }))\n});\n\n// 2. FORM AUTOMATION\nawait agent.act(\"fill in the contact form with our support email\");\nawait agent.act(\"select 'Enterprise' from the plan dropdown\");\nawait agent.act(\"click submit and wait for confirmation\");\n\n// 3. SCRAPING WITH INTERACTION\nawait agent.act(\"click 'Load More' until all results are visible\");\nconst results = await agent.extract({\n  instruction: \"Extract all search results\",\n  schema: searchResultsSchema\n});\n\n// 4. TESTING & QA\nawait agent.goto(\"https://staging.myapp.com\");\nawait agent.act(\"log in as test user\");\nawait agent.act(\"navigate to settings\");\nconst settings = await agent.extract({ instruction: \"Get current settings\", schema: settingsSchema });\nexpect(settings.notifications).toBe(true);"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

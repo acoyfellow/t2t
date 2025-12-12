@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="One-button passkey auth—register or login, same flow. SSR with server-side agent execution."/> <meta name="keywords" content="webauthn, passkey, auth, cloudflare, authentication"/> <link rel="canonical" href="https://coey.dev/bio"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Bio: Single-button WebAuthn auth on Cloudflare"/> <meta property="og:description" content="One-button passkey auth—register or login, same flow. SSR with server-side agent execution."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/bio"/> <meta property="og:image" content="https://api.coey.dev/?title=Bio%3A%20Single-button%20WebAuthn%20auth%20on%20Cloudflare&amp;description=One-button%20passkey%20auth%E2%80%94register%20or%20login%2C%20same%20flow.%20SSR%20with%20server-side%20agent%20execution."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Bio: Single-button WebAuthn auth on Cloudflare"/> <meta name="twitter:description" content="One-button passkey auth—register or login, same flow. SSR with server-side agent execution."/> <meta name="twitter:image" content="https://api.coey.dev/?title=Bio%3A%20Single-button%20WebAuthn%20auth%20on%20Cloudflare&amp;description=One-button%20passkey%20auth%E2%80%94register%20or%20login%2C%20same%20flow.%20SSR%20with%20server-side%20agent%20execution."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-01-20"/> <meta property="article:modified_time" content="2025-01-20"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="auth,cloudflare,webauthn"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Bio: Single-button WebAuthn auth on Cloudflare",
+  "description": "One-button passkey auth—register or login, same flow. SSR with server-side agent execution.",
+  "image": "https://api.coey.dev/?title=Bio%3A%20Single-button%20WebAuthn%20auth%20on%20Cloudflare&description=One-button%20passkey%20auth%E2%80%94register%20or%20login%2C%20same%20flow.%20SSR%20with%20server-side%20agent%20execution.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-01-20",
+  "dateModified": "2025-01-20",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/bio"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Bio: Single-button WebAuthn auth on Cloudflare</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!----> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">BIO: SINGLE-BUTTON WEBAUTHN AUTH</h1> <p class="text-xl font-mono">One button. Register or login. Same flow.</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">TECHNICAL GUIDE</span> <span class="ml-4">2025.11.21</span></div></header> <p class="text-lg font-mono mb-6">Passkey auth with no separate login/register screens. One credential per
+      user. Server-side agent runs on auth, results SSR.</p> <section class="mb-12 grid grid-cols-1 md:grid-cols-2 gap-4"><a href="https://bio.coey.dev" target="_blank" rel="noopener noreferrer" class="bg-black text-white px-8 py-6 text-2xl font-black border-4 border-black hover:bg-white hover:text-black transition-colors duration-100 text-center">VIEW DEMO</a> <a href="https://github.com/acoyfellow/bio" target="_blank" rel="noopener noreferrer" class="bg-white text-black px-8 py-6 text-2xl font-black border-4 border-black hover:bg-black hover:text-white transition-colors duration-100 text-center">VIEW REPO</a></section> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE QUICK VERSION</h2> <p class="text-lg leading-relaxed mb-4">Single "Auth" button. New users register a passkey. Existing users log
+        in with the same credential. Server creates session cookie, runs agent,
+        renders SSR with auth state and agent data.</p> <p class="leading-relaxed">No double biometric prompts. No separate flows. One button, one
+        credential, one session.</p></section></div></main> <section class="mb-16 max-w-4xl mx-auto"><h2 class="text-2xl font-bold font-mono mb-6">ARCHITECTURE</h2> <div class="bg-black text-white p-4 font-mono mb-8"><pre>Client → Worker → WebAuthn
+           ↓         ↓
+        Session    Agent
+           ↓         ↓
+         SSR      Results</pre></div> <h2 class="text-2xl font-bold font-mono mb-4">INFRASTRUCTURE</h2> <p class="mb-3 font-mono">One namespace, one Worker—Alchemy wires the bindings.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// alchemy.run.ts
+import alchemy from "alchemy";
+import { Worker, DurableObjectNamespace } from "alchemy/cloudflare";
+
+const app = await alchemy("bio");
+
+const sessions = DurableObjectNamespace("session", { className: "SessionDO" });
+
+await Worker("api", {
+  entrypoint: "./src/worker.tsx",
+  bindings: { SESSIONS: sessions, DB: "D1" }
+});
+
+await app.finalize();</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">WORKER</h2> <p class="mb-3 font-mono">Hono + JSX for SSR. Single auth flow handles registration and login.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/worker.tsx (Hono + JSX)
+import { Hono } from 'hono';
+import { jsxRenderer } from 'hono/jsx-renderer';
+import { startRegistration, finishRegistration } from './webauthn';
+import { createSession, getSession } from './sessions';
+import { runAgent } from './agent';
+
+const app = new Hono();
+
+app.get('*', jsxRenderer(({ children }) => &lt;html>&lt;body>{children}&lt;/body>&lt;/html>));
+
+app.get('/', async (c) => {
+  const session = await getSession(c);
+  const agentData = session ? await runAgent(session.userId) : null;
+  
+  return c.render(
+    &lt;div>
+      {session ? (
+        &lt;div>
+          &lt;p>Logged in as: {session.username}&lt;/p>
+          &lt;pre>{JSON.stringify(agentData, null, 2)}&lt;/pre>
+          &lt;form method="post" action="/logout">
+            &lt;button>Logout&lt;/button>
+          &lt;/form>
+        &lt;/div>
+      ) : (
+        &lt;button onclick="auth()">Auth&lt;/button>
+      )}
+    &lt;/div>
+  );
+});
+
+app.post('/webauthn/register/start', async (c) => {
+  const options = await startRegistration(c);
+  return c.json(options);
+});
+
+app.post('/webauthn/register/finish', async (c) => {
+  const result = await finishRegistration(c);
+  if (result.success) {
+    await createSession(c, result.userId, result.username);
+  }
+  return c.json(result);
+});
+
+export default app;</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">WEBAUTHN</h2> <p class="mb-3 font-mono">Start registration, finish registration. Same credential used for subsequent
+    logins.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/webauthn.ts
+import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server';
+import { getChallenge, storeChallenge } from './challenges';
+import { createUser, getUserCredential } from './d1';
+
+const rpID = process.env.DOMAINS?.split(',')[0] || 'localhost';
+const origin = rpID === 'localhost' 
+  ? 'http://localhost:8787' 
+  : `https://${rpID}`;
+
+export async function startRegistration(c: Context) {
+  const challenge = crypto.randomUUID();
+  await storeChallenge(c, challenge);
+  
+  const options = await generateRegistrationOptions({
+    rpName: 'Bio Auth',
+    rpID,
+    userName: crypto.randomUUID(),
+    userDisplayName: 'User',
+    challenge,
+    userVerification: 'preferred',
+    authenticatorSelection: {
+      authenticatorAttachment: 'cross-platform',
+      userVerification: 'preferred',
+    },
+  });
+  
+  return options;
+}
+
+export async function finishRegistration(c: Context) {
+  const body = await c.req.json();
+  const challenge = await getChallenge(c, body.response.challenge);
+  
+  const verification = await verifyRegistrationResponse({
+    response: body.response,
+    expectedChallenge: challenge,
+    expectedOrigin: origin,
+    expectedRPID: rpID,
+  });
+  
+  if (verification.verified) {
+    const userId = await createUser(c, verification.registrationInfo);
+    return { success: true, userId };
+  }
+  
+  return { success: false };
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">SESSIONS</h2> <p class="mb-3 font-mono">Signed session cookies. HttpOnly, Secure, SameSite=Strict.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/sessions.ts
+import { sign, verify } from './cookies';
+
+export async function createSession(c: Context, userId: string, username: string) {
+  const sessionId = crypto.randomUUID();
+  const token = await sign({ sessionId, userId, username });
+  
+  c.header('Set-Cookie', `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
+}
+
+export async function getSession(c: Context) {
+  const cookie = c.req.header('Cookie');
+  if (!cookie) return null;
+  
+  const token = cookie.split('session=')[1]?.split(';')[0];
+  if (!token) return null;
+  
+  const payload = await verify(token);
+  return payload;
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">AGENT</h2> <p class="mb-3 font-mono">Server-side agent runs on auth. Results displayed SSR—no client fetch.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/agent.ts
+export async function runAgent(userId: string) {
+  // Server-side agent runs on auth
+  // Results displayed SSR (no client fetch)
+  return {
+    userId,
+    timestamp: new Date().toISOString(),
+    message: 'Agent executed successfully'
+  };
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">CLIENT</h2> <p class="mb-3 font-mono">One button triggers WebAuthn. Browser handles biometric prompt.</p> <div class="border-2 border-black mb-4"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// client.ts
+async function auth() {
+  const startRes = await fetch('/webauthn/register/start', { method: 'POST' });
+  const options = await startRes.json();
+  
+  const credential = await navigator.credentials.create({
+    publicKey: options
+  });
+  
+  const finishRes = await fetch('/webauthn/register/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      response: credential.response
+    })
+  });
+  
+  const result = await finishRes.json();
+  if (result.success) {
+    window.location.reload();
+  }
+}</code></pre><!--]--><!----></div> <div class="mt-12 border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Other articles</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/userdo">UserDO: Per-user Durable Objects</a></li> <li><a class="underline" href="/blaze">Blaze: Real-time documents</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern</a></li> <li><a class="underline" href="/agentic-architecture">Agentic Architecture</a></li></ul></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 7],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{alchemyTs:"// alchemy.run.ts\nimport alchemy from \"alchemy\";\nimport { Worker, DurableObjectNamespace } from \"alchemy/cloudflare\";\n\nconst app = await alchemy(\"bio\");\n\nconst sessions = DurableObjectNamespace(\"session\", { className: \"SessionDO\" });\n\nawait Worker(\"api\", {\n  entrypoint: \"./src/worker.tsx\",\n  bindings: { SESSIONS: sessions, DB: \"D1\" }\n});\n\nawait app.finalize();",workerTsx:"// src/worker.tsx (Hono + JSX)\nimport { Hono } from 'hono';\nimport { jsxRenderer } from 'hono/jsx-renderer';\nimport { startRegistration, finishRegistration } from './webauthn';\nimport { createSession, getSession } from './sessions';\nimport { runAgent } from './agent';\n\nconst app = new Hono();\n\napp.get('*', jsxRenderer(({ children }) => \u003Chtml>\u003Cbody>{children}\u003C/body>\u003C/html>));\n\napp.get('/', async (c) => {\n  const session = await getSession(c);\n  const agentData = session ? await runAgent(session.userId) : null;\n  \n  return c.render(\n    \u003Cdiv>\n      {session ? (\n        \u003Cdiv>\n          \u003Cp>Logged in as: {session.username}\u003C/p>\n          \u003Cpre>{JSON.stringify(agentData, null, 2)}\u003C/pre>\n          \u003Cform method=\"post\" action=\"/logout\">\n            \u003Cbutton>Logout\u003C/button>\n          \u003C/form>\n        \u003C/div>\n      ) : (\n        \u003Cbutton onclick=\"auth()\">Auth\u003C/button>\n      )}\n    \u003C/div>\n  );\n});\n\napp.post('/webauthn/register/start', async (c) => {\n  const options = await startRegistration(c);\n  return c.json(options);\n});\n\napp.post('/webauthn/register/finish', async (c) => {\n  const result = await finishRegistration(c);\n  if (result.success) {\n    await createSession(c, result.userId, result.username);\n  }\n  return c.json(result);\n});\n\nexport default app;",webauthnTs:"// src/webauthn.ts\nimport { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server';\nimport { getChallenge, storeChallenge } from './challenges';\nimport { createUser, getUserCredential } from './d1';\n\nconst rpID = process.env.DOMAINS?.split(',')[0] || 'localhost';\nconst origin = rpID === 'localhost' \n  ? 'http://localhost:8787' \n  : `https://${rpID}`;\n\nexport async function startRegistration(c: Context) {\n  const challenge = crypto.randomUUID();\n  await storeChallenge(c, challenge);\n  \n  const options = await generateRegistrationOptions({\n    rpName: 'Bio Auth',\n    rpID,\n    userName: crypto.randomUUID(),\n    userDisplayName: 'User',\n    challenge,\n    userVerification: 'preferred',\n    authenticatorSelection: {\n      authenticatorAttachment: 'cross-platform',\n      userVerification: 'preferred',\n    },\n  });\n  \n  return options;\n}\n\nexport async function finishRegistration(c: Context) {\n  const body = await c.req.json();\n  const challenge = await getChallenge(c, body.response.challenge);\n  \n  const verification = await verifyRegistrationResponse({\n    response: body.response,\n    expectedChallenge: challenge,\n    expectedOrigin: origin,\n    expectedRPID: rpID,\n  });\n  \n  if (verification.verified) {\n    const userId = await createUser(c, verification.registrationInfo);\n    return { success: true, userId };\n  }\n  \n  return { success: false };\n}",sessionsTs:"// src/sessions.ts\nimport { sign, verify } from './cookies';\n\nexport async function createSession(c: Context, userId: string, username: string) {\n  const sessionId = crypto.randomUUID();\n  const token = await sign({ sessionId, userId, username });\n  \n  c.header('Set-Cookie', `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);\n}\n\nexport async function getSession(c: Context) {\n  const cookie = c.req.header('Cookie');\n  if (!cookie) return null;\n  \n  const token = cookie.split('session=')[1]?.split(';')[0];\n  if (!token) return null;\n  \n  const payload = await verify(token);\n  return payload;\n}",agentTs:"// src/agent.ts\nexport async function runAgent(userId: string) {\n  // Server-side agent runs on auth\n  // Results displayed SSR (no client fetch)\n  return {\n    userId,\n    timestamp: new Date().toISOString(),\n    message: 'Agent executed successfully'\n  };\n}",clientTs:"// client.ts\nasync function auth() {\n  const startRes = await fetch('/webauthn/register/start', { method: 'POST' });\n  const options = await startRes.json();\n  \n  const credential = await navigator.credentials.create({\n    publicKey: options\n  });\n  \n  const finishRes = await fetch('/webauthn/register/finish', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      response: credential.response\n    })\n  });\n  \n  const result = await finishRes.json();\n  if (result.success) {\n    window.location.reload();\n  }\n}"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

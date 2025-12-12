@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Database-less analytics: broadcast now, query later."/> <meta name="keywords" content="real-time logging, analytics, cloudflare, analytics engine"/> <link rel="canonical" href="https://coey.dev/real-time-logging"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Real-Time Logging on Cloudflare"/> <meta property="og:description" content="Database-less analytics: broadcast now, query later."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/real-time-logging"/> <meta property="og:image" content="https://api.coey.dev/?title=Real-Time%20Logging%20on%20Cloudflare&amp;description=Database-less%20analytics%3A%20broadcast%20now%2C%20query%20later."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Real-Time Logging on Cloudflare"/> <meta name="twitter:description" content="Database-less analytics: broadcast now, query later."/> <meta name="twitter:image" content="https://api.coey.dev/?title=Real-Time%20Logging%20on%20Cloudflare&amp;description=Database-less%20analytics%3A%20broadcast%20now%2C%20query%20later."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-09-15"/> <meta property="article:modified_time" content="2025-09-15"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,analytics,logging"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Real-Time Logging on Cloudflare",
+  "description": "Database-less analytics: broadcast now, query later.",
+  "image": "https://api.coey.dev/?title=Real-Time%20Logging%20on%20Cloudflare&description=Database-less%20analytics%3A%20broadcast%20now%2C%20query%20later.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-09-15",
+  "dateModified": "2025-09-15",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/real-time-logging"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Real-Time Logging on Cloudflare</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">REAL-TIME LOGGING POC</h1> <p class="text-xl font-mono">Dual Database: Durable Objects + Analytics Engine</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">LRU CACHE + EFFECT</span> <span class="ml-4">2025.09.15</span></div></header> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">DUAL DATABASE POC</h2> <p class="text-lg leading-relaxed mb-4"><strong>Problem:</strong> Analytics Engine has 30-60s write delay. Need instant
+        feedback + reliable history.</p> <p class="leading-relaxed mb-4"><strong>Solution:</strong> Dual database approach - Durable Object for immediate
+        storage (no schema), Analytics Engine for long-term queryable data. LRU cache
+        prevents explosion.</p> <div class="bg-black text-white p-4 font-mono"><pre>User Action → LRU Cache (instant)
+              ↓
+           Durable Object (immediate, no schema)
+              ↓
+           WebSocket (broadcast)
+              ↓
+        Analytics Engine (long-term, queryable)</pre></div></section></div></main> <section class="p-8"><div class="max-w-4xl mx-auto space-y-10"><div><h2 class="text-2xl font-bold font-mono mb-4">HOW IT WORKS</h2> <ol class="list-decimal ml-6 space-y-2"><li><strong>Page Load:</strong> Fetch events from server (seamless DO + AE
+          stitching)</li> <li><strong>User Action:</strong> Write to LRU cache immediately (optimistic
+          update)</li> <li><strong>Server:</strong> Store in Durable Object (immediate) + Analytics
+          Engine (buffered)</li> <li><strong>Broadcast:</strong> Stream live to connected clients via WebSocket</li> <li><strong>Purge:</strong> Effect periodically cleans LRU cache, data flows
+          to AE</li> <li><strong>Seamless:</strong> Client gets unified view of recent (DO) + historical
+          (AE) data</li></ol></div> <div><h2 class="text-2xl font-bold font-mono mb-4">BENEFITS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>No schema complexity</strong>: Durable Object stores raw JSON,
+          no migrations</li> <li><strong>Self-cleaning</strong>: LRU cache prevents memory explosion</li> <li><strong>Dual persistence</strong>: Immediate (DO) + long-term (AE)
+          storage</li> <li><strong>Seamless stitching</strong>: Client gets unified view of
+          recent + historical data</li> <li><strong>Effect-driven purging</strong>: Automated cleanup with proper
+          error handling</li> <li><strong>Real-time broadcasting</strong>: Live updates to all connected
+          clients</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">INFRASTRUCTURE</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">alchemy.run.ts</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// alchemy.run.ts - Dual Database Setup
+import alchemy from "alchemy";
+import { Worker, DurableObjectNamespace, AnalyticsEngineDataset } from "alchemy/cloudflare";
+
+const app = await alchemy("real-time-logging");
+
+// Analytics Engine for long-term event storage
+const analytics = await AnalyticsEngineDataset("events", {
+  title: "Event Analytics"
+});
+
+// Durable Object for simple JSON logging (no schema)
+const loggerNamespace = DurableObjectNamespace("logger", {
+  className: "Logger"
+});
+
+// Durable Object for WebSocket coordination
+const roomNamespace = DurableObjectNamespace("room", {
+  className: "Room"
+});
+
+// Main worker with dual database bindings
+const worker = await Worker("api", {
+  entrypoint: "./src/worker.ts",
+  bindings: {
+    ANALYTICS: analytics,      // Long-term storage
+    LOGGER: loggerNamespace,   // Fast, immediate storage
+    ROOM: roomNamespace        // Real-time broadcasting
+  }
+});
+
+console.log({ url: worker.url });
+await app.finalize();</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">WORKER WITH RECENT EVENTS ENDPOINT</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Enhanced Worker</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/worker.ts - Hono-based Dual Database Worker
+import { Hono } from 'hono';
+import type { worker } from "../alchemy.run";
+
+const app = new Hono&lt;{ Bindings: typeof worker.Env }>();
+
+// POST /api/events - Create new event
+app.post('/api/events', async (c) => {
+  const { type, orgId, payload } = await c.req.json();
+  
+  if (!type || !orgId) {
+    return c.json({ error: 'type and orgId required' }, 400);
+  }
+
+  const timestamp = Date.now();
+  const eventId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // 1) Store in Durable Object (immediate, no schema)
+  const doId = c.env.LOGGER.idFromName(`org:${orgId}`);
+  const loggerStub = c.env.LOGGER.get(doId);
+  await loggerStub.fetch('https://do/log', {
+    method: 'POST',
+    body: JSON.stringify({ 
+      id: eventId, 
+      type, 
+      orgId, 
+      payload, 
+      timestamp 
+    })
+  });
+
+  // 2) Write to Analytics Engine (buffered, for long-term storage)
+  await c.env.ANALYTICS.writeDataPoint({
+    indexes: [String(orgId), String(type)],
+    blobs: [JSON.stringify(payload ?? {})],
+    doubles: [timestamp]
+  });
+
+  // 3) Broadcast to connected clients
+  const roomId = c.env.ROOM.idFromName(`org:${orgId}`);
+  const roomStub = c.env.ROOM.get(roomId);
+  await roomStub.fetch('https://do/publish', {
+    method: 'POST',
+    body: JSON.stringify({ 
+      id: eventId,
+      type, 
+      orgId, 
+      payload, 
+      timestamp 
+    })
+  });
+
+  return c.json({ id: eventId, timestamp });
+});
+
+// GET /api/events - Get events (seamless DO + AE stitching)
+app.get('/api/events', async (c) => {
+  const orgId = c.req.query('orgId');
+  const limit = parseInt(c.req.query('limit') || '100');
+
+  if (!orgId) {
+    return c.json({ error: 'orgId required' }, 400);
+  }
+
+  // Get recent events from Durable Object (fast, immediate)
+  const doId = c.env.LOGGER.idFromName(`org:${orgId}`);
+  const loggerStub = c.env.LOGGER.get(doId);
+  const doResponse = await loggerStub.fetch(`https://do/events?limit=${limit}`);
+  const doEvents = await doResponse.json();
+
+  // Get older events from Analytics Engine (slower, but comprehensive)
+  const aeResponse = await loggerStub.fetch(`https://do/events/analytics?limit=${limit}&amp;orgId=${orgId}`);
+  const aeEvents = await aeResponse.json();
+
+  // Stitch together: DO events (recent) + AE events (older, not in DO)
+  const doEventIds = new Set(doEvents.map((e: any) => e.id));
+  const uniqueAEEvents = aeEvents.filter((e: any) => !doEventIds.has(e.id));
+  
+  const allEvents = [...doEvents, ...uniqueAEEvents]
+    .sort((a: any, b: any) => b.timestamp - a.timestamp)
+    .slice(0, limit);
+
+  return c.json({ events: allEvents });
+});
+
+// WebSocket connection
+app.get('/ws/:orgId', async (c) => {
+  const orgId = c.req.param('orgId');
+  const id = c.env.ROOM.idFromName(`org:${orgId}`);
+  const stub = c.env.ROOM.get(id);
+  return await stub.fetch('https://do/connect');
+});
+
+export default app;</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">DURABLE OBJECT ROOM</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">WebSocket Coordination</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/room.ts - Hono-based WebSocket Broadcasting
+import { Hono } from 'hono';
+import { DurableObject } from "cloudflare:workers";
+
+export class Room extends DurableObject {
+  private sockets: Set&lt;WebSocket> = new Set();
+
+  async fetch(req: Request) {
+    const app = new Hono();
+
+    // WebSocket connection endpoint
+    app.get('/connect', (c) => {
+      const pair = new WebSocketPair();
+      const server = pair[1];
+      server.accept();
+
+      server.addEventListener('close', () =>
+        this.sockets.delete(server));
+      server.addEventListener('error', () =>
+        this.sockets.delete(server));
+
+      this.sockets.add(server);
+      return new Response(null, {
+        status: 101,
+        webSocket: pair[0]
+      });
+    });
+
+    // Publish event to all connected clients
+    app.post('/publish', async (c) => {
+      const event = await c.req.json();
+      const msg = JSON.stringify(event);
+
+      // Broadcast to all connected clients
+      for (const ws of this.sockets) {
+        try { 
+          ws.send(msg); 
+        } catch (e) {
+          // Remove dead connections
+          this.sockets.delete(ws);
+        }
+      }
+
+      return c.text('ok');
+    });
+
+    // Get connection stats
+    app.get('/stats', (c) => {
+      return c.json({
+        connectedClients: this.sockets.size
+      });
+    });
+
+    return app.fetch(req);
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">TYPESCRIPT LRU CACHE WITH EFFECT</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">TypeScript LRU Cache</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// lru-cache.ts - TypeScript LRU Cache with Effect
+import { Effect, pipe } from "effect";
+
+export interface Event {
+  id: string;
+  type: string;
+  orgId: string;
+  payload: any;
+  timestamp: number;
+  source?: 'local' | 'confirmed' | 'failed' | 'realtime' | 'server';
+}
+
+export class LRUCache {
+  private cache = new Map&lt;string, Event>();
+  private maxSize: number;
+
+  constructor(maxSize = 1000) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: string): Event | null {
+    if (this.cache.has(key)) {
+      // Move to end (most recently used)
+      const value = this.cache.get(key)!;
+      this.cache.delete(key);
+      this.cache.set(key, value);
+      return value;
+    }
+    return null;
+  }
+
+  set(key: string, value: Event): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      // Remove least recently used (first item)
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
+    }
+    this.cache.set(key, value);
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+
+  delete(key: string): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  // Get all values as array
+  values(): Event[] {
+    return Array.from(this.cache.values());
+  }
+
+  // Purge old entries based on timestamp (write-based only)
+  purge(olderThan: number): number {
+    const toDelete: string[] = [];
+    for (const [key, value] of this.cache) {
+      if (value.timestamp &lt; olderThan) {
+        toDelete.push(key);
+      }
+    }
+    toDelete.forEach(key => this.cache.delete(key));
+    return toDelete.length;
+  }
+
+  // Effect-based purging with error handling
+  purgeWithEffect(olderThan: number): Effect.Effect&lt;number, Error> {
+    return pipe(
+      Effect.sync(() => this.purge(olderThan)),
+      Effect.mapError(error => new Error(`Purge failed: ${error}`))
+    );
+  }
+
+  // Get cache statistics
+  getStats(): { size: number; maxSize: number; utilization: number } {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxSize,
+      utilization: (this.cache.size / this.maxSize) * 100
+    };
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">CLIENT: SVELTE 5 + TYPESCRIPT</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">EventLogger Class</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// client-svelte.ts - Svelte 5 with LRU Cache + Fetch API
+import { LRUCache, type Event } from './lru-cache';
+
+export class EventLogger {
+  private cache: LRUCache;
+  private ws: WebSocket | null = null;
+  private orgId: string;
+  private lastSync = 0;
+
+  constructor(orgId: string) {
+    this.orgId = orgId;
+    this.cache = new LRUCache(1000); // Max 1000 events
+    this.loadInitialData();
+    this.connectWebSocket();
+  }
+
+  // Load initial data from server
+  private async loadInitialData(): Promise&lt;void> {
+    try {
+      const resp = await fetch(`/api/events?orgId=${this.orgId}`);
+      const { events } = await resp.json();
+
+      // Populate cache with server events
+      events.forEach((event: Event) => {
+        this.cache.set(event.id, { ...event, source: 'server' });
+      });
+
+      this.lastSync = Date.now();
+    } catch (err) {
+      console.error('Failed to load initial data:', err);
+    }
+  }
+
+  // Connect WebSocket for real-time events
+  private connectWebSocket(): void {
+    const wsUrl = `${location.origin.replace(/^http/, 'ws')}/ws/${this.orgId}`;
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onmessage = (e) => {
+      const event: Event = JSON.parse(e.data);
+      event.source = 'realtime';
+
+      // Add to cache
+      this.cache.set(event.id, event);
+    };
+
+    this.ws.onclose = () => {
+      setTimeout(() => this.connectWebSocket(), 1000);
+    };
+  }
+
+  // Log a new event
+  async logEvent(type: string, payload: any): Promise&lt;void> {
+    const eventId = `${Date.now()}-${Math.random()}`;
+    const event: Event = {
+      id: eventId,
+      type,
+      orgId: this.orgId,
+      payload,
+      timestamp: Date.now(),
+      source: 'local'
+    };
+
+    // Optimistic update - add to cache immediately
+    this.cache.set(eventId, event);
+
+    // Send to server
+    try {
+      const resp = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, orgId: this.orgId, payload })
+      });
+
+      const { id, timestamp } = await resp.json();
+
+      // Update cache with server response
+      const cachedEvent = this.cache.get(eventId);
+      if (cachedEvent) {
+        cachedEvent.id = id;
+        cachedEvent.timestamp = timestamp;
+        cachedEvent.source = 'confirmed';
+        this.cache.set(id, cachedEvent);
+        this.cache.delete(eventId); // Remove old key
+      }
+    } catch (err) {
+      // Mark as failed
+      const cachedEvent = this.cache.get(eventId);
+      if (cachedEvent) {
+        cachedEvent.source = 'failed';
+      }
+    }
+  }
+
+  // Get events for dashboard
+  getEvents(filter: { type?: string; since?: number } = {}): Event[] {
+    return this.cache.values().filter(event => {
+      if (filter.type &amp;&amp; event.type !== filter.type) return false;
+      if (filter.since &amp;&amp; event.timestamp &lt; filter.since) return false;
+      return true;
+    });
+  }
+
+  // Get cache stats
+  getStats() {
+    return {
+      ...this.cache.getStats(),
+      lastSync: this.lastSync
+    };
+  }
+
+  // Get all events sorted by timestamp
+  getAllEvents(): Event[] {
+    return this.cache.values()
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">SVELTE 5 COMPONENT</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">EventLogger Component</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>&lt;!-- EventLogger.svelte - Svelte 5 Component -->
+&lt;script lang="ts">
+  import { EventLogger } from './client-svelte';
+  import type { Event } from './lru-cache';
+
+  interface Props {
+    orgId: string;
+  }
+
+  let { orgId }: Props = $props();
+  
+  let logger: EventLogger;
+  let events: Event[] = $state([]);
+  let connected = $state(false);
+  let cacheStats = $state({ size: 0, maxSize: 1000, utilization: 0 });
+
+  // Initialize logger
+  $effect(() => {
+    logger = new EventLogger(orgId);
+    
+    // Update events when cache changes
+    const updateEvents = () => {
+      events = logger.getAllEvents();
+      cacheStats = logger.getStats();
+    };
+
+    // Poll for updates (in real app, use reactive patterns)
+    const interval = setInterval(updateEvents, 1000);
+    
+    return () => clearInterval(interval);
+  });
+
+  // WebSocket connection status
+  $effect(() => {
+    if (logger) {
+      // Monitor WebSocket connection
+      const checkConnection = () => {
+        connected = logger['ws']?.readyState === WebSocket.OPEN;
+      };
+      
+      const interval = setInterval(checkConnection, 1000);
+      return () => clearInterval(interval);
+    }
+  });
+
+  async function logEvent(type: string, payload: any) {
+    await logger.logEvent(type, payload);
+  }
+
+  function getEventsByType(type: string) {
+    return logger.getEvents({ type });
+  }
+&lt;/script>
+
+&lt;div class="event-logger">
+  &lt;div class="status-bar">
+    &lt;span class="status {connected ? 'connected' : 'disconnected'}">
+      {connected ? '🟢 Live' : '🔴 Offline'}
+    &lt;/span>
+    &lt;span class="cache-info">
+      Cache: {cacheStats.size}/{cacheStats.maxSize} ({cacheStats.utilization.toFixed(1)}%)
+    &lt;/span>
+  &lt;/div>
+
+  &lt;div class="controls">
+    &lt;button onclick={() => logEvent('test.click', { time: Date.now() })}>
+      Test Event
+    &lt;/button>
+    &lt;button onclick={() => logEvent('user.action', { action: 'button_click' })}>
+      User Action
+    &lt;/button>
+  &lt;/div>
+
+  &lt;div class="events">
+    {#each events.slice(0, 50) as event (event.id)}
+      &lt;div class="event event-{event.source}">
+        &lt;span class="type">{event.type}&lt;/span>
+        &lt;span class="time">{new Date(event.timestamp).toLocaleTimeString()}&lt;/span>
+        &lt;span class="source">{event.source}&lt;/span>
+        &lt;div class="payload">{JSON.stringify(event.payload, null, 2)}&lt;/div>
+      &lt;/div>
+    {/each}
+  &lt;/div>
+&lt;/div>
+</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">QUERYING HISTORICAL DATA</h2> <div class="grid grid-cols-1 gap-6"><div class="border-2 border-black"><h4 class="px-4 py-2 border-b-2 border-black font-bold font-mono">SQL Queries</h4> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>-- Recent events for organization
+SELECT
+  to_timestamp(doubles[1]/1000) AS timestamp,
+  indexes[1] AS org_id,
+  indexes[2] AS event_type,
+  blobs[1] AS payload
+FROM events
+WHERE indexes[1] = 'acme'
+  AND timestamp >= now() - interval '24 hours'
+ORDER BY timestamp DESC
+LIMIT 1000;
+
+-- Event type distribution
+SELECT
+  indexes[2] AS event_type,
+  count(*) AS frequency
+FROM events
+WHERE indexes[1] = 'acme'
+  AND timestamp >= now() - interval '7 days'
+GROUP BY indexes[2]
+ORDER BY frequency DESC;</code></pre><!--]--><!----></div> <div class="border-2 border-black"><h4 class="px-4 py-2 border-b-2 border-black font-bold font-mono">cURL Example</h4> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code># Query via Cloudflare API
+curl -X POST \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/analytics_engine/sql" \
+  -d '{
+    "sql": "SELECT count(*) FROM events WHERE indexes[1]='acme' AND now()-to_timestamp(doubles[1]/1000) &lt; interval '1 day';"
+  }'</code></pre><!--]--><!----></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">EVENT FLOW STATES</h2> <ul class="list-disc ml-6 space-y-2"><li><strong class="text-yellow-600">Local:</strong> Just written to localStorage,
+          pending server confirmation</li> <li><strong class="text-blue-600">Confirmed:</strong> Server acknowledged,
+          will appear in Analytics Engine soon</li> <li><strong class="text-red-600">Failed:</strong> Server rejected, needs retry
+          or user attention</li> <li><strong class="text-green-600">Realtime:</strong> Received via WebSocket
+          from another client</li> <li><strong class="text-gray-600">Server:</strong> Historical data fetched
+          from Analytics Engine</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">OPERATIONAL CONSIDERATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>LRU limits:</strong> Cache automatically evicts old entries, no
+          manual cleanup needed</li> <li><strong>Write-based purging:</strong> Automatic cleanup when writing new
+          events</li> <li><strong>Dual storage:</strong> Recent data in DO, historical in AE - seamless
+          stitching</li> <li><strong>No schema:</strong> Durable Object stores raw JSON, no migrations
+          or schema changes</li> <li><strong>WebSocket resilience:</strong> Auto-reconnects, broadcasts to all
+          connected clients</li> <li><strong>Error handling:</strong> Effect provides proper error handling
+          for purge operations</li> <li><strong>Performance:</strong> LRU cache prevents memory explosion, DO provides
+          fast access</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">USE CASES</h2> <ul class="list-disc ml-6 space-y-1"><li>Product analytics dashboards with instant feedback</li> <li>Live chat with message history</li> <li>Collaborative editing with activity streams</li> <li>E-commerce tracking with immediate confirmation</li> <li>Gaming leaderboards with real-time updates</li> <li>DevOps monitoring with live + historical views</li></ul></div> <div class="border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Related patterns</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/userdo">UserDO: Per-user Durable Objects</a></li> <li><a class="underline" href="/blaze">Blaze: Real-time documents</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern</a></li></ul></div></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 16],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},null],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

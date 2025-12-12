@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Own user data at the edge—typed, real-time, zero cluster ops."/> <meta name="keywords" content="userdo, durable objects, cloudflare, edge computing, user data"/> <link rel="canonical" href="https://coey.dev/userdo"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="UserDO: Per-user Durable Objects as data pods"/> <meta property="og:description" content="Own user data at the edge—typed, real-time, zero cluster ops."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/userdo"/> <meta property="og:image" content="https://api.coey.dev/?title=UserDO%3A%20Per-user%20Durable%20Objects%20as%20data%20pods&amp;description=Own%20user%20data%20at%20the%20edge%E2%80%94typed%2C%20real-time%2C%20zero%20cluster%20ops."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="UserDO: Per-user Durable Objects as data pods"/> <meta name="twitter:description" content="Own user data at the edge—typed, real-time, zero cluster ops."/> <meta name="twitter:image" content="https://api.coey.dev/?title=UserDO%3A%20Per-user%20Durable%20Objects%20as%20data%20pods&amp;description=Own%20user%20data%20at%20the%20edge%E2%80%94typed%2C%20real-time%2C%20zero%20cluster%20ops."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-09-15"/> <meta property="article:modified_time" content="2025-09-15"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,durable-objects,edge"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "UserDO: Per-user Durable Objects as data pods",
+  "description": "Own user data at the edge—typed, real-time, zero cluster ops.",
+  "image": "https://api.coey.dev/?title=UserDO%3A%20Per-user%20Durable%20Objects%20as%20data%20pods&description=Own%20user%20data%20at%20the%20edge%E2%80%94typed%2C%20real-time%2C%20zero%20cluster%20ops.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-09-15",
+  "dateModified": "2025-09-15",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/userdo"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>UserDO: Per-user Durable Objects as data pods</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">USERDO: PER-USER DURABLE OBJECTS</h1> <p class="text-xl font-mono">User data pods with live updates and boring ops.</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">TECHNICAL GUIDE</span> <span class="ml-4">2025.09.15</span></div></header> <p class="text-lg font-mono mb-6">Each user gets a Durable Object—ordered state, simple auth, instant SSE.</p> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE QUICK VERSION</h2> <p class="text-lg leading-relaxed mb-4">Give every user their own Durable Object. Read/write their profile and
+        stream updates over SSE. It’s simple, ordered, and fast.</p> <p class="leading-relaxed">Great for settings, presence, inboxes, and profile-driven UIs.</p></section></div></main> <section class="mb-16 max-w-4xl mx-auto"><h2 class="text-2xl font-bold font-mono mb-6">ARCHITECTURE</h2> <div class="bg-black text-white p-4 font-mono mb-8"><pre>Client ↔ Worker → UserDO(name = user.sub)
+           ↓             ↓
+         JWT auth       SSE updates</pre></div> <h2 class="text-2xl font-bold font-mono mb-4">INFRASTRUCTURE</h2> <p class="mb-3 font-mono">Install the package.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code># Install
+bun install userdo</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">YOUR DURABLE OBJECT</h2> <p class="mb-3 font-mono">Extend `UserDO` to add your tables and methods.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// 1) Extend UserDO (your data + logic)
+import { UserDO, type Env } from "userdo/server";
+import { z } from "zod";
+
+const PostSchema = z.object({ title: z.string(), content: z.string() });
+
+export class BlogDO extends UserDO {
+  posts: any;
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+    this.posts = this.table('posts', PostSchema, { userScoped: true });
+  }
+  async createPost(title: string, content: string) {
+    return await this.posts.create({ title, content });
+  }
+  async getPosts() {
+    return await this.posts.orderBy('createdAt', 'desc').get();
+  }
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">WORKER</h2> <p class="mb-3 font-mono">Auth endpoints come built-in. Add your own routes.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// 2) Create Worker (auth built-in; add your endpoints)
+import { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo/server';
+import type { BlogDO } from './blog-do';
+
+const app = createUserDOWorker('BLOG_DO');
+const wsHandler = createWebSocketHandler('BLOG_DO');
+
+app.post('/api/posts', async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const { title, content } = await c.req.json();
+  const blog = getUserDOFromContext(c, user.email, 'BLOG_DO') as unknown as BlogDO;
+  const post = await blog.createPost(title, content);
+  return c.json({ post });
+});
+
+export default {
+  async fetch(request: Request, env: any, ctx: any) {
+    if (request.headers.get('upgrade') === 'websocket') return wsHandler.fetch(request, env, ctx);
+    return app.fetch(request, env, ctx);
+  }
+};</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">CLIENT</h2> <p class="mb-3 font-mono">Use the browser client. It handles auth and real-time.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// 4) Browser client
+import { UserDOClient } from 'userdo/client';
+
+const client = new UserDOClient('/api');
+await client.signup('user@example.com', 'password');
+await client.login('user@example.com', 'password');
+client.onChange('table:posts', (evt) => console.log('post changed', evt));</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">WRANGLER CONFIG</h2> <p class="mb-3 font-mono">Enable SQLite for your DO via migration.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>{
+  "main": "src/index.ts",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "JWT_SECRET": "your-jwt-secret-here" },
+  "durable_objects": {
+    "bindings": [ { "name": "BLOG_DO", "class_name": "BlogDO" } ]
+  },
+  "migrations": [ { "tag": "v1", "new_sqlite_classes": ["BlogDO"] } ]
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">BUILT-IN ENDPOINTS</h2> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>Built-in endpoints:
+- POST /api/signup
+- POST /api/login
+- POST /api/logout
+- GET  /api/me
+- GET  /api/ws (WebSocket)
+- GET  /data
+- POST /data
+- Organizations: /api/organizations...</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">ORGANIZATIONS</h2> <p class="mb-3 font-mono">Org-scoped tables and membership management.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Organization-scoped example
+import { UserDO, type Env } from 'userdo/server';
+import { z } from 'zod';
+
+const Project = z.object({ name: z.string() });
+const Task = z.object({ title: z.string() });
+
+export class TeamDO extends UserDO {
+  projects: any; tasks: any;
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env);
+    this.projects = this.table('projects', Project, { organizationScoped: true });
+    this.tasks = this.table('tasks', Task, { organizationScoped: true });
+  }
+}</code></pre><!--]--><!----></div> <div class="mt-12 border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Other articles</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/real-time-logging">Real-Time Logging</a></li> <li><a class="underline" href="/blaze">Blaze: Real-time documents</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern</a></li> <li><a class="underline" href="/promptlog">Promptlog: Dynamic Worker Loader</a></li></ul></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 20],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{alchemyTs:"# Install\nbun install userdo",doTs:"// 1) Extend UserDO (your data + logic)\nimport { UserDO, type Env } from \"userdo/server\";\nimport { z } from \"zod\";\n\nconst PostSchema = z.object({ title: z.string(), content: z.string() });\n\nexport class BlogDO extends UserDO {\n  posts: any;\n  constructor(state: DurableObjectState, env: Env) {\n    super(state, env);\n    this.posts = this.table('posts', PostSchema, { userScoped: true });\n  }\n  async createPost(title: string, content: string) {\n    return await this.posts.create({ title, content });\n  }\n  async getPosts() {\n    return await this.posts.orderBy('createdAt', 'desc').get();\n  }\n}",workerTs:"// 2) Create Worker (auth built-in; add your endpoints)\nimport { createUserDOWorker, createWebSocketHandler, getUserDOFromContext } from 'userdo/server';\nimport type { BlogDO } from './blog-do';\n\nconst app = createUserDOWorker('BLOG_DO');\nconst wsHandler = createWebSocketHandler('BLOG_DO');\n\napp.post('/api/posts', async (c) => {\n  const user = c.get('user');\n  if (!user) return c.json({ error: 'Unauthorized' }, 401);\n  const { title, content } = await c.req.json();\n  const blog = getUserDOFromContext(c, user.email, 'BLOG_DO') as unknown as BlogDO;\n  const post = await blog.createPost(title, content);\n  return c.json({ post });\n});\n\nexport default {\n  async fetch(request: Request, env: any, ctx: any) {\n    if (request.headers.get('upgrade') === 'websocket') return wsHandler.fetch(request, env, ctx);\n    return app.fetch(request, env, ctx);\n  }\n};",clientTs:"// 4) Browser client\nimport { UserDOClient } from 'userdo/client';\n\nconst client = new UserDOClient('/api');\nawait client.signup('user@example.com', 'password');\nawait client.login('user@example.com', 'password');\nclient.onChange('table:posts', (evt) => console.log('post changed', evt));",d1Ts:"{\n  \"main\": \"src/index.ts\",\n  \"compatibility_flags\": [\"nodejs_compat\"],\n  \"vars\": { \"JWT_SECRET\": \"your-jwt-secret-here\" },\n  \"durable_objects\": {\n    \"bindings\": [ { \"name\": \"BLOG_DO\", \"class_name\": \"BlogDO\" } ]\n  },\n  \"migrations\": [ { \"tag\": \"v1\", \"new_sqlite_classes\": [\"BlogDO\"] } ]\n}",endpointsTxt:"Built-in endpoints:\n- POST /api/signup\n- POST /api/login\n- POST /api/logout\n- GET  /api/me\n- GET  /api/ws (WebSocket)\n- GET  /data\n- POST /data\n- Organizations: /api/organizations...",orgTs:"// Organization-scoped example\nimport { UserDO, type Env } from 'userdo/server';\nimport { z } from 'zod';\n\nconst Project = z.object({ name: z.string() });\nconst Task = z.object({ title: z.string() });\n\nexport class TeamDO extends UserDO {\n  projects: any; tasks: any;\n  constructor(state: DurableObjectState, env: Env) {\n    super(state, env);\n    this.projects = this.table('projects', Project, { organizationScoped: true });\n    this.tasks = this.table('tasks', Task, { organizationScoped: true });\n  }\n}"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

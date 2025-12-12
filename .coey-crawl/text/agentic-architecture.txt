@@ -1,0 +1,273 @@
+🤖">
+
+ Agentic Architecture: Pragmatic patterns
+
+ coey.dev POSTS ABOUT
+ 
+ AGENTIC AI ARCHITECTURES
+ Technical Reference for Cloudflare Workers & Durable Objects
+ ARCHITECTURE PATTERNS 2025.09.15
+ OVERVIEW
+ Four production-tested agentic AI architectures implemented with
+ Cloudflare Workers and Durable Objects. Each pattern provides concrete
+ implementation strategies for edge-distributed AI systems.
+ Two-tier hierarchies outperform complex multi-level systems. Stateless
+ subagents enable horizontal scaling. MapReduce patterns excel at
+ parallel processing. Consensus mechanisms improve decision quality at
+ the cost of latency.
+
+ ARCHITECTURE PATTERNS
+ TWO-TIER MODELSEQUENTIAL PIPELINEMAPREDUCE PATTERNCONSENSUS PATTERN
+ SYSTEM DIAGRAM
+
+ PRIMARY
+
+ SUBAGENT A
+
+ SUBAGENT B
+
+ SUBAGENT C
+
+ ORCHESTRATION LAYER
+
+ EXECUTION LAYER
+
+ TWO-TIER MODEL
+ Primary agent orchestrates stateless subagents
+ USE CASE: General-purpose agent systems with clear task delegation
+
+ ADVANTAGES: + Simple to implement
++ Easy to debug
++ Predictable behavior
+
+ DISADVANTAGES: - Limited complexity handling
+- Single point of failure
+
+ CLOUDFLARE IMPLEMENTATION: Primary agent runs in Worker, subagents as separate Worker invocations
+
+ CORE PRINCIPLES
+ STATELESS BY DEFAULT
+ Subagents are pure functions. Same input produces same output. No
+ memory, context, or state between calls.
+
+ CLEAR BOUNDARIES
+ Explicit task definitions and structured responses. Clear
+ boundaries between agents with no ambiguity.
+
+ FAIL FAST
+ Quick failure detection with graceful degradation. Always return
+ useful results, even when operations fail.
+
+ OBSERVABLE EXECUTION
+ Track all operations. Monitor success rates and performance
+ metrics. Debug with data-driven insights.
+
+ TWO-TIER MODEL
+ PRIMARY AGENTS
+ Handle conversations and maintain context
+ Break down complex tasks into simple ones
+ Orchestrate subagent communication
+ Act as orchestrators that coordinate subagent execution
+
+ SUBAGENTS
+ Execute single, well-defined tasks
+ Get task → Complete task → Return results
+ No memory or context between calls, pure function execution
+ Can run in parallel without conflicts
+
+ User → Primary Agent (maintains context)
+ ├─→ Research Agent (finds relevant feedback)
+ ├─→ Analysis Agent (processes sentiment) 
+ └─→ Summary Agent (creates reports)
+
+ ORCHESTRATION PATTERNS
+ SEQUENTIAL PIPELINE
+ Each output feeds the next input. Suitable for multi-step
+ processes.
+ Agent A → Agent B → Agent C → Result
+ Use for: Report generation, data processing chains, multi-step
+ analysis
+
+ MAPREDUCE PATTERN
+ Split work across multiple agents, combine results. Suitable for
+ large-scale analysis.
+ ┌→ Agent 1 ─┐
+Input ─┼→ Agent 2 ─┼→ Reducer → Result
+ └→ Agent 3 ─┘
+ Use for: Processing 1000+ feedback items, bulk data analysis,
+ parallel computation
+
+ CONSENSUS PATTERN
+ Multiple agents solve the same problem, compare answers. Suitable
+ for critical decisions.
+ ┌→ Agent 1 ─┐
+Task ─┼→ Agent 2 ─┼→ Voting/Merge → Result
+ └→ Agent 3 ─┘
+ Use for: Sentiment analysis, quality checks, critical business
+ decisions
+
+ COMMUNICATION PROTOCOLS
+ PRIMARY → SUBAGENT
+ {
+ "task": "Analyze sentiment in 50 items",
+ "context": "Focus on mobile app feedback", 
+ "data": [...],
+ "constraints": {
+ "max_processing_time": 5000,
+ "output_format": "structured_json"
+ }
+}
+ SUBAGENT → PRIMARY
+ {
+ "status": "complete",
+ "result": {
+ "positive": 32,
+ "negative": 8, 
+ "neutral": 10,
+ "top_themes": ["navigation", "performance"]
+ },
+ "confidence": 0.92,
+ "processing_time": 3200
+}
+
+ CRITICAL RULES
+ No conversation or context sharing between calls
+ Task in, result out. Pure function behavior
+ Always include status, confidence, and metadata
+ Structured data only. No natural language responses
+
+ PERFORMANCE & MONITORING
+ OPTIMIZATION
+ Model Selection: Haiku for simple, Sonnet for complex,
+ Opus for critical
+ Parallel Execution: Run 5-10 agents simultaneously
+ Caching: Cache by prompt hash, saves 40% of API
+ calls
+ Batching: Process 50 items in one call vs 50 separate
+ calls
+
+ MONITORING
+ Task Success Rate: Are agents completing tasks?
+ Response Quality: Confidence scores, validation
+ rates
+ Performance: Latency, token usage, cost
+ Error Patterns: What's failing and why?
+
+ EXECUTION TRACE FORMAT
+ Primary Agent Start [12:34:56]
+ ├─ Feedback Analyzer Called
+ │ ├─ Time: 2.3s
+ │ ├─ Tokens: 1,250 
+ │ └─ Status: Success
+ ├─ Sentiment Processor Called
+ │ ├─ Time: 1.8s
+ │ ├─ Tokens: 890
+ │ └─ Status: Success
+ └─ Total Time: 4.5s, Total Cost: $0.03
+
+ COMMON PITFALLS
+ THE "SMART AGENT" TRAP
+ Agents that attempt to "figure out" what to do. Be explicit about
+ all requirements and constraints.
+
+ STATE CREEP
+ Adding state incrementally leads to complexity and system
+ failures.
+
+ DEEP HIERARCHY
+ Deep agent hierarchies create debugging and maintenance
+ challenges.
+
+ CONTEXT EXPLOSION
+ Passing excessive context to every agent increases costs and
+ complexity.
+
+ IMPLEMENTATION PRINCIPLES
+ STATELESS DESIGN
+ • Subagents as pure functions
+ • No shared memory between calls
+ • Predictable input/output behavior
+ • Horizontal scaling capability
+
+ EDGE DISTRIBUTION
+ • Workers handle orchestration
+ • Durable Objects maintain state
+ • Regional data locality
+ • Sub-100ms response times
+
+ ERROR HANDLING
+ • Graceful degradation chains
+ • Exponential backoff retry
+ • Partial result recovery
+ • Circuit breaker patterns
+
+ MONITORING
+ • Task completion rates
+ • Response quality metrics
+ • Latency distribution
+ • Cost per operation
+
+ CLOUDFLARE WORKERS IMPLEMENTATION
+ // Primary Agent Worker
+ export default {
+ async fetch(request, env) {
+ const orchestrator = new AgentOrchestrator(env);
+ const task = await request.json();
+ 
+ // Route to appropriate architecture
+ switch(task.pattern) {
+ case 'two-tier':
+ return await orchestrator.executeTwoTier(task);
+ case 'pipeline':
+ return await orchestrator.executePipeline(task);
+ case 'mapreduce':
+ return await orchestrator.executeMapReduce(task);
+ case 'consensus':
+ return await orchestrator.executeConsensus(task);
+ }
+ }
+}
+ // Durable Object State Management
+ export class AgentState {
+ constructor(state, env) {
+ this.state = state;
+ this.env = env;
+ }
+ 
+ async handleRequest(request) {
+ const data = await request.json();
+ 
+ // Store execution context
+ await this.state.storage.put('context', data.context);
+ 
+ // Track agent performance
+ const metrics = await this.state.storage.get('metrics') || {};
+ metrics[data.agentId] = {
+ lastRun: Date.now(),
+ successRate: data.success ? 
+ (metrics[data.agentId]?.successRate || 0) + 1 : 
+ metrics[data.agentId]?.successRate || 0
+ };
+ 
+ await this.state.storage.put('metrics', metrics);
+ return new Response(JSON.stringify({ status: 'stored' }));
+ }
+}
+
+ PERFORMANCE BENCHMARKS
+ ARCHITECTURELATENCY (P95)THROUGHPUTCOST/1K OPSTwo-Tier150ms2,000 ops/min$0.12Sequential450ms800 ops/min$0.18MapReduce200ms5,000 ops/min$0.08Consensus300ms1,200 ops/min$0.24
+
+ CONCLUSIONS
+ Two-tier architectures provide the optimal balance of
+ simplicity and capability for most production use cases. The primary/subagent
+ pattern maps naturally to Cloudflare's Worker/Durable Object model.
+ Stateless subagents are non-negotiable for horizontal
+ scaling. Any attempt to maintain state within subagents introduces complexity
+ that outweighs benefits.
+ MapReduce patterns excel when processing large datasets
+ in parallel. The edge distribution of Cloudflare Workers makes this particularly
+ effective for geographically distributed workloads.
+ Consensus mechanisms should be reserved for critical decisions
+ where accuracy outweighs latency concerns. The 2x latency penalty is significant.
+
+ AGENTIC AI ARCHITECTURES

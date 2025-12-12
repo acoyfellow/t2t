@@ -1,0 +1,121 @@
+🤖">
+
+ Blaze: Real-time documents on Cloudflare
+
+ coey.dev POSTS ABOUT
+ 
+ BLAZE: REAL-TIME DOCUMENTS ON CLOUDFLARE
+ Firestore feel. Cloudflare price.
+ TECHNICAL GUIDE 2025.09.15
+ Live JSON docs with WebSocket updates—no database to babysit.
+ THE QUICK VERSION
+ One Durable Object per document. Keep state in memory, push patches over
+ WebSockets. Clients get a snapshot and live updates.
+ Great for notes, flags, dashboards—small JSON that should sync fast.
+
+ ARCHITECTURE
+ Client ↔ Worker → DocRoom (DO)
+ ↓
+ Broadcast
+ INFRASTRUCTURE
+ One namespace, one Worker—Alchemy wires the bindings.
+ // alchemy.run.ts (Blaze)
+import alchemy from "alchemy";
+import { Worker, DurableObjectNamespace } from "alchemy/cloudflare";
+
+const app = await alchemy("blaze");
+
+const docs = DurableObjectNamespace("doc", { className: "DocRoom" });
+
+await Worker("api", {
+ entrypoint: "./src/blaze-worker.ts",
+ bindings: { DOC: docs }
+});
+
+await app.finalize();
+ DURABLE OBJECT ROOM
+ Keeps document state and broadcasts patches to WebSocket clients.
+ // src/doc.ts (Durable Object room for a document)
+import { DurableObject } from "cloudflare:workers";
+
+type Patch = { op: 'set' | 'merge'; value: Record<string, unknown> };
+
+export class DocRoom extends DurableObject {
+ private state: Record<string, unknown> = {};
+ private sockets = new Set<WebSocket>();
+
+ private broadcast(msg: unknown) {
+ const text = JSON.stringify(msg);
+ for (const ws of this.sockets) try { ws.send(text); } catch {}
+ }
+
+ async fetch(req: Request) {
+ const url = new URL(req.url);
+
+ if (url.pathname === '/ws') {
+ const pair = new WebSocketPair();
+ const server = pair[1];
+ server.accept();
+ server.addEventListener('close', () => this.sockets.delete(server));
+ server.addEventListener('error', () => this.sockets.delete(server));
+ this.sockets.add(server);
+ server.send(JSON.stringify({ type: 'snapshot', value: this.state }));
+ return new Response(null, { status: 101, webSocket: pair[0] });
+ }
+
+ if (url.pathname === '/patch' && req.method === 'POST') {
+ const patch: Patch = await req.json();
+ if (patch.op === 'set') this.state = patch.value;
+ if (patch.op === 'merge') this.state = { ...this.state, ...patch.value };
+ this.broadcast({ type: 'patch', patch });
+ return new Response('ok');
+ }
+
+ if (url.pathname === '/get') return Response.json(this.state);
+
+ return new Response('not found', { status: 404 });
+ }
+}
+ WORKER ROUTING
+ Thin router that forwards to the correct document room by id.
+ // src/blaze-worker.ts (routing)
+import type { worker } from "../alchemy.run";
+
+export default {
+ async fetch(req: Request, env: typeof worker.Env): Promise<Response> {
+ const url = new URL(req.url);
+ const [, , id] = url.pathname.split('/');
+ if (!id) return new Response('bad request', { status: 400 });
+ const stub = env.DOC.get(env.DOC.idFromName(id));
+
+ if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/ws')) {
+ return stub.fetch('https://do/ws');
+ }
+ if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/patch') && req.method === 'POST') {
+ return stub.fetch('https://do/patch', { method: 'POST', body: await req.text() });
+ }
+ if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/get')) {
+ return stub.fetch('https://do/get');
+ }
+ return new Response('not found', { status: 404 });
+ }
+};
+ CLIENT
+ Connect via WebSocket; send merge patches for instant updates.
+ // client.ts (SvelteKit or plain browser)
+const docId = 'readme';
+const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/doc/${docId}/ws`);
+ws.onmessage = (e) => console.log('msg', JSON.parse(e.data));
+
+// merge patch
+await fetch(`/doc/${docId}/patch`, {
+ method: 'POST',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({ op: 'merge', value: { title: 'Hello' } })
+});
+
+ Other articles
+ Real-Time Logging
+ UserDO: Per-user Durable Objects
+ Fleet Pattern
+ Promptlog: Dynamic Worker Loader

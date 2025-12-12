@@ -1,0 +1,203 @@
+🤖">
+
+ Bio: Single-button WebAuthn auth on Cloudflare
+
+ coey.dev POSTS ABOUT
+ 
+ BIO: SINGLE-BUTTON WEBAUTHN AUTH
+ One button. Register or login. Same flow.
+ TECHNICAL GUIDE 2025.11.21
+ Passkey auth with no separate login/register screens. One credential per
+ user. Server-side agent runs on auth, results SSR.
+ VIEW DEMO VIEW REPO
+ THE QUICK VERSION
+ Single "Auth" button. New users register a passkey. Existing users log
+ in with the same credential. Server creates session cookie, runs agent,
+ renders SSR with auth state and agent data.
+ No double biometric prompts. No separate flows. One button, one
+ credential, one session.
+
+ ARCHITECTURE
+ Client → Worker → WebAuthn
+ ↓ ↓
+ Session Agent
+ ↓ ↓
+ SSR Results
+ INFRASTRUCTURE
+ One namespace, one Worker—Alchemy wires the bindings.
+ // alchemy.run.ts
+import alchemy from "alchemy";
+import { Worker, DurableObjectNamespace } from "alchemy/cloudflare";
+
+const app = await alchemy("bio");
+
+const sessions = DurableObjectNamespace("session", { className: "SessionDO" });
+
+await Worker("api", {
+ entrypoint: "./src/worker.tsx",
+ bindings: { SESSIONS: sessions, DB: "D1" }
+});
+
+await app.finalize();
+ WORKER
+ Hono + JSX for SSR. Single auth flow handles registration and login.
+ // src/worker.tsx (Hono + JSX)
+import { Hono } from 'hono';
+import { jsxRenderer } from 'hono/jsx-renderer';
+import { startRegistration, finishRegistration } from './webauthn';
+import { createSession, getSession } from './sessions';
+import { runAgent } from './agent';
+
+const app = new Hono();
+
+app.get('*', jsxRenderer(({ children }) => <html><body>{children}</body></html>));
+
+app.get('/', async (c) => {
+ const session = await getSession(c);
+ const agentData = session ? await runAgent(session.userId) : null;
+ 
+ return c.render(
+ <div>
+ {session ? (
+ <div>
+ <p>Logged in as: {session.username}</p>
+ <pre>{JSON.stringify(agentData, null, 2)}</pre>
+ <form method="post" action="/logout">
+ <button>Logout</button>
+ </form>
+ </div>
+ ) : (
+ <button onclick="auth()">Auth</button>
+ )}
+ </div>
+ );
+});
+
+app.post('/webauthn/register/start', async (c) => {
+ const options = await startRegistration(c);
+ return c.json(options);
+});
+
+app.post('/webauthn/register/finish', async (c) => {
+ const result = await finishRegistration(c);
+ if (result.success) {
+ await createSession(c, result.userId, result.username);
+ }
+ return c.json(result);
+});
+
+export default app;
+ WEBAUTHN
+ Start registration, finish registration. Same credential used for subsequent
+ logins.
+ // src/webauthn.ts
+import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server';
+import { getChallenge, storeChallenge } from './challenges';
+import { createUser, getUserCredential } from './d1';
+
+const rpID = process.env.DOMAINS?.split(',')[0] || 'localhost';
+const origin = rpID === 'localhost' 
+ ? 'http://localhost:8787' 
+ : `https://${rpID}`;
+
+export async function startRegistration(c: Context) {
+ const challenge = crypto.randomUUID();
+ await storeChallenge(c, challenge);
+ 
+ const options = await generateRegistrationOptions({
+ rpName: 'Bio Auth',
+ rpID,
+ userName: crypto.randomUUID(),
+ userDisplayName: 'User',
+ challenge,
+ userVerification: 'preferred',
+ authenticatorSelection: {
+ authenticatorAttachment: 'cross-platform',
+ userVerification: 'preferred',
+ },
+ });
+ 
+ return options;
+}
+
+export async function finishRegistration(c: Context) {
+ const body = await c.req.json();
+ const challenge = await getChallenge(c, body.response.challenge);
+ 
+ const verification = await verifyRegistrationResponse({
+ response: body.response,
+ expectedChallenge: challenge,
+ expectedOrigin: origin,
+ expectedRPID: rpID,
+ });
+ 
+ if (verification.verified) {
+ const userId = await createUser(c, verification.registrationInfo);
+ return { success: true, userId };
+ }
+ 
+ return { success: false };
+}
+ SESSIONS
+ Signed session cookies. HttpOnly, Secure, SameSite=Strict.
+ // src/sessions.ts
+import { sign, verify } from './cookies';
+
+export async function createSession(c: Context, userId: string, username: string) {
+ const sessionId = crypto.randomUUID();
+ const token = await sign({ sessionId, userId, username });
+ 
+ c.header('Set-Cookie', `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
+}
+
+export async function getSession(c: Context) {
+ const cookie = c.req.header('Cookie');
+ if (!cookie) return null;
+ 
+ const token = cookie.split('session=')[1]?.split(';')[0];
+ if (!token) return null;
+ 
+ const payload = await verify(token);
+ return payload;
+}
+ AGENT
+ Server-side agent runs on auth. Results displayed SSR—no client fetch.
+ // src/agent.ts
+export async function runAgent(userId: string) {
+ // Server-side agent runs on auth
+ // Results displayed SSR (no client fetch)
+ return {
+ userId,
+ timestamp: new Date().toISOString(),
+ message: 'Agent executed successfully'
+ };
+}
+ CLIENT
+ One button triggers WebAuthn. Browser handles biometric prompt.
+ // client.ts
+async function auth() {
+ const startRes = await fetch('/webauthn/register/start', { method: 'POST' });
+ const options = await startRes.json();
+ 
+ const credential = await navigator.credentials.create({
+ publicKey: options
+ });
+ 
+ const finishRes = await fetch('/webauthn/register/finish', {
+ method: 'POST',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({
+ response: credential.response
+ })
+ });
+ 
+ const result = await finishRes.json();
+ if (result.success) {
+ window.location.reload();
+ }
+}
+ Other articles
+ UserDO: Per-user Durable Objects
+ Blaze: Real-time documents
+ Fleet Pattern
+ Agentic Architecture

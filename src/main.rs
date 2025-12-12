@@ -56,6 +56,39 @@ fn log_line(msg: &str) {
     }
 }
 
+fn create_circular_icon(size: u32) -> Image<'static> {
+    // Match the orb color: #4a4a4a = RGB(74, 74, 74)
+    let r = 74u8;
+    let g = 74u8;
+    let b = 74u8;
+    let center = (size as f32 / 2.0) - 0.5;
+    let radius = (size as f32 / 2.0) - 1.0;
+    
+    let mut pixels = Vec::with_capacity((size * size * 4) as usize);
+    
+    for y in 0..size {
+        for x in 0..size {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let dist = (dx * dx + dy * dy).sqrt();
+            
+            if dist <= radius {
+                pixels.push(r);
+                pixels.push(g);
+                pixels.push(b);
+                pixels.push(0xff);
+            } else {
+                pixels.push(0);
+                pixels.push(0);
+                pixels.push(0);
+                pixels.push(0);
+            }
+        }
+    }
+    
+    Image::new_owned(pixels, size, size)
+}
+
 fn get_model_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".cache").join("whisper").join("ggml-base.en.bin")
@@ -1000,7 +1033,7 @@ fn main() {
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&start, &stop, &quit])?;
-            let icon = Image::new_owned(vec![0x50, 0x50, 0x50, 0xff].repeat(1024), 32, 32);
+            let icon = create_circular_icon(32);
 
             TrayIconBuilder::new()
                 .icon(icon)

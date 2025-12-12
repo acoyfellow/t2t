@@ -6,7 +6,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "install": "bun tauri build && rm -rf /Applications/t2t.app && cp -r target/release/bundle/macos/t2t.app /Applications/"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.0",

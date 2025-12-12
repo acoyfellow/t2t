@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="TinyBase + Cloudflare Durable Objects + User-based Sharding"/> <meta name="keywords" content="tiny, tinybase, collaborative, todos, cloudflare"/> <link rel="canonical" href="https://coey.dev/tiny"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Tiny: Real-time collaborative todos with TinyBase + Cloudflare"/> <meta property="og:description" content="TinyBase + Cloudflare Durable Objects + User-based Sharding"/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/tiny"/> <meta property="og:image" content="https://api.coey.dev/?title=Tiny%3A%20Real-time%20collaborative%20todos%20with%20TinyBase%20%2B%20Cloudflare&amp;description=TinyBase%20%2B%20Cloudflare%20Durable%20Objects%20%2B%20User-based%20Sharding"/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Tiny: Real-time collaborative todos with TinyBase + Cloudflare"/> <meta name="twitter:description" content="TinyBase + Cloudflare Durable Objects + User-based Sharding"/> <meta name="twitter:image" content="https://api.coey.dev/?title=Tiny%3A%20Real-time%20collaborative%20todos%20with%20TinyBase%20%2B%20Cloudflare&amp;description=TinyBase%20%2B%20Cloudflare%20Durable%20Objects%20%2B%20User-based%20Sharding"/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-09-22"/> <meta property="article:modified_time" content="2025-09-22"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="tinybase,cloudflare,collaborative"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Tiny: Real-time collaborative todos with TinyBase + Cloudflare",
+  "description": "TinyBase + Cloudflare Durable Objects + User-based Sharding",
+  "image": "https://api.coey.dev/?title=Tiny%3A%20Real-time%20collaborative%20todos%20with%20TinyBase%20%2B%20Cloudflare&description=TinyBase%20%2B%20Cloudflare%20Durable%20Objects%20%2B%20User-based%20Sharding",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-09-22",
+  "dateModified": "2025-09-22",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/tiny"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Tiny: Real-time collaborative todos with TinyBase + Cloudflare</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">TINY: COLLABORATIVE TODOS ON THE EDGE</h1> <p class="text-xl font-mono">TinyBase + Cloudflare Durable Objects + User-based Sharding</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">TECHNICAL GUIDE</span> <span class="ml-4">2025.09.22</span></div> <p class="text-xs font-mono pt-6">View source on <a href="https://github.com/acoyfellow/tiny" class="underline">GitHub</a>, or <a href="https://tiny.coey.dev" class="underline">see an example</a>.</p></header> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE COLLABORATIVE TODO CHALLENGE</h2> <p class="text-lg leading-relaxed mb-4"><strong>Problem:</strong> Building real-time collaborative applications requires
+        complex state synchronization, user isolation, and edge deployment strategies.</p> <p class="leading-relaxed mb-4"><strong>Solution:</strong> Tiny demonstrates user-based sharding with Durable
+        Objects, WebSocket synchronization, and zero-config deployment using Alchemy.</p> <div class="bg-black text-white p-4 font-mono"><pre>User Request → Worker → User-specific Durable Object
+                ↓              ↓
+        Pre-rendered JSX + WebSocket    Real-time sync</pre></div></section></div></main> <section class="p-8"><div class="max-w-4xl mx-auto space-y-10"><div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE OVERVIEW</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">CORE FEATURES</h3> <ul class="space-y-2"><li>• <strong>User-based sharding</strong> - Each user gets 128MB storage</li> <li>• <strong>Real-time collaboration</strong> - WebSocket sync between
+              tabs</li> <li>• <strong>Server-side rendering</strong> - No loading flicker with
+              Hono JSX</li> <li>• <strong>Rate limiting</strong> - 100 requests/minute protection</li> <li>• <strong>Anonymous sessions</strong> - Auto-generated user IDs</li></ul></div> <div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">TECH STACK</h3> <ul class="space-y-2"><li>• <strong>TinyBase</strong> - Client-side reactive store</li> <li>• <strong>Hono + JSX</strong> - Edge-first web framework</li> <li>• <strong>Durable Objects</strong> - Persistent state storage</li> <li>• <strong>Alchemy</strong> - Infrastructure as code</li> <li>• <strong>Tailwind CSS</strong> - Utility-first styling</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">KEY INNOVATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>User isolation via URL parameter</strong> - <code>?userId=alice</code> creates separate data stores</li> <li><strong>Automatic session management</strong> - Anonymous users get persistent
+          sessions via cookies</li> <li><strong>WebSocket broadcasting</strong> - Real-time updates across all
+          connected clients</li> <li><strong>Server-side data loading</strong> - Eliminates loading spinners
+          with pre-rendered state</li> <li><strong>Storage monitoring</strong> - Live display of storage usage approaching
+          128MB limits</li> <li><strong>Rate limiting protection</strong> - Prevents abuse with per-IP
+          request limits</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">QUICK START</h2> <div class="bg-black text-white p-4 font-mono mb-4"><pre># Clone and setup
+git clone https://github.com/acoyfellow/tiny
+cd tiny
+bun install
+
+# Run development server
+bun dev
+
+# Test user isolation
+# http://localhost:1338/?userId=alice
+# http://localhost:1338/?userId=bob
+
+# Deploy to Cloudflare
+bun deploy</pre></div> <p class="text-sm text-gray-600">Creates a complete collaborative todo app with user isolation, real-time
+        sync, and edge deployment.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">ALCHEMY CONFIGURATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">alchemy.run.ts - Zero-Config Deployment</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// alchemy.run.ts
+import alchemy from "alchemy";
+import { DurableObjectNamespace, Worker } from "alchemy/cloudflare";
+import type { TinyBaseStore } from "./src/durable-object.ts";
+
+const app = await alchemy("tinybase-cf-poc");
+
+export const worker = await Worker("worker", {
+  name: `${app.name}-${app.stage}-worker`,
+  entrypoint: "./src/worker.tsx",
+  bindings: {
+    TINYBASE_STORE: DurableObjectNamespace&lt;TinyBaseStore>("TinyBaseStore", {
+      className: "TinyBaseStore",
+    }),
+  },
+  url: true,
+  bundle: {
+    format: "esm",
+    target: "es2020",
+  },
+});
+
+console.log(worker.url);
+await app.finalize();</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">DURABLE OBJECT IMPLEMENTATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">User-specific State Management</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/durable-object.ts
+export class TinyBaseStore {
+  private state: DurableObjectState;
+  private sessions: Set&lt;WebSocket> = new Set();
+
+  constructor(state: DurableObjectState, env: any) {
+    this.state = state;
+  }
+
+  async fetch(request: Request): Promise&lt;Response> {
+    if (request.headers.get('upgrade') === 'websocket') {
+      const [client, server] = Object.values(new WebSocketPair());
+
+      server.accept();
+      this.sessions.add(server);
+
+      server.addEventListener('close', () => {
+        this.sessions.delete(server);
+      });
+
+      server.addEventListener('message', async (event) => {
+        try {
+          const data = JSON.parse(event.data as string);
+
+          // Store the data
+          await this.state.storage.put('todos', data);
+
+          // Broadcast to all connected clients
+          const message = JSON.stringify(data);
+          this.sessions.forEach(session => {
+            if (session !== server &amp;&amp; session.readyState === WebSocket.READY_STATE_OPEN) {
+              session.send(message);
+            }
+          });
+        } catch (error) {
+          console.error('Error handling WebSocket message:', error);
+        }
+      });
+
+      // Send current data to new client
+      const currentData = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };
+      server.send(JSON.stringify(currentData));
+
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    // Handle HTTP requests for initial data
+    if (request.url.endsWith('/todos')) {
+      const data = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };
+      return new Response(JSON.stringify(data), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">USER ISOLATION ROUTING</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Multi-source User ID Detection</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/worker.tsx - Key routing logic
+function getUserId(request: Request): string {
+  // Try to get user from URL query parameter first
+  const url = new URL(request.url);
+  const queryUserId = url.searchParams.get('userId');
+  if (queryUserId) {
+    return queryUserId;
+  }
+
+  // Try to get user from Authorization header
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+
+  // Try to get from session cookie
+  const cookieHeader = request.headers.get('Cookie');
+  if (cookieHeader) {
+    const sessionMatch = cookieHeader.match(/session=([^;]+)/);
+    if (sessionMatch) {
+      return sessionMatch[1];
+    }
+  }
+
+  // Generate a session ID for anonymous users
+  return `anon-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+app.get('/', async (c) => {
+  // Rate limiting
+  const clientIP = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  if (isRateLimited(clientIP)) {
+    return c.text('Rate limited. Please try again later.', 429);
+  }
+
+  // Get user-specific DO
+  const userId = getUserId(c.req.raw);
+  const obj = c.env.TINYBASE_STORE.getByName(`user-${userId}`);
+  const response = await obj.fetch(new Request('http://localhost/todos'));
+  const data = await response.json();
+  const initialTodos = data.tables?.todos || {};
+
+  // Set session cookie for anonymous users
+  if (userId.startsWith('anon-')) {
+    c.header('Set-Cookie', `session=${userId}; Path=/; Max-Age=86400; HttpOnly`);
+  }
+
+  return c.html(&lt;TodoApp initialTodos={initialTodos} userId={userId} />);
+});</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">CLIENT-SIDE WEBSOCKET</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Real-time Synchronization</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Client-side WebSocket connection
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const userId = 'alice123';
+const wsUrl = protocol + '//' + window.location.host + '/todos?userId=' + encodeURIComponent(userId);
+let websocket;
+
+function connectWebSocket() {
+  try {
+    websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+      console.log('Connected to WebSocket');
+      updateConnectionStatus(true);
+    };
+
+    websocket.onclose = () => {
+      console.log('WebSocket disconnected');
+      updateConnectionStatus(false);
+      setTimeout(connectWebSocket, 3000);
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.tables?.todos) {
+          todos = data.tables.todos;
+          updateDisplay();
+        }
+      } catch (e) {
+        console.error('WebSocket message error:', e);
+      }
+    };
+
+    websocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      updateConnectionStatus(false);
+    };
+  } catch (error) {
+    console.error('WebSocket connection failed:', error);
+    updateConnectionStatus(false);
+    setTimeout(connectWebSocket, 3000);
+  }
+}
+
+function sendToServer() {
+  if (websocket &amp;&amp; websocket.readyState === WebSocket.OPEN) {
+    websocket.send(JSON.stringify({
+      tables: { todos },
+      values: {}
+    }));
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">SCALING STRATEGIES</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">From 128MB to Unlimited Storage</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Scaling strategies from TODO.md
+// Phase 1: User-based Sharding (Immediate)
+const obj = env.TINYBASE_STORE.getByName(`user-${userId}`);
+
+// Phase 2: Organization-based Sharding (SaaS Ready)
+const obj = env.TINYBASE_STORE.getByName(`org-${orgId}-user-${userId}`);
+
+// Phase 3: Feature-based Sharding (High Scale)
+const todoObj = env.TINYBASE_STORE.getByName(`todo-shard-${shardId}`);
+const userObj = env.TINYBASE_STORE.getByName(`user-${userId}`);
+const analyticsObj = env.TINYBASE_STORE.getByName(`analytics-${orgId}`);
+
+// Phase 4: Hybrid DO + D1 (Enterprise)
+// Hot data in DO, cold storage in D1
+const hotTodos = await durableObject.getRecentTodos();
+const coldTodos = await db.prepare("SELECT * FROM todos WHERE updated_at &lt; ?")
+  .bind(cutoff).all();</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">RATE LIMITING</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Abuse Protection</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Rate limiting implementation
+const rateLimiter = new Map&lt;string, { count: number; resetTime: number }>();
+
+function isRateLimited(clientIP: string): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 minute window
+  const maxRequests = 100; // 100 requests per minute
+  
+  const current = rateLimiter.get(clientIP);
+  
+  if (!current || now > current.resetTime) {
+    // Reset or initialize
+    rateLimiter.set(clientIP, { count: 1, resetTime: now + windowMs });
+    return false;
+  }
+  
+  if (current.count >= maxRequests) {
+    return true;
+  }
+  
+  current.count++;
+  return false;
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PACKAGE CONFIGURATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Minimal Dependencies</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>{
+  "name": "tinybase-cloudflare-poc",
+  "version": "1.0.0",
+  "description": "TinyBase with Cloudflare Durable Objects POC",
+  "main": "src/worker.tsx",
+  "scripts": {
+    "dev": "bun alchemy dev",
+    "deploy": "bun alchemy.run.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "tinybase": "^6.6.0",
+    "hono": "^4.9.8",
+    "alchemy": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250921.0",
+    "typescript": "^5.9.2"
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE PATTERNS</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">USER-BASED SHARDING</h4> <ul class="text-sm space-y-1"><li>• Each user gets isolated Durable Object</li> <li>• 128MB storage per user (~100K todos)</li> <li>• Automatic scaling with user growth</li> <li>• Zero cross-user data leakage</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">REAL-TIME SYNC</h4> <ul class="text-sm space-y-1"><li>• WebSocket connections per user</li> <li>• Broadcast updates to all clients</li> <li>• Automatic reconnection on failure</li> <li>• Conflict-free data synchronization</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">SERVER-SIDE RENDERING</h4> <ul class="text-sm space-y-1"><li>• Hono JSX for edge rendering</li> <li>• Pre-loaded initial state</li> <li>• No loading spinners</li> <li>• SEO-friendly HTML output</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">EDGE DEPLOYMENT</h4> <ul class="text-sm space-y-1"><li>• Alchemy infrastructure as code</li> <li>• Global edge distribution</li> <li>• Zero-config deployment</li> <li>• Automatic scaling</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PERFORMANCE CHARACTERISTICS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Storage:</strong> 128MB per user (~100K todos per user)</li> <li><strong>Users:</strong> Unlimited (each gets their own Durable Object)</li> <li><strong>Latency:</strong> Sub-100ms response times globally</li> <li><strong>Rate limiting:</strong> 100 requests/minute per IP</li> <li><strong>WebSocket:</strong> Real-time updates with 3-second reconnection</li> <li><strong>Deployment:</strong> Single command with Alchemy</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">USE CASES</h2> <ul class="list-disc ml-6 space-y-1"><li>Personal todo applications with real-time sync</li> <li>Team collaboration tools with user isolation</li> <li>Note-taking applications with live updates</li> <li>Project management tools with per-user workspaces</li> <li>Educational platforms with student-specific data</li> <li>Prototype applications requiring rapid deployment</li> <li>Multi-tenant SaaS applications with data isolation</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">SCALING ROADMAP</h2> <div class="space-y-4"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">PHASE 1: USER-BASED SHARDING (CURRENT)</h4> <p class="text-sm">Each user gets 128MB storage. Handles most real-world applications.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">PHASE 2: ORGANIZATION-BASED SHARDING</h4> <p class="text-sm">Multi-tenant isolation with <code>org-{orgId}-user-{userId}</code> naming.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">PHASE 3: HYBRID DO + D1</h4> <p class="text-sm">Hot data in Durable Objects, cold storage in D1 database.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">PHASE 4: GEOGRAPHIC DISTRIBUTION</h4> <p class="text-sm">Regional Durable Objects for latency optimization.</p></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">DEVELOPMENT WORKFLOW</h2> <ol class="list-decimal ml-6 space-y-2"><li><strong>Clone Repository:</strong> <code>git clone https://github.com/acoyfellow/tiny</code></li> <li><strong>Install Dependencies:</strong> <code>bun install</code> sets up
+          everything</li> <li><strong>Local Development:</strong> <code>bun dev</code> starts with hot
+          reloading</li> <li><strong>Test User Isolation:</strong> Add <code>?userId=alice</code> to
+          test different users</li> <li><strong>Deploy:</strong> <code>bun deploy</code> deploys with Alchemy</li></ol></div> <div><h2 class="text-2xl font-bold font-mono mb-4">OPERATIONAL CONSIDERATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Durable Object limits:</strong> 1,000 concurrent instances per
+          account</li> <li><strong>Storage limits:</strong> 128MB per Durable Object instance</li> <li><strong>WebSocket limits:</strong> 1,000 concurrent connections per DO</li> <li><strong>Rate limiting:</strong> 100 requests/minute per IP address</li> <li><strong>Cold starts:</strong> ~10-50ms for new Durable Object instances</li> <li><strong>Global distribution:</strong> 200+ edge locations worldwide</li></ul></div> <div class="border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Related patterns</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/blaze">Blaze: Real-time JSON documents</a></li> <li><a class="underline" href="/remote-stack">Remote Stack: SvelteKit + Better Auth</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern: Hierarchical Durable Objects</a></li> <li><a class="underline" href="/agentic-architecture">Agentic AI Architectures</a></li></ul></div></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 18],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{alchemyTs:"// alchemy.run.ts\nimport alchemy from \"alchemy\";\nimport { DurableObjectNamespace, Worker } from \"alchemy/cloudflare\";\nimport type { TinyBaseStore } from \"./src/durable-object.ts\";\n\nconst app = await alchemy(\"tinybase-cf-poc\");\n\nexport const worker = await Worker(\"worker\", {\n  name: `${app.name}-${app.stage}-worker`,\n  entrypoint: \"./src/worker.tsx\",\n  bindings: {\n    TINYBASE_STORE: DurableObjectNamespace\u003CTinyBaseStore>(\"TinyBaseStore\", {\n      className: \"TinyBaseStore\",\n    }),\n  },\n  url: true,\n  bundle: {\n    format: \"esm\",\n    target: \"es2020\",\n  },\n});\n\nconsole.log(worker.url);\nawait app.finalize();",durableObjectTs:"// src/durable-object.ts\nexport class TinyBaseStore {\n  private state: DurableObjectState;\n  private sessions: Set\u003CWebSocket> = new Set();\n\n  constructor(state: DurableObjectState, env: any) {\n    this.state = state;\n  }\n\n  async fetch(request: Request): Promise\u003CResponse> {\n    if (request.headers.get('upgrade') === 'websocket') {\n      const [client, server] = Object.values(new WebSocketPair());\n\n      server.accept();\n      this.sessions.add(server);\n\n      server.addEventListener('close', () => {\n        this.sessions.delete(server);\n      });\n\n      server.addEventListener('message', async (event) => {\n        try {\n          const data = JSON.parse(event.data as string);\n\n          // Store the data\n          await this.state.storage.put('todos', data);\n\n          // Broadcast to all connected clients\n          const message = JSON.stringify(data);\n          this.sessions.forEach(session => {\n            if (session !== server && session.readyState === WebSocket.READY_STATE_OPEN) {\n              session.send(message);\n            }\n          });\n        } catch (error) {\n          console.error('Error handling WebSocket message:', error);\n        }\n      });\n\n      // Send current data to new client\n      const currentData = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };\n      server.send(JSON.stringify(currentData));\n\n      return new Response(null, { status: 101, webSocket: client });\n    }\n\n    // Handle HTTP requests for initial data\n    if (request.url.endsWith('/todos')) {\n      const data = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };\n      return new Response(JSON.stringify(data), {\n        headers: { 'Content-Type': 'application/json' }\n      });\n    }\n\n    return new Response('Not found', { status: 404 });\n  }\n}",workerTs:"// src/worker.tsx - Key routing logic\nfunction getUserId(request: Request): string {\n  // Try to get user from URL query parameter first\n  const url = new URL(request.url);\n  const queryUserId = url.searchParams.get('userId');\n  if (queryUserId) {\n    return queryUserId;\n  }\n\n  // Try to get user from Authorization header\n  const authHeader = request.headers.get('Authorization');\n  if (authHeader?.startsWith('Bearer ')) {\n    return authHeader.slice(7);\n  }\n\n  // Try to get from session cookie\n  const cookieHeader = request.headers.get('Cookie');\n  if (cookieHeader) {\n    const sessionMatch = cookieHeader.match(/session=([^;]+)/);\n    if (sessionMatch) {\n      return sessionMatch[1];\n    }\n  }\n\n  // Generate a session ID for anonymous users\n  return `anon-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;\n}\n\napp.get('/', async (c) => {\n  // Rate limiting\n  const clientIP = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';\n  if (isRateLimited(clientIP)) {\n    return c.text('Rate limited. Please try again later.', 429);\n  }\n\n  // Get user-specific DO\n  const userId = getUserId(c.req.raw);\n  const obj = c.env.TINYBASE_STORE.getByName(`user-${userId}`);\n  const response = await obj.fetch(new Request('http://localhost/todos'));\n  const data = await response.json();\n  const initialTodos = data.tables?.todos || {};\n\n  // Set session cookie for anonymous users\n  if (userId.startsWith('anon-')) {\n    c.header('Set-Cookie', `session=${userId}; Path=/; Max-Age=86400; HttpOnly`);\n  }\n\n  return c.html(\u003CTodoApp initialTodos={initialTodos} userId={userId} />);\n});",clientJs:"// Client-side WebSocket connection\nconst protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';\nconst userId = 'alice123';\nconst wsUrl = protocol + '//' + window.location.host + '/todos?userId=' + encodeURIComponent(userId);\nlet websocket;\n\nfunction connectWebSocket() {\n  try {\n    websocket = new WebSocket(wsUrl);\n\n    websocket.onopen = () => {\n      console.log('Connected to WebSocket');\n      updateConnectionStatus(true);\n    };\n\n    websocket.onclose = () => {\n      console.log('WebSocket disconnected');\n      updateConnectionStatus(false);\n      setTimeout(connectWebSocket, 3000);\n    };\n\n    websocket.onmessage = (event) => {\n      try {\n        const data = JSON.parse(event.data);\n        if (data.tables?.todos) {\n          todos = data.tables.todos;\n          updateDisplay();\n        }\n      } catch (e) {\n        console.error('WebSocket message error:', e);\n      }\n    };\n\n    websocket.onerror = (error) => {\n      console.error('WebSocket error:', error);\n      updateConnectionStatus(false);\n    };\n  } catch (error) {\n    console.error('WebSocket connection failed:', error);\n    updateConnectionStatus(false);\n    setTimeout(connectWebSocket, 3000);\n  }\n}\n\nfunction sendToServer() {\n  if (websocket && websocket.readyState === WebSocket.OPEN) {\n    websocket.send(JSON.stringify({\n      tables: { todos },\n      values: {}\n    }));\n  }\n}",scalingTs:"// Scaling strategies from TODO.md\n// Phase 1: User-based Sharding (Immediate)\nconst obj = env.TINYBASE_STORE.getByName(`user-${userId}`);\n\n// Phase 2: Organization-based Sharding (SaaS Ready)\nconst obj = env.TINYBASE_STORE.getByName(`org-${orgId}-user-${userId}`);\n\n// Phase 3: Feature-based Sharding (High Scale)\nconst todoObj = env.TINYBASE_STORE.getByName(`todo-shard-${shardId}`);\nconst userObj = env.TINYBASE_STORE.getByName(`user-${userId}`);\nconst analyticsObj = env.TINYBASE_STORE.getByName(`analytics-${orgId}`);\n\n// Phase 4: Hybrid DO + D1 (Enterprise)\n// Hot data in DO, cold storage in D1\nconst hotTodos = await durableObject.getRecentTodos();\nconst coldTodos = await db.prepare(\"SELECT * FROM todos WHERE updated_at \u003C ?\")\n  .bind(cutoff).all();",rateLimitTs:"// Rate limiting implementation\nconst rateLimiter = new Map\u003Cstring, { count: number; resetTime: number }>();\n\nfunction isRateLimited(clientIP: string): boolean {\n  const now = Date.now();\n  const windowMs = 60 * 1000; // 1 minute window\n  const maxRequests = 100; // 100 requests per minute\n  \n  const current = rateLimiter.get(clientIP);\n  \n  if (!current || now > current.resetTime) {\n    // Reset or initialize\n    rateLimiter.set(clientIP, { count: 1, resetTime: now + windowMs });\n    return false;\n  }\n  \n  if (current.count >= maxRequests) {\n    return true;\n  }\n  \n  current.count++;\n  return false;\n}",packageJson:"{\n  \"name\": \"tinybase-cloudflare-poc\",\n  \"version\": \"1.0.0\",\n  \"description\": \"TinyBase with Cloudflare Durable Objects POC\",\n  \"main\": \"src/worker.tsx\",\n  \"scripts\": {\n    \"dev\": \"bun alchemy dev\",\n    \"deploy\": \"bun alchemy.run.ts\",\n    \"build\": \"tsc\"\n  },\n  \"dependencies\": {\n    \"tinybase\": \"^6.6.0\",\n    \"hono\": \"^4.9.8\",\n    \"alchemy\": \"latest\"\n  },\n  \"devDependencies\": {\n    \"@cloudflare/workers-types\": \"^4.20250921.0\",\n    \"typescript\": \"^5.9.2\"\n  }\n}"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,401 @@
+🤖">
+
+ Tiny: Real-time collaborative todos with TinyBase + Cloudflare
+
+ coey.dev POSTS ABOUT
+ 
+ TINY: COLLABORATIVE TODOS ON THE EDGE
+ TinyBase + Cloudflare Durable Objects + User-based Sharding
+ TECHNICAL GUIDE 2025.09.22
+ View source on GitHub, or see an example.
+ THE COLLABORATIVE TODO CHALLENGE
+ Problem: Building real-time collaborative applications requires
+ complex state synchronization, user isolation, and edge deployment strategies.
+ Solution: Tiny demonstrates user-based sharding with Durable
+ Objects, WebSocket synchronization, and zero-config deployment using Alchemy.
+ User Request → Worker → User-specific Durable Object
+ ↓ ↓
+ Pre-rendered JSX + WebSocket Real-time sync
+
+ ARCHITECTURE OVERVIEW
+ CORE FEATURES
+ • User-based sharding - Each user gets 128MB storage
+ • Real-time collaboration - WebSocket sync between
+ tabs
+ • Server-side rendering - No loading flicker with
+ Hono JSX
+ • Rate limiting - 100 requests/minute protection
+ • Anonymous sessions - Auto-generated user IDs
+
+ TECH STACK
+ • TinyBase - Client-side reactive store
+ • Hono + JSX - Edge-first web framework
+ • Durable Objects - Persistent state storage
+ • Alchemy - Infrastructure as code
+ • Tailwind CSS - Utility-first styling
+
+ KEY INNOVATIONS
+ User isolation via URL parameter - ?userId=alice creates separate data stores
+ Automatic session management - Anonymous users get persistent
+ sessions via cookies
+ WebSocket broadcasting - Real-time updates across all
+ connected clients
+ Server-side data loading - Eliminates loading spinners
+ with pre-rendered state
+ Storage monitoring - Live display of storage usage approaching
+ 128MB limits
+ Rate limiting protection - Prevents abuse with per-IP
+ request limits
+
+ QUICK START
+ # Clone and setup
+git clone https://github.com/acoyfellow/tiny
+cd tiny
+bun install
+
+# Run development server
+bun dev
+
+# Test user isolation
+# http://localhost:1338/?userId=alice
+# http://localhost:1338/?userId=bob
+
+# Deploy to Cloudflare
+bun deploy
+ Creates a complete collaborative todo app with user isolation, real-time
+ sync, and edge deployment.
+
+ ALCHEMY CONFIGURATION
+ alchemy.run.ts - Zero-Config Deployment
+ // alchemy.run.ts
+import alchemy from "alchemy";
+import { DurableObjectNamespace, Worker } from "alchemy/cloudflare";
+import type { TinyBaseStore } from "./src/durable-object.ts";
+
+const app = await alchemy("tinybase-cf-poc");
+
+export const worker = await Worker("worker", {
+ name: `${app.name}-${app.stage}-worker`,
+ entrypoint: "./src/worker.tsx",
+ bindings: {
+ TINYBASE_STORE: DurableObjectNamespace<TinyBaseStore>("TinyBaseStore", {
+ className: "TinyBaseStore",
+ }),
+ },
+ url: true,
+ bundle: {
+ format: "esm",
+ target: "es2020",
+ },
+});
+
+console.log(worker.url);
+await app.finalize();
+
+ DURABLE OBJECT IMPLEMENTATION
+ User-specific State Management
+ // src/durable-object.ts
+export class TinyBaseStore {
+ private state: DurableObjectState;
+ private sessions: Set<WebSocket> = new Set();
+
+ constructor(state: DurableObjectState, env: any) {
+ this.state = state;
+ }
+
+ async fetch(request: Request): Promise<Response> {
+ if (request.headers.get('upgrade') === 'websocket') {
+ const [client, server] = Object.values(new WebSocketPair());
+
+ server.accept();
+ this.sessions.add(server);
+
+ server.addEventListener('close', () => {
+ this.sessions.delete(server);
+ });
+
+ server.addEventListener('message', async (event) => {
+ try {
+ const data = JSON.parse(event.data as string);
+
+ // Store the data
+ await this.state.storage.put('todos', data);
+
+ // Broadcast to all connected clients
+ const message = JSON.stringify(data);
+ this.sessions.forEach(session => {
+ if (session !== server && session.readyState === WebSocket.READY_STATE_OPEN) {
+ session.send(message);
+ }
+ });
+ } catch (error) {
+ console.error('Error handling WebSocket message:', error);
+ }
+ });
+
+ // Send current data to new client
+ const currentData = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };
+ server.send(JSON.stringify(currentData));
+
+ return new Response(null, { status: 101, webSocket: client });
+ }
+
+ // Handle HTTP requests for initial data
+ if (request.url.endsWith('/todos')) {
+ const data = await this.state.storage.get('todos') || { tables: { todos: {} }, values: {} };
+ return new Response(JSON.stringify(data), {
+ headers: { 'Content-Type': 'application/json' }
+ });
+ }
+
+ return new Response('Not found', { status: 404 });
+ }
+}
+
+ USER ISOLATION ROUTING
+ Multi-source User ID Detection
+ // src/worker.tsx - Key routing logic
+function getUserId(request: Request): string {
+ // Try to get user from URL query parameter first
+ const url = new URL(request.url);
+ const queryUserId = url.searchParams.get('userId');
+ if (queryUserId) {
+ return queryUserId;
+ }
+
+ // Try to get user from Authorization header
+ const authHeader = request.headers.get('Authorization');
+ if (authHeader?.startsWith('Bearer ')) {
+ return authHeader.slice(7);
+ }
+
+ // Try to get from session cookie
+ const cookieHeader = request.headers.get('Cookie');
+ if (cookieHeader) {
+ const sessionMatch = cookieHeader.match(/session=([^;]+)/);
+ if (sessionMatch) {
+ return sessionMatch[1];
+ }
+ }
+
+ // Generate a session ID for anonymous users
+ return `anon-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+app.get('/', async (c) => {
+ // Rate limiting
+ const clientIP = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+ if (isRateLimited(clientIP)) {
+ return c.text('Rate limited. Please try again later.', 429);
+ }
+
+ // Get user-specific DO
+ const userId = getUserId(c.req.raw);
+ const obj = c.env.TINYBASE_STORE.getByName(`user-${userId}`);
+ const response = await obj.fetch(new Request('http://localhost/todos'));
+ const data = await response.json();
+ const initialTodos = data.tables?.todos || {};
+
+ // Set session cookie for anonymous users
+ if (userId.startsWith('anon-')) {
+ c.header('Set-Cookie', `session=${userId}; Path=/; Max-Age=86400; HttpOnly`);
+ }
+
+ return c.html(<TodoApp initialTodos={initialTodos} userId={userId} />);
+});
+
+ CLIENT-SIDE WEBSOCKET
+ Real-time Synchronization
+ // Client-side WebSocket connection
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const userId = 'alice123';
+const wsUrl = protocol + '//' + window.location.host + '/todos?userId=' + encodeURIComponent(userId);
+let websocket;
+
+function connectWebSocket() {
+ try {
+ websocket = new WebSocket(wsUrl);
+
+ websocket.onopen = () => {
+ console.log('Connected to WebSocket');
+ updateConnectionStatus(true);
+ };
+
+ websocket.onclose = () => {
+ console.log('WebSocket disconnected');
+ updateConnectionStatus(false);
+ setTimeout(connectWebSocket, 3000);
+ };
+
+ websocket.onmessage = (event) => {
+ try {
+ const data = JSON.parse(event.data);
+ if (data.tables?.todos) {
+ todos = data.tables.todos;
+ updateDisplay();
+ }
+ } catch (e) {
+ console.error('WebSocket message error:', e);
+ }
+ };
+
+ websocket.onerror = (error) => {
+ console.error('WebSocket error:', error);
+ updateConnectionStatus(false);
+ };
+ } catch (error) {
+ console.error('WebSocket connection failed:', error);
+ updateConnectionStatus(false);
+ setTimeout(connectWebSocket, 3000);
+ }
+}
+
+function sendToServer() {
+ if (websocket && websocket.readyState === WebSocket.OPEN) {
+ websocket.send(JSON.stringify({
+ tables: { todos },
+ values: {}
+ }));
+ }
+}
+
+ SCALING STRATEGIES
+ From 128MB to Unlimited Storage
+ // Scaling strategies from TODO.md
+// Phase 1: User-based Sharding (Immediate)
+const obj = env.TINYBASE_STORE.getByName(`user-${userId}`);
+
+// Phase 2: Organization-based Sharding (SaaS Ready)
+const obj = env.TINYBASE_STORE.getByName(`org-${orgId}-user-${userId}`);
+
+// Phase 3: Feature-based Sharding (High Scale)
+const todoObj = env.TINYBASE_STORE.getByName(`todo-shard-${shardId}`);
+const userObj = env.TINYBASE_STORE.getByName(`user-${userId}`);
+const analyticsObj = env.TINYBASE_STORE.getByName(`analytics-${orgId}`);
+
+// Phase 4: Hybrid DO + D1 (Enterprise)
+// Hot data in DO, cold storage in D1
+const hotTodos = await durableObject.getRecentTodos();
+const coldTodos = await db.prepare("SELECT * FROM todos WHERE updated_at < ?")
+ .bind(cutoff).all();
+
+ RATE LIMITING
+ Abuse Protection
+ // Rate limiting implementation
+const rateLimiter = new Map<string, { count: number; resetTime: number }>();
+
+function isRateLimited(clientIP: string): boolean {
+ const now = Date.now();
+ const windowMs = 60 * 1000; // 1 minute window
+ const maxRequests = 100; // 100 requests per minute
+ 
+ const current = rateLimiter.get(clientIP);
+ 
+ if (!current || now > current.resetTime) {
+ // Reset or initialize
+ rateLimiter.set(clientIP, { count: 1, resetTime: now + windowMs });
+ return false;
+ }
+ 
+ if (current.count >= maxRequests) {
+ return true;
+ }
+ 
+ current.count++;
+ return false;
+}
+
+ PACKAGE CONFIGURATION
+ Minimal Dependencies
+ {
+ "name": "tinybase-cloudflare-poc",
+ "version": "1.0.0",
+ "description": "TinyBase with Cloudflare Durable Objects POC",
+ "main": "src/worker.tsx",
+ "scripts": {
+ "dev": "bun alchemy dev",
+ "deploy": "bun alchemy.run.ts",
+ "build": "tsc"
+ },
+ "dependencies": {
+ "tinybase": "^6.6.0",
+ "hono": "^4.9.8",
+ "alchemy": "latest"
+ },
+ "devDependencies": {
+ "@cloudflare/workers-types": "^4.20250921.0",
+ "typescript": "^5.9.2"
+ }
+}
+
+ ARCHITECTURE PATTERNS
+ USER-BASED SHARDING • Each user gets isolated Durable Object
+ • 128MB storage per user (~100K todos)
+ • Automatic scaling with user growth
+ • Zero cross-user data leakage
+
+ REAL-TIME SYNC • WebSocket connections per user
+ • Broadcast updates to all clients
+ • Automatic reconnection on failure
+ • Conflict-free data synchronization
+
+ SERVER-SIDE RENDERING • Hono JSX for edge rendering
+ • Pre-loaded initial state
+ • No loading spinners
+ • SEO-friendly HTML output
+
+ EDGE DEPLOYMENT • Alchemy infrastructure as code
+ • Global edge distribution
+ • Zero-config deployment
+ • Automatic scaling
+
+ PERFORMANCE CHARACTERISTICS
+ Storage: 128MB per user (~100K todos per user)
+ Users: Unlimited (each gets their own Durable Object)
+ Latency: Sub-100ms response times globally
+ Rate limiting: 100 requests/minute per IP
+ WebSocket: Real-time updates with 3-second reconnection
+ Deployment: Single command with Alchemy
+
+ USE CASES
+ Personal todo applications with real-time sync
+ Team collaboration tools with user isolation
+ Note-taking applications with live updates
+ Project management tools with per-user workspaces
+ Educational platforms with student-specific data
+ Prototype applications requiring rapid deployment
+ Multi-tenant SaaS applications with data isolation
+
+ SCALING ROADMAP
+ PHASE 1: USER-BASED SHARDING (CURRENT) Each user gets 128MB storage. Handles most real-world applications.
+
+ PHASE 2: ORGANIZATION-BASED SHARDING Multi-tenant isolation with org-{orgId}-user-{userId} naming.
+
+ PHASE 3: HYBRID DO + D1 Hot data in Durable Objects, cold storage in D1 database.
+
+ PHASE 4: GEOGRAPHIC DISTRIBUTION Regional Durable Objects for latency optimization.
+
+ DEVELOPMENT WORKFLOW
+ Clone Repository: git clone https://github.com/acoyfellow/tiny
+ Install Dependencies: bun install sets up
+ everything
+ Local Development: bun dev starts with hot
+ reloading
+ Test User Isolation: Add ?userId=alice to
+ test different users
+ Deploy: bun deploy deploys with Alchemy
+
+ OPERATIONAL CONSIDERATIONS
+ Durable Object limits: 1,000 concurrent instances per
+ account
+ Storage limits: 128MB per Durable Object instance
+ WebSocket limits: 1,000 concurrent connections per DO
+ Rate limiting: 100 requests/minute per IP address
+ Cold starts: ~10-50ms for new Durable Object instances
+ Global distribution: 200+ edge locations worldwide
+
+ Related patterns
+ Blaze: Real-time JSON documents
+ Remote Stack: SvelteKit + Better Auth
+ Fleet Pattern: Hierarchical Durable Objects
+ Agentic AI Architectures

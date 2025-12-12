@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Managers and agents with ordered fan-out and health."/> <meta name="keywords" content="fleet pattern, durable objects, cloudflare, hierarchical"/> <link rel="canonical" href="https://coey.dev/fleet-pattern"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Fleet Pattern: Hierarchical Durable Objects"/> <meta property="og:description" content="Managers and agents with ordered fan-out and health."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/fleet-pattern"/> <meta property="og:image" content="https://api.coey.dev/?title=Fleet%20Pattern%3A%20Hierarchical%20Durable%20Objects&amp;description=Managers%20and%20agents%20with%20ordered%20fan-out%20and%20health."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Fleet Pattern: Hierarchical Durable Objects"/> <meta name="twitter:description" content="Managers and agents with ordered fan-out and health."/> <meta name="twitter:image" content="https://api.coey.dev/?title=Fleet%20Pattern%3A%20Hierarchical%20Durable%20Objects&amp;description=Managers%20and%20agents%20with%20ordered%20fan-out%20and%20health."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-09-15"/> <meta property="article:modified_time" content="2025-09-15"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,durable-objects,patterns"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Fleet Pattern: Hierarchical Durable Objects",
+  "description": "Managers and agents with ordered fan-out and health.",
+  "image": "https://api.coey.dev/?title=Fleet%20Pattern%3A%20Hierarchical%20Durable%20Objects&description=Managers%20and%20agents%20with%20ordered%20fan-out%20and%20health.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-09-15",
+  "dateModified": "2025-09-15",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/fleet-pattern"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Fleet Pattern: Hierarchical Durable Objects</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">FLEET PATTERN: HIERARCHICAL DURABLE OBJECTS</h1> <p class="text-xl font-mono">Infinite nesting of manager/agent relationships through URL paths</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">TECHNICAL GUIDE</span> <span class="ml-4">2025.09.15</span></div></header> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE HIERARCHICAL COORDINATION CHALLENGE</h2> <p class="text-lg leading-relaxed mb-4"><strong>Problem:</strong> Building hierarchical systems with manager/agent
+        relationships requires complex coordination, state management, and real-time
+        communication.</p> <p class="leading-relaxed mb-4"><strong>Solution:</strong> Fleet Pattern uses URL-based routing to create
+        infinite nesting of Durable Objects, each capable of managing child agents
+        with real-time WebSocket communication.</p> <div class="bg-black text-white p-4 font-mono"><pre>Client → ManagerDO → AgentDO (N)
+                ↑          ↓
+             heartbeats  results
+                ↓          ↓
+            WebSocket   Cascading
+            Updates     Operations</pre></div></section></div></main> <section class="p-8"><div class="max-w-4xl mx-auto space-y-10"><div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE OVERVIEW</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">CORE FEATURES</h3> <ul class="space-y-2"><li>• <strong>URL-based hierarchy</strong> - Each path creates a unique
+              DO</li> <li>• <strong>Infinite nesting</strong> - Unlimited depth of manager/agent
+              relationships</li> <li>• <strong>Real-time communication</strong> - WebSocket-based state
+              synchronization</li> <li>• <strong>Cascading operations</strong> - Delete operations propagate
+              down the tree</li> <li>• <strong>Message routing</strong> - Direct and broadcast messaging
+              between agents</li></ul></div> <div class="border-2 border-black p-6"><h3 class="text-xl font-bold font-mono mb-4">TECH STACK</h3> <ul class="space-y-2"><li>• <strong>Hono</strong> - Edge-first web framework</li> <li>• <strong>Durable Objects</strong> - Persistent state and WebSocket
+              handling</li> <li>• <strong>TypeScript</strong> - End-to-end type safety</li> <li>• <strong>WebSocket API</strong> - Real-time bidirectional communication</li> <li>• <strong>Cloudflare Workers</strong> - Global edge deployment</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">KEY INNOVATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>URL-based hierarchy</strong> - <code>/team1/project1/task1</code> creates nested DO structure</li> <li><strong>Unified DO class</strong> - Single class handles both manager and
+          agent roles</li> <li><strong>Dynamic DO creation</strong> - Agents created on-demand based on
+          URL paths</li> <li><strong>Real-time state sync</strong> - WebSocket connections maintain
+          live state updates</li> <li><strong>Cascading deletion</strong> - Removing a manager deletes all child
+          agents recursively</li> <li><strong>Message routing</strong> - Direct messages to specific agents or
+          broadcast to all children</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">QUICK START</h2> <div class="bg-black text-white p-4 font-mono mb-4"><pre># Clone and setup
+git clone https://github.com/acoyfellow/fleet-pattern
+cd fleet-pattern
+bun install
+
+# Start development server
+bun run dev
+
+# Test hierarchy
+# http://localhost:8787/ (root manager)
+# http://localhost:8787/team1 (team manager)
+# http://localhost:8787/team1/project1 (project manager)
+
+# Deploy to Cloudflare
+bun run deploy</pre></div> <p class="text-sm text-gray-600">Creates a complete hierarchical system with real-time communication and
+        cascading operations.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">MAIN WORKER ROUTING</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">URL-based Durable Object Creation</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/index.ts - Main Worker with URL-based routing
+import { Hono } from 'hono'
+import { DurableObjectNamespace, DurableObjectState } from '@cloudflare/workers-types'
+import type { Request as CFRequest } from '@cloudflare/workers-types'
+
+interface Env {
+  FLEET_DO: DurableObjectNamespace,
+}
+
+// The Worker: routes all requests through Hono
+const app = new Hono&lt;{ Bindings: Env }>()
+
+// Route everything else to DOs based on URL path
+app.all('*', async (c) => {
+  const path = new URL(c.req.url).pathname
+  const parts = path.split('/').filter(Boolean)
+  const doName = parts.length === 0 ? '/' : `/${parts.join('/')}`
+
+  const id = c.env.FLEET_DO.idFromName(doName)
+  const stub = c.env.FLEET_DO.get(id)
+  return stub.fetch(c.req.raw as CFRequest)
+})
+
+export default {
+  fetch: app.fetch
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">DURABLE OBJECT IMPLEMENTATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Unified Manager/Agent Class</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// FleetDO class - Unified Manager/Agent implementation
+export class FleetDO {
+  private app = new Hono()
+  private connections = new Set&lt;WebSocket>()
+
+  constructor(private durableState: DurableObjectState, private env: Env) {
+    this.app.get('*', c => {
+      const upgradeHeader = c.req.header('Upgrade')
+      if (upgradeHeader?.toLowerCase() === 'websocket') {
+        return this.handleWebSocket(c)
+      }
+      return this.handleView(c)
+    })
+
+    // Handle cascading deletion
+    this.app.delete('*', async () => {
+      const data = await this.getState()
+
+      if (data?.agents) {
+        const path = new URL(this.durableState.id.toString()).pathname
+        for (const agent of data.agents) {
+          const childPath = path === '/' ? `/${agent}` : `${path}/${agent}`
+          const childId = this.env.FLEET_DO.idFromName(childPath)
+          const childStub = this.env.FLEET_DO.get(childId)
+          await childStub.fetch(new Request(childPath, { method: 'DELETE' }))
+        }
+      }
+
+      for (const ws of this.connections) {
+        ws.close(1000, 'Agent deleted')
+      }
+
+      await this.durableState.storage.deleteAll()
+      return new Response('OK')
+    })
+  }
+
+  private async getState(): Promise&lt;AgentState> {
+    return await this.durableState.storage.get&lt;AgentState>('data') || {
+      data: { count: 0 },
+      agents: []
+    }
+  }
+
+  private async setState(data: AgentState): Promise&lt;void> {
+    await this.durableState.storage.put('data', data)
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">WEBSOCKET MESSAGE HANDLING</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Real-time Communication Protocol</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// WebSocket message handling for real-time communication
+server.addEventListener('message', async event => {
+  try {
+    const msg = JSON.parse(event.data as string) as WSMessage
+    const data = await this.getState()
+    const path = new URL(c.req.url).pathname
+    const senderName = path.split('/').filter(Boolean).pop() || 'root'
+
+    switch (msg.type) {
+      case 'increment':
+        data.data.count++
+        await this.setState(data)
+        break
+
+      case 'createAgent':
+        if (!msg.payload?.name) throw new Error('Agent name required')
+        if (!this.validateAgentName(msg.payload.name)) {
+          throw new Error('Invalid agent name')
+        }
+        if (data.agents.includes(msg.payload.name)) {
+          throw new Error('Agent already exists')
+        }
+        data.agents.push(msg.payload.name)
+        await this.setState(data)
+        break
+
+      case 'deleteAgent':
+        if (!msg.payload?.name) throw new Error('Agent name required')
+        const index = data.agents.indexOf(msg.payload.name)
+        if (index === -1) throw new Error('Agent not found')
+        
+        // Cascading deletion
+        const childPath = path === '/' ? `/${msg.payload.name}` : `${path}/${msg.payload.name}`
+        const childId = this.env.FLEET_DO.idFromName(childPath)
+        const childStub = this.env.FLEET_DO.get(childId)
+        await childStub.fetch(new Request(`https://internal${childPath}`, { method: 'DELETE' }))
+
+        data.agents.splice(index, 1)
+        await this.setState(data)
+        break
+
+      case 'sendMessage':
+        // Direct message to specific agent
+        const recipientPath = path === '/' ? `/${msg.payload.recipient}` : `${path}/${msg.payload.recipient}`
+        const recipientId = this.env.FLEET_DO.idFromName(recipientPath)
+        const recipientStub = this.env.FLEET_DO.get(recipientId)
+
+        await recipientStub.fetch(new Request(`https://internal${recipientPath}/_message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'message',
+            payload: {
+              message: msg.payload.message,
+              sender: senderName
+            }
+          })
+        }))
+        break
+
+      case 'broadcast':
+        // Broadcast to all child agents
+        for (const agent of data.agents) {
+          const childPath = path === '/' ? `/${agent}` : `${path}/${agent}`
+          const childId = this.env.FLEET_DO.idFromName(childPath)
+          const childStub = this.env.FLEET_DO.get(childId)
+
+          await childStub.fetch(new Request(`https://internal${childPath}/_message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'message',
+              payload: {
+                message: msg.payload.message,
+                sender: senderName
+              }
+            })
+          }))
+        }
+        break
+    }
+
+    this.broadcast({ type: 'state', payload: data })
+
+  } catch (err) {
+    server.send(JSON.stringify({
+      type: 'error',
+      payload: { error: err.message }
+    }))
+  }
+})</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">MESSAGE PROTOCOL</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">WebSocket Communication Types</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// WebSocket message protocol
+interface WSMessage {
+  type: 'increment' | 'createAgent' | 'deleteAgent' | 'sendMessage' | 'broadcast';
+  payload?: {
+    name?: string;
+    message?: string;
+    recipient?: string;
+  };
+}
+
+interface WSResponse {
+  type: 'state' | 'error' | 'message' | 'broadcast';
+  payload: {
+    data?: { count: number };
+    agents?: string[];
+    error?: string;
+    message?: string;
+    sender?: string;
+  };
+}
+
+// Message flow examples
+const messages = {
+  // Local state change
+  increment: { type: 'increment' },
+  
+  // Hierarchy management
+  createAgent: { type: 'createAgent', payload: { name: 'newAgent' } },
+  deleteAgent: { type: 'deleteAgent', payload: { name: 'oldAgent' } },
+  
+  // Communication
+  sendMessage: { type: 'sendMessage', payload: { recipient: 'agent1', message: 'Hello!' } },
+  broadcast: { type: 'broadcast', payload: { message: 'System update' } }
+};</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">CLIENT-SIDE INTEGRATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Real-time UI Updates</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Real-time UI updates with WebSocket
+function updateUI(state) {
+  // Update counter
+  document.getElementById('count').textContent = state.data.count;
+
+  // Update agents list
+  const agentsList = document.getElementById('agents');
+  agentsList.innerHTML = '';
+
+  if (state.agents.length === 0) {
+    agentsList.innerHTML = '&lt;li class="no-agents">No agents&lt;/li>';
+    return;
+  }
+
+  state.agents.forEach(name => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      &lt;div class="agent-row">
+        &lt;a href="${window.location.pathname === '/' ? '' : window.location.pathname}/${name}">${name}&lt;/a>
+        &lt;div class="agent-controls">
+          &lt;input type="text" placeholder="Message" class="message-input">
+          &lt;button onclick="sendMessageTo('${name}')" class="send-btn">Send&lt;/button>
+          &lt;button onclick="deleteAgent('${name}')" class="delete-btn">Delete&lt;/button>
+        &lt;/div>
+      &lt;/div>
+    `;
+    agentsList.appendChild(li);
+  });
+}
+
+function sendMessageTo(recipient) {
+  const row = document.querySelector(`[onclick="sendMessageTo('${recipient}')"]`).closest('.agent-row');
+  const message = row.querySelector('.message-input').value.trim();
+
+  if (message) {
+    sendMessage({
+      type: 'sendMessage',
+      payload: { recipient, message }
+    });
+    row.querySelector('.message-input').value = '';
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">CONFIGURATION</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Wrangler Configuration</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code># wrangler.toml - Cloudflare Workers configuration
+name = "fleet"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+assets = { directory = "public" }
+
+[build.upload]
+format = "modules"
+
+[durable_objects]
+bindings = [
+  { name = "FLEET_DO", class_name = "FleetDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["FleetDO"]
+
+[observability.logs]
+enabled = true</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">ARCHITECTURE PATTERNS</h2> <div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">URL-BASED HIERARCHY</h4> <ul class="text-sm space-y-1"><li>• Each path segment creates a unique DO</li> <li>• Infinite nesting depth supported</li> <li>• Clean separation of concerns</li> <li>• Natural resource organization</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">REAL-TIME COMMUNICATION</h4> <ul class="text-sm space-y-1"><li>• WebSocket connections per DO</li> <li>• State synchronization across clients</li> <li>• Direct and broadcast messaging</li> <li>• Automatic reconnection handling</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">CASCADING OPERATIONS</h4> <ul class="text-sm space-y-1"><li>• Delete operations propagate down tree</li> <li>• Automatic cleanup of child resources</li> <li>• Safe resource management</li> <li>• Consistent state maintenance</li></ul></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-3">UNIFIED IMPLEMENTATION</h4> <ul class="text-sm space-y-1"><li>• Single class for all roles</li> <li>• Role determined by context</li> <li>• Simplified codebase</li> <li>• Consistent behavior patterns</li></ul></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PRODUCTION USE CASES</h2> <div class="space-y-4"><div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">REAL-TIME COLLABORATIVE IDE</h4> <p class="text-sm">Each file is a DO with operational transform engine. Real-time
+            cursors, editing, and file-specific permissions.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">DISTRIBUTED TASK RUNNER</h4> <p class="text-sm">Each stage manages its own tasks with status communication up the
+            chain. Automatic retry and failure management.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">IoT DEVICE MANAGEMENT</h4> <p class="text-sm">Each level manages device fleet with real-time sensor data
+            aggregation and hierarchical monitoring.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">GAME SERVER INFRASTRUCTURE</h4> <p class="text-sm">Each instance is a game server with real-time player state
+            management and instance-to-instance communication.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">CONTENT MANAGEMENT SYSTEM</h4> <p class="text-sm">Each page manages its own content and cache with real-time preview
+            and hierarchical permissions.</p></div> <div class="border-2 border-black p-4"><h4 class="font-bold font-mono mb-2">DISTRIBUTED CHAT SYSTEM</h4> <p class="text-sm">Each thread manages its own messages with real-time presence
+            indicators and cross-thread notifications.</p></div></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">SCALING PATTERNS</h2> <div class="border-2 border-black"><h3 class="px-4 py-2 border-b-2 border-black font-bold font-mono">Multi-tenant and Geographic Distribution</h3> <!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Scaling patterns for different use cases
+
+// 1. Geographic Distribution
+const region = getClosestRegion(clientIP);
+const obj = env.FLEET_DO.getByName(`${region}-team1-project1`);
+
+// 2. Tenant Isolation
+const obj = env.FLEET_DO.getByName(`tenant-${tenantId}-team1`);
+
+// 3. Feature-based Sharding
+const obj = env.FLEET_DO.getByName(`feature-${featureId}-instance-${instanceId}`);
+
+// 4. Time-based Partitioning
+const date = new Date().toISOString().split('T')[0];
+const obj = env.FLEET_DO.getByName(`${date}-analytics`);
+
+// 5. Load-based Distribution
+const shardId = hash(userId) % numShards;
+const obj = env.FLEET_DO.getByName(`shard-${shardId}-user-${userId}`);</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PERFORMANCE CHARACTERISTICS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>DO Creation:</strong> On-demand based on URL access patterns</li> <li><strong>State Management:</strong> 128MB storage per Durable Object instance</li> <li><strong>WebSocket Connections:</strong> 1,000 concurrent per DO instance</li> <li><strong>Message Latency:</strong> Sub-100ms for direct agent communication</li> <li><strong>Hierarchy Depth:</strong> Unlimited nesting with URL path limits</li> <li><strong>Global Distribution:</strong> 200+ edge locations worldwide</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">DEVELOPMENT WORKFLOW</h2> <ol class="list-decimal ml-6 space-y-2"><li><strong>Clone Repository:</strong> <code>git clone https://github.com/acoyfellow/fleet-pattern</code></li> <li><strong>Install Dependencies:</strong> <code>bun install</code> sets up
+          everything</li> <li><strong>Local Development:</strong> <code>bun run dev</code> starts with
+          hot reloading</li> <li><strong>Test Hierarchy:</strong> Navigate to different URL paths to test
+          nesting</li> <li><strong>Deploy:</strong> <code>bun run deploy</code> deploys to Cloudflare
+          Workers</li></ol></div> <div><h2 class="text-2xl font-bold font-mono mb-4">OPERATIONAL CONSIDERATIONS</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Durable Object limits:</strong> 1,000 concurrent instances per
+          account</li> <li><strong>Storage limits:</strong> 128MB per Durable Object instance</li> <li><strong>WebSocket limits:</strong> 1,000 concurrent connections per DO</li> <li><strong>URL path limits:</strong> 8,192 characters maximum path length</li> <li><strong>Cold starts:</strong> ~10-50ms for new Durable Object instances</li> <li><strong>Message validation:</strong> Input sanitization and error handling</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">SECURITY FEATURES</h2> <ul class="list-disc ml-6 space-y-1"><li><strong>Input validation:</strong> Agent names restricted to alphanumeric,
+          dash, underscore (1-32 chars)</li> <li><strong>WebSocket security:</strong> Proper connection lifecycle management</li> <li><strong>Cascading deletion safety:</strong> Hierarchical cleanup with error
+          handling</li> <li><strong>Message sanitization:</strong> JSON parsing with error boundaries</li> <li><strong>Resource isolation:</strong> Each DO instance is completely isolated</li> <li><strong>Rate limiting:</strong> Built-in protection against abuse</li></ul></div> <div class="border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Related patterns</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/tiny">Tiny: Collaborative todos with user sharding</a></li> <li><a class="underline" href="/blaze">Blaze: Real-time JSON documents</a></li> <li><a class="underline" href="/promptlog">Promptlog: Dynamic Worker Loader</a></li> <li><a class="underline" href="/remote-stack">Remote Stack: SvelteKit + Better Auth</a></li> <li><a class="underline" href="/agentic-architecture">Agentic AI Architectures</a></li></ul></div></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 13],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{fleetPatternTs:"// src/index.ts - Main Worker with URL-based routing\nimport { Hono } from 'hono'\nimport { DurableObjectNamespace, DurableObjectState } from '@cloudflare/workers-types'\nimport type { Request as CFRequest } from '@cloudflare/workers-types'\n\ninterface Env {\n  FLEET_DO: DurableObjectNamespace,\n}\n\n// The Worker: routes all requests through Hono\nconst app = new Hono\u003C{ Bindings: Env }>()\n\n// Route everything else to DOs based on URL path\napp.all('*', async (c) => {\n  const path = new URL(c.req.url).pathname\n  const parts = path.split('/').filter(Boolean)\n  const doName = parts.length === 0 ? '/' : `/${parts.join('/')}`\n\n  const id = c.env.FLEET_DO.idFromName(doName)\n  const stub = c.env.FLEET_DO.get(id)\n  return stub.fetch(c.req.raw as CFRequest)\n})\n\nexport default {\n  fetch: app.fetch\n}",durableObjectManagerTs:"// FleetDO class - Unified Manager/Agent implementation\nexport class FleetDO {\n  private app = new Hono()\n  private connections = new Set\u003CWebSocket>()\n\n  constructor(private durableState: DurableObjectState, private env: Env) {\n    this.app.get('*', c => {\n      const upgradeHeader = c.req.header('Upgrade')\n      if (upgradeHeader?.toLowerCase() === 'websocket') {\n        return this.handleWebSocket(c)\n      }\n      return this.handleView(c)\n    })\n\n    // Handle cascading deletion\n    this.app.delete('*', async () => {\n      const data = await this.getState()\n\n      if (data?.agents) {\n        const path = new URL(this.durableState.id.toString()).pathname\n        for (const agent of data.agents) {\n          const childPath = path === '/' ? `/${agent}` : `${path}/${agent}`\n          const childId = this.env.FLEET_DO.idFromName(childPath)\n          const childStub = this.env.FLEET_DO.get(childId)\n          await childStub.fetch(new Request(childPath, { method: 'DELETE' }))\n        }\n      }\n\n      for (const ws of this.connections) {\n        ws.close(1000, 'Agent deleted')\n      }\n\n      await this.durableState.storage.deleteAll()\n      return new Response('OK')\n    })\n  }\n\n  private async getState(): Promise\u003CAgentState> {\n    return await this.durableState.storage.get\u003CAgentState>('data') || {\n      data: { count: 0 },\n      agents: []\n    }\n  }\n\n  private async setState(data: AgentState): Promise\u003Cvoid> {\n    await this.durableState.storage.put('data', data)\n  }\n}",durableObjectAgentTs:"// WebSocket message handling for real-time communication\nserver.addEventListener('message', async event => {\n  try {\n    const msg = JSON.parse(event.data as string) as WSMessage\n    const data = await this.getState()\n    const path = new URL(c.req.url).pathname\n    const senderName = path.split('/').filter(Boolean).pop() || 'root'\n\n    switch (msg.type) {\n      case 'increment':\n        data.data.count++\n        await this.setState(data)\n        break\n\n      case 'createAgent':\n        if (!msg.payload?.name) throw new Error('Agent name required')\n        if (!this.validateAgentName(msg.payload.name)) {\n          throw new Error('Invalid agent name')\n        }\n        if (data.agents.includes(msg.payload.name)) {\n          throw new Error('Agent already exists')\n        }\n        data.agents.push(msg.payload.name)\n        await this.setState(data)\n        break\n\n      case 'deleteAgent':\n        if (!msg.payload?.name) throw new Error('Agent name required')\n        const index = data.agents.indexOf(msg.payload.name)\n        if (index === -1) throw new Error('Agent not found')\n        \n        // Cascading deletion\n        const childPath = path === '/' ? `/${msg.payload.name}` : `${path}/${msg.payload.name}`\n        const childId = this.env.FLEET_DO.idFromName(childPath)\n        const childStub = this.env.FLEET_DO.get(childId)\n        await childStub.fetch(new Request(`https://internal${childPath}`, { method: 'DELETE' }))\n\n        data.agents.splice(index, 1)\n        await this.setState(data)\n        break\n\n      case 'sendMessage':\n        // Direct message to specific agent\n        const recipientPath = path === '/' ? `/${msg.payload.recipient}` : `${path}/${msg.payload.recipient}`\n        const recipientId = this.env.FLEET_DO.idFromName(recipientPath)\n        const recipientStub = this.env.FLEET_DO.get(recipientId)\n\n        await recipientStub.fetch(new Request(`https://internal${recipientPath}/_message`, {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({\n            type: 'message',\n            payload: {\n              message: msg.payload.message,\n              sender: senderName\n            }\n          })\n        }))\n        break\n\n      case 'broadcast':\n        // Broadcast to all child agents\n        for (const agent of data.agents) {\n          const childPath = path === '/' ? `/${agent}` : `${path}/${agent}`\n          const childId = this.env.FLEET_DO.idFromName(childPath)\n          const childStub = this.env.FLEET_DO.get(childId)\n\n          await childStub.fetch(new Request(`https://internal${childPath}/_message`, {\n            method: 'POST',\n            headers: { 'Content-Type': 'application/json' },\n            body: JSON.stringify({\n              type: 'message',\n              payload: {\n                message: msg.payload.message,\n                sender: senderName\n              }\n            })\n          }))\n        }\n        break\n    }\n\n    this.broadcast({ type: 'state', payload: data })\n\n  } catch (err) {\n    server.send(JSON.stringify({\n      type: 'error',\n      payload: { error: err.message }\n    }))\n  }\n})",workerTs:"// URL-based hierarchy routing\napp.all('*', async (c) => {\n  const path = new URL(c.req.url).pathname\n  const parts = path.split('/').filter(Boolean)\n  const doName = parts.length === 0 ? '/' : `/${parts.join('/')}`\n\n  // Each path segment creates a unique Durable Object\n  const id = c.env.FLEET_DO.idFromName(doName)\n  const stub = c.env.FLEET_DO.get(id)\n  return stub.fetch(c.req.raw as CFRequest)\n})\n\n// Example URL mappings:\n// / → root DO\n// /team1 → team1 DO  \n// /team1/project1 → team1/project1 DO\n// /team1/project1/task1 → team1/project1/task1 DO",svelteComponentTs:"// Client-side WebSocket connection\nlet ws;\n\nfunction connect() {\n  const path = window.location.pathname;\n  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${path}`;\n\n  ws = new WebSocket(wsUrl);\n\n  ws.onmessage = (event) => {\n    const msg = JSON.parse(event.data);\n    if (msg.type === 'state') {\n      updateUI(msg.payload);\n    } else if (msg.type === 'error') {\n      showError(msg.payload.error);\n    } else if (msg.type === 'message') {\n      alert(`${msg.payload.sender}: ${msg.payload.message}`);\n    }\n  };\n\n  ws.onclose = () => setTimeout(connect, 1000);\n}\n\nfunction sendMessage(msg) {\n  if (ws?.readyState === WebSocket.OPEN) {\n    ws.send(JSON.stringify(msg));\n  }\n}\n\n// Message types\nconst messageTypes = {\n  increment: { type: 'increment' },\n  createAgent: { type: 'createAgent', payload: { name } },\n  deleteAgent: { type: 'deleteAgent', payload: { name } },\n  sendMessage: { type: 'sendMessage', payload: { recipient, message } },\n  broadcast: { type: 'broadcast', payload: { message } }\n};",wranglerConfigTs:"# wrangler.toml - Cloudflare Workers configuration\nname = \"fleet\"\nmain = \"src/index.ts\"\ncompatibility_date = \"2024-01-01\"\n\nassets = { directory = \"public\" }\n\n[build.upload]\nformat = \"modules\"\n\n[durable_objects]\nbindings = [\n  { name = \"FLEET_DO\", class_name = \"FleetDO\" }\n]\n\n[[migrations]]\ntag = \"v1\"\nnew_classes = [\"FleetDO\"]\n\n[observability.logs]\nenabled = true",packageJson:"{\n  \"name\": \"fleet-pattern\",\n  \"version\": \"1.0.0\",\n  \"description\": \"A demonstration of hierarchical Durable Objects in Cloudflare Workers\",\n  \"module\": \"index.ts\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"wrangler dev\",\n    \"deploy\": \"bunx wrangler deploy\"\n  },\n  \"dependencies\": {\n    \"hono\": \"^4.6.20\"\n  },\n  \"devDependencies\": {\n    \"@cloudflare/workers-types\": \"^4.20250204.0\",\n    \"wrangler\": \"^3.107.3\"\n  }\n}",uiJs:"// Real-time UI updates with WebSocket\nfunction updateUI(state) {\n  // Update counter\n  document.getElementById('count').textContent = state.data.count;\n\n  // Update agents list\n  const agentsList = document.getElementById('agents');\n  agentsList.innerHTML = '';\n\n  if (state.agents.length === 0) {\n    agentsList.innerHTML = '\u003Cli class=\"no-agents\">No agents\u003C/li>';\n    return;\n  }\n\n  state.agents.forEach(name => {\n    const li = document.createElement('li');\n    li.innerHTML = `\n      \u003Cdiv class=\"agent-row\">\n        \u003Ca href=\"${window.location.pathname === '/' ? '' : window.location.pathname}/${name}\">${name}\u003C/a>\n        \u003Cdiv class=\"agent-controls\">\n          \u003Cinput type=\"text\" placeholder=\"Message\" class=\"message-input\">\n          \u003Cbutton onclick=\"sendMessageTo('${name}')\" class=\"send-btn\">Send\u003C/button>\n          \u003Cbutton onclick=\"deleteAgent('${name}')\" class=\"delete-btn\">Delete\u003C/button>\n        \u003C/div>\n      \u003C/div>\n    `;\n    agentsList.appendChild(li);\n  });\n}\n\nfunction sendMessageTo(recipient) {\n  const row = document.querySelector(`[onclick=\"sendMessageTo('${recipient}')\"]`).closest('.agent-row');\n  const message = row.querySelector('.message-input').value.trim();\n\n  if (message) {\n    sendMessage({\n      type: 'sendMessage',\n      payload: { recipient, message }\n    });\n    row.querySelector('.message-input').value = '';\n  }\n}",ideasMd:"# Fleet Pattern Use Cases\n\n## Core Principles\n- Each DO should be self-contained and useful in isolation\n- Communication between DOs should enhance functionality, not be required\n- The edge location should provide meaningful advantages\n- State persistence should enable unique capabilities\n- Real-time interaction should be core to the design\n\n## Production Use Cases\n\n### 1. Real-time Collaborative IDE\n- Each file is a DO with its own operational transform engine\n- Real-time cursors and editing between users\n- File-specific permissions and history\n- Instant file search within its scope\n\n### 2. Distributed Task Runner\n- Each stage manages its own tasks\n- Tasks can communicate status up the chain\n- Automatic retry and failure management\n- Real-time progress monitoring\n\n### 3. IoT Device Management\n- Each level manages its own device fleet\n- Real-time sensor data aggregation\n- Hierarchical alerts and monitoring\n- Local state caching for offline resilience\n\n### 4. Game Server Infrastructure\n- Each instance is its own game server\n- Real-time player state management\n- Instance-to-instance communication\n- Regional matchmaking\n\n### 5. Content Management System\n- Each page manages its own content and cache\n- Real-time preview and collaboration\n- Hierarchical permissions\n- Instant content propagation\n\n### 6. Distributed Chat System\n- Each thread manages its own messages\n- Real-time presence and typing indicators\n- Message persistence and search\n- Cross-thread notifications",scalingPatterns:"// Scaling patterns for different use cases\n\n// 1. Geographic Distribution\nconst region = getClosestRegion(clientIP);\nconst obj = env.FLEET_DO.getByName(`${region}-team1-project1`);\n\n// 2. Tenant Isolation\nconst obj = env.FLEET_DO.getByName(`tenant-${tenantId}-team1`);\n\n// 3. Feature-based Sharding\nconst obj = env.FLEET_DO.getByName(`feature-${featureId}-instance-${instanceId}`);\n\n// 4. Time-based Partitioning\nconst date = new Date().toISOString().split('T')[0];\nconst obj = env.FLEET_DO.getByName(`${date}-analytics`);\n\n// 5. Load-based Distribution\nconst shardId = hash(userId) % numShards;\nconst obj = env.FLEET_DO.getByName(`shard-${shardId}-user-${userId}`);",messageProtocol:"// WebSocket message protocol\ninterface WSMessage {\n  type: 'increment' | 'createAgent' | 'deleteAgent' | 'sendMessage' | 'broadcast';\n  payload?: {\n    name?: string;\n    message?: string;\n    recipient?: string;\n  };\n}\n\ninterface WSResponse {\n  type: 'state' | 'error' | 'message' | 'broadcast';\n  payload: {\n    data?: { count: number };\n    agents?: string[];\n    error?: string;\n    message?: string;\n    sender?: string;\n  };\n}\n\n// Message flow examples\nconst messages = {\n  // Local state change\n  increment: { type: 'increment' },\n  \n  // Hierarchy management\n  createAgent: { type: 'createAgent', payload: { name: 'newAgent' } },\n  deleteAgent: { type: 'deleteAgent', payload: { name: 'oldAgent' } },\n  \n  // Communication\n  sendMessage: { type: 'sendMessage', payload: { recipient: 'agent1', message: 'Hello!' } },\n  broadcast: { type: 'broadcast', payload: { message: 'System update' } }\n};"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

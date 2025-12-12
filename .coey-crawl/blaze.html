@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Firestore feel, Cloudflare price—JSON docs with WebSocket updates."/> <meta name="keywords" content="blaze, real-time, documents, cloudflare, durable objects"/> <link rel="canonical" href="https://coey.dev/blaze"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Blaze: Real-time documents on Cloudflare"/> <meta property="og:description" content="Firestore feel, Cloudflare price—JSON docs with WebSocket updates."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/blaze"/> <meta property="og:image" content="https://api.coey.dev/?title=Blaze%3A%20Real-time%20documents%20on%20Cloudflare&amp;description=Firestore%20feel%2C%20Cloudflare%20price%E2%80%94JSON%20docs%20with%20WebSocket%20updates."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Blaze: Real-time documents on Cloudflare"/> <meta name="twitter:description" content="Firestore feel, Cloudflare price—JSON docs with WebSocket updates."/> <meta name="twitter:image" content="https://api.coey.dev/?title=Blaze%3A%20Real-time%20documents%20on%20Cloudflare&amp;description=Firestore%20feel%2C%20Cloudflare%20price%E2%80%94JSON%20docs%20with%20WebSocket%20updates."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-09-15"/> <meta property="article:modified_time" content="2025-09-15"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,durable-objects,realtime"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Blaze: Real-time documents on Cloudflare",
+  "description": "Firestore feel, Cloudflare price—JSON docs with WebSocket updates.",
+  "image": "https://api.coey.dev/?title=Blaze%3A%20Real-time%20documents%20on%20Cloudflare&description=Firestore%20feel%2C%20Cloudflare%20price%E2%80%94JSON%20docs%20with%20WebSocket%20updates.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-09-15",
+  "dateModified": "2025-09-15",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/blaze"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Blaze: Real-time documents on Cloudflare</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">BLAZE: REAL-TIME DOCUMENTS ON CLOUDFLARE</h1> <p class="text-xl font-mono">Firestore feel. Cloudflare price.</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">TECHNICAL GUIDE</span> <span class="ml-4">2025.09.15</span></div></header> <p class="text-lg font-mono mb-6">Live JSON docs with WebSocket updates—no database to babysit.</p> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">THE QUICK VERSION</h2> <p class="text-lg leading-relaxed mb-4">One Durable Object per document. Keep state in memory, push patches over
+        WebSockets. Clients get a snapshot and live updates.</p> <p class="leading-relaxed">Great for notes, flags, dashboards—small JSON that should sync fast.</p></section></div></main> <section class="mb-16 max-w-4xl mx-auto"><h2 class="text-2xl font-bold font-mono mb-6">ARCHITECTURE</h2> <div class="bg-black text-white p-4 font-mono mb-8"><pre>Client ↔ Worker → DocRoom (DO)
+           ↓
+        Broadcast</pre></div> <h2 class="text-2xl font-bold font-mono mb-4">INFRASTRUCTURE</h2> <p class="mb-3 font-mono">One namespace, one Worker—Alchemy wires the bindings.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// alchemy.run.ts (Blaze)
+import alchemy from "alchemy";
+import { Worker, DurableObjectNamespace } from "alchemy/cloudflare";
+
+const app = await alchemy("blaze");
+
+const docs = DurableObjectNamespace("doc", { className: "DocRoom" });
+
+await Worker("api", {
+  entrypoint: "./src/blaze-worker.ts",
+  bindings: { DOC: docs }
+});
+
+await app.finalize();</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">DURABLE OBJECT ROOM</h2> <p class="mb-3 font-mono">Keeps document state and broadcasts patches to WebSocket clients.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/doc.ts (Durable Object room for a document)
+import { DurableObject } from "cloudflare:workers";
+
+type Patch = { op: 'set' | 'merge'; value: Record&lt;string, unknown> };
+
+export class DocRoom extends DurableObject {
+  private state: Record&lt;string, unknown> = {};
+  private sockets = new Set&lt;WebSocket>();
+
+  private broadcast(msg: unknown) {
+    const text = JSON.stringify(msg);
+    for (const ws of this.sockets) try { ws.send(text); } catch {}
+  }
+
+  async fetch(req: Request) {
+    const url = new URL(req.url);
+
+    if (url.pathname === '/ws') {
+      const pair = new WebSocketPair();
+      const server = pair[1];
+      server.accept();
+      server.addEventListener('close', () => this.sockets.delete(server));
+      server.addEventListener('error', () => this.sockets.delete(server));
+      this.sockets.add(server);
+      server.send(JSON.stringify({ type: 'snapshot', value: this.state }));
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    if (url.pathname === '/patch' &amp;&amp; req.method === 'POST') {
+      const patch: Patch = await req.json();
+      if (patch.op === 'set') this.state = patch.value;
+      if (patch.op === 'merge') this.state = { ...this.state, ...patch.value };
+      this.broadcast({ type: 'patch', patch });
+      return new Response('ok');
+    }
+
+    if (url.pathname === '/get') return Response.json(this.state);
+
+    return new Response('not found', { status: 404 });
+  }
+}</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">WORKER ROUTING</h2> <p class="mb-3 font-mono">Thin router that forwards to the correct document room by id.</p> <div class="border-2 border-black mb-8"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// src/blaze-worker.ts (routing)
+import type { worker } from "../alchemy.run";
+
+export default {
+  async fetch(req: Request, env: typeof worker.Env): Promise&lt;Response> {
+    const url = new URL(req.url);
+    const [, , id] = url.pathname.split('/');
+    if (!id) return new Response('bad request', { status: 400 });
+    const stub = env.DOC.get(env.DOC.idFromName(id));
+
+    if (url.pathname.startsWith('/doc/') &amp;&amp; url.pathname.endsWith('/ws')) {
+      return stub.fetch('https://do/ws');
+    }
+    if (url.pathname.startsWith('/doc/') &amp;&amp; url.pathname.endsWith('/patch') &amp;&amp; req.method === 'POST') {
+      return stub.fetch('https://do/patch', { method: 'POST', body: await req.text() });
+    }
+    if (url.pathname.startsWith('/doc/') &amp;&amp; url.pathname.endsWith('/get')) {
+      return stub.fetch('https://do/get');
+    }
+    return new Response('not found', { status: 404 });
+  }
+};</code></pre><!--]--><!----></div> <h2 class="text-2xl font-bold font-mono mb-4">CLIENT</h2> <p class="mb-3 font-mono">Connect via WebSocket; send merge patches for instant updates.</p> <div class="border-2 border-black mb-4"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// client.ts (SvelteKit or plain browser)
+const docId = 'readme';
+const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/doc/${docId}/ws`);
+ws.onmessage = (e) => console.log('msg', JSON.parse(e.data));
+
+// merge patch
+await fetch(`/doc/${docId}/patch`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ op: 'merge', value: { title: 'Hello' } })
+});
+</code></pre><!--]--><!----></div> <div class="mt-12 border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Other articles</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/real-time-logging">Real-Time Logging</a></li> <li><a class="underline" href="/userdo">UserDO: Per-user Durable Objects</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern</a></li> <li><a class="underline" href="/promptlog">Promptlog: Dynamic Worker Loader</a></li></ul></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 8],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},{type:"data",data:{code:{alchemyTs:"// alchemy.run.ts (Blaze)\nimport alchemy from \"alchemy\";\nimport { Worker, DurableObjectNamespace } from \"alchemy/cloudflare\";\n\nconst app = await alchemy(\"blaze\");\n\nconst docs = DurableObjectNamespace(\"doc\", { className: \"DocRoom\" });\n\nawait Worker(\"api\", {\n  entrypoint: \"./src/blaze-worker.ts\",\n  bindings: { DOC: docs }\n});\n\nawait app.finalize();",roomTs:"// src/doc.ts (Durable Object room for a document)\nimport { DurableObject } from \"cloudflare:workers\";\n\ntype Patch = { op: 'set' | 'merge'; value: Record\u003Cstring, unknown> };\n\nexport class DocRoom extends DurableObject {\n  private state: Record\u003Cstring, unknown> = {};\n  private sockets = new Set\u003CWebSocket>();\n\n  private broadcast(msg: unknown) {\n    const text = JSON.stringify(msg);\n    for (const ws of this.sockets) try { ws.send(text); } catch {}\n  }\n\n  async fetch(req: Request) {\n    const url = new URL(req.url);\n\n    if (url.pathname === '/ws') {\n      const pair = new WebSocketPair();\n      const server = pair[1];\n      server.accept();\n      server.addEventListener('close', () => this.sockets.delete(server));\n      server.addEventListener('error', () => this.sockets.delete(server));\n      this.sockets.add(server);\n      server.send(JSON.stringify({ type: 'snapshot', value: this.state }));\n      return new Response(null, { status: 101, webSocket: pair[0] });\n    }\n\n    if (url.pathname === '/patch' && req.method === 'POST') {\n      const patch: Patch = await req.json();\n      if (patch.op === 'set') this.state = patch.value;\n      if (patch.op === 'merge') this.state = { ...this.state, ...patch.value };\n      this.broadcast({ type: 'patch', patch });\n      return new Response('ok');\n    }\n\n    if (url.pathname === '/get') return Response.json(this.state);\n\n    return new Response('not found', { status: 404 });\n  }\n}",workerTs:"// src/blaze-worker.ts (routing)\nimport type { worker } from \"../alchemy.run\";\n\nexport default {\n  async fetch(req: Request, env: typeof worker.Env): Promise\u003CResponse> {\n    const url = new URL(req.url);\n    const [, , id] = url.pathname.split('/');\n    if (!id) return new Response('bad request', { status: 400 });\n    const stub = env.DOC.get(env.DOC.idFromName(id));\n\n    if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/ws')) {\n      return stub.fetch('https://do/ws');\n    }\n    if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/patch') && req.method === 'POST') {\n      return stub.fetch('https://do/patch', { method: 'POST', body: await req.text() });\n    }\n    if (url.pathname.startsWith('/doc/') && url.pathname.endsWith('/get')) {\n      return stub.fetch('https://do/get');\n    }\n    return new Response('not found', { status: 404 });\n  }\n};",clientTs:"// client.ts (SvelteKit or plain browser)\nconst docId = 'readme';\nconst ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/doc/${docId}/ws`);\nws.onmessage = (e) => console.log('msg', JSON.parse(e.data));\n\n// merge patch\nawait fetch(`/doc/${docId}/patch`, {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ op: 'merge', value: { title: 'Hello' } })\n});\n"}},uses:{}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

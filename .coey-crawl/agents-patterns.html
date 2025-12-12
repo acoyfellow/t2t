@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content="coey.dev" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link class="deferred-stylesheet" rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Google+Sans:300,400,500,600,700&family=Google+Sans+Mono:300,400,500,600,700&amp;display=swap&amp;lang=en" as="style">
+
+		
+		<link href="./_app/immutable/assets/0.-k1r2YJt.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/CodeBlock.mf1IAhYo.css" rel="stylesheet"><!--12qhfyh--><meta name="description" content="Developer thoughts and code"/><!----><!--ojxrft--><meta name="description" content="Implementing Cloudflare's agent patterns using the Agents SDK with Durable Objects, state management, and scheduling."/> <meta name="keywords" content="cloudflare, agents, sdk, durable objects, patterns"/> <link rel="canonical" href="https://coey.dev/agents-patterns"/> <meta name="author" content="Jordan Coeyman"/> <!--[!--><!--]--> <meta property="og:title" content="Cloudflare Agents Patterns: Using the Agents SDK"/> <meta property="og:description" content="Implementing Cloudflare's agent patterns using the Agents SDK with Durable Objects, state management, and scheduling."/> <meta property="og:type" content="article"/> <meta property="og:url" content="https://coey.dev/agents-patterns"/> <meta property="og:image" content="https://api.coey.dev/?title=Cloudflare%20Agents%20Patterns%3A%20Using%20the%20Agents%20SDK&amp;description=Implementing%20Cloudflare's%20agent%20patterns%20using%20the%20Agents%20SDK%20with%20Durable%20Objects%2C%20state%20management%2C%20and%20scheduling."/> <meta property="og:site_name" content="coey.dev"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Cloudflare Agents Patterns: Using the Agents SDK"/> <meta name="twitter:description" content="Implementing Cloudflare's agent patterns using the Agents SDK with Durable Objects, state management, and scheduling."/> <meta name="twitter:image" content="https://api.coey.dev/?title=Cloudflare%20Agents%20Patterns%3A%20Using%20the%20Agents%20SDK&amp;description=Implementing%20Cloudflare's%20agent%20patterns%20using%20the%20Agents%20SDK%20with%20Durable%20Objects%2C%20state%20management%2C%20and%20scheduling."/> <meta name="twitter:site" content="@acoyfellow"/> <!--[--><meta property="article:published_time" content="2025-11-29"/> <meta property="article:modified_time" content="2025-11-29"/> <!--[--><meta property="article:section" content="technical"/><!--]--> <!--[--><meta property="article:tag" content="cloudflare,agents,sdk"/><!--]--><!--]-->  <!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Jordan Coeyman",
+  "url": "https://coey.dev",
+  "logo": {
+    "@type": "ImageObject",
+    "url": "https://coey.dev/jordan.jpg"
+  },
+  "sameAs": [
+    "https://x.com/acoyfellow",
+    "https://github.com/acoyfellow"
+  ]
+}</script><!----> <!--[!--><!--]--> <!--[--><!----><script type="application/ld+json" nonce="%sveltekit.nonce%">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Cloudflare Agents Patterns: Using the Agents SDK",
+  "description": "Implementing Cloudflare's agent patterns using the Agents SDK with Durable Objects, state management, and scheduling.",
+  "image": "https://api.coey.dev/?title=Cloudflare%20Agents%20Patterns%3A%20Using%20the%20Agents%20SDK&description=Implementing%20Cloudflare's%20agent%20patterns%20using%20the%20Agents%20SDK%20with%20Durable%20Objects%2C%20state%20management%2C%20and%20scheduling.",
+  "wordCount": 0,
+  "author": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Jordan Coeyman",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://coey.dev/jordan.jpg"
+    }
+  },
+  "datePublished": "2025-11-29",
+  "dateModified": "2025-11-29",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://coey.dev/agents-patterns"
+  }
+}</script><!----><!--]--> <!--[!--><!--]--><!----><title>Cloudflare Agents Patterns: Using the Agents SDK</title>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents"><!--[--><!--[--><!----><header class="flex items-center justify-between p-4 gap-4 flex-wrap" id="nav"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black hover:border-white bg-white text-black">coey.dev</a> <nav><div class="flex gap-0"><a href="/" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-white hover:text-black border-4 border-black bg-white text-black">POSTS</a> <a href="/about" class="px-4 py-2 md:px-8 md:py-4 md:text-2xl font-black hover:bg-black hover:text-white border-4 border-black border-l-0 bg-white text-black">ABOUT</a></div></nav></header> <div class="fixed inset-0 pointer-events-none -z-10" style="opacity: 0.7; mix-blend-mode: multiply; will-change: transform;"></div><!----> <main class="pt-20 relative"><!----><!--[--><!--]--> <main class="bg-white text-black"><div class="max-w-4xl mx-auto px-6 py-12"><header class="border-b-2 border-black pb-8 mb-12"><h1 class="text-4xl font-bold uppercase tracking-wider mb-4">CLOUDFLARE AGENTS PATTERNS</h1> <p class="text-xl font-mono">Implementing patterns with the Agents SDK</p> <div class="mt-4 font-mono"><span class="bg-black text-white px-2 py-1">AGENTS SDK</span> <span class="ml-4">2025.11.29</span></div></header> <section class="mb-12 border-l-2 border-black pl-6"><h2 class="text-2xl font-bold font-mono mb-4">OVERVIEW</h2> <p class="text-lg leading-relaxed mb-4">Cloudflare's <a href="https://developers.cloudflare.com/agents/patterns/" class="underline" target="_blank" rel="noopener noreferrer">patterns page</a> demonstrates agent patterns using the AI SDK. Here's how to implement the
+        same patterns using the <a href="https://developers.cloudflare.com/agents/" class="underline" target="_blank" rel="noopener noreferrer">Cloudflare Agents SDK</a>, which provides additional capabilities like state management,
+        scheduling, and database access.</p> <p class="leading-relaxed mb-4">Agents extend the <code>Agent</code> class, run as Durable Objects, and include
+        built-in state management, scheduling, and database access.</p> <div class="bg-black text-white p-4 font-mono"><pre>Agent class → Durable Objects
+         ↓
+    State, scheduling, sql</pre></div></section></div></main> <section class="p-8"><div class="max-w-4xl mx-auto space-y-10"><div><h2 class="text-2xl font-bold font-mono mb-4">PATTERN 1: PROMPT CHAINING</h2> <p class="mb-3 font-mono">Sequential steps where each LLM call processes the previous output. With
+        state persistence.</p> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Pattern 1: Prompt Chaining with Agents SDK
+import { Agent } from "@cloudflare/agents";
+import { generateText, generateObject } from "ai";
+import { z } from "zod";
+
+export class MarketingCopyAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { input } = await request.json();
+
+    // Check if we have intermediate state from previous run
+    const state = await this.getState();
+    if (state.currentCopy &amp;&amp; state.step === "generated") {
+      // Resume from evaluation step
+      return this.evaluateAndImprove(state.currentCopy);
+    }
+
+    // Step 1: Generate marketing copy
+    const { text: copy } = await generateText({
+      model: this.env.AI_MODEL,
+      prompt: `Write persuasive marketing copy for: ${input}. Focus on benefits and emotional appeal.`,
+    });
+
+    // Store intermediate result in database
+    await this.sql`
+      INSERT INTO agent_state (agent_id, step, data, created_at)
+      VALUES (${this.ctx.id.toString()}, 'generated', ${JSON.stringify({ copy })}, ${Date.now()})
+    `;
+
+    // Update agent state
+    await this.setState({ currentCopy: copy, step: "generated" });
+
+    // Step 2: Evaluate the generated copy
+    return this.evaluateAndImprove(copy);
+  }
+
+  private async evaluateAndImprove(copy: string): Promise&lt;Response> {
+    const { object: qualityMetrics } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        hasCallToAction: z.boolean(),
+        emotionalAppeal: z.number().min(1).max(10),
+        clarity: z.number().min(1).max(10),
+      }),
+      prompt: `Evaluate this marketing copy:
+      1. Presence of call to action (true/false)
+      2. Emotional appeal (1-10)
+      3. Clarity (1-10)
+      
+      Copy: ${copy}`,
+    });
+
+    // Step 3: Improve if needed
+    if (
+      !qualityMetrics.hasCallToAction ||
+      qualityMetrics.emotionalAppeal &lt; 7 ||
+      qualityMetrics.clarity &lt; 7
+    ) {
+      const { text: improvedCopy } = await generateText({
+        model: this.env.AI_MODEL,
+        prompt: `Rewrite this marketing copy with:
+        ${!qualityMetrics.hasCallToAction ? "- A clear call to action" : ""}
+        ${qualityMetrics.emotionalAppeal &lt; 7 ? "- Stronger emotional appeal" : ""}
+        ${qualityMetrics.clarity &lt; 7 ? "- Improved clarity and directness" : ""}
+        
+        Original: ${copy}`,
+      });
+
+      // Store final result
+      await this.sql`
+        INSERT INTO agent_results (agent_id, result, metrics, created_at)
+        VALUES (${this.ctx.id.toString()}, ${improvedCopy}, ${JSON.stringify(qualityMetrics)}, ${Date.now()})
+      `;
+
+      await this.setState({ step: "completed" });
+
+      return new Response(
+        JSON.stringify({ copy: improvedCopy, qualityMetrics }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Store final result
+    await this.sql`
+      INSERT INTO agent_results (agent_id, result, metrics, created_at)
+      VALUES (${this.ctx.id.toString()}, ${copy}, ${JSON.stringify(qualityMetrics)}, ${Date.now()})
+    `;
+
+    await this.setState({ step: "completed" });
+
+    return new Response(
+      JSON.stringify({ copy, qualityMetrics }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}</code></pre><!--]--><!----></div> <p class="mt-4 text-sm">State persists between steps. If agent restarts, it can resume from last
+        step using stored state.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PATTERN 2: ROUTING</h2> <p class="mb-3 font-mono">Classify input, route to specialized agents. With agent-to-agent
+        communication.</p> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Pattern 2: Routing with Agent-to-Agent Communication
+import { Agent, AgentNamespace } from "@cloudflare/agents";
+import { generateObject } from "ai";
+import { z } from "zod";
+
+export class RoutingAgent extends Agent {
+  private agents: AgentNamespace;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.agents = env.AGENTS;
+  }
+
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { query } = await request.json();
+
+    // Step 1: Classify the query
+    const { object: classification } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        reasoning: z.string(),
+        type: z.enum(["general", "refund", "technical"]),
+        complexity: z.enum(["simple", "complex"]),
+      }),
+      prompt: `Classify this customer query:
+      ${query}
+      
+      Determine:
+      1. Query type (general, refund, or technical)
+      2. Complexity (simple or complex)
+      3. Brief reasoning`,
+    });
+
+    // Log routing decision
+    await this.sql`
+      INSERT INTO routing_log (query, type, complexity, reasoning, timestamp)
+      VALUES (${query}, ${classification.type}, ${classification.complexity}, ${classification.reasoning}, ${Date.now()})
+    `;
+
+    // Step 2: Route to specialized agent
+    const agentId = this.agents.idFromName(`${classification.type}-agent`);
+    const specializedAgent = this.agents.get(agentId);
+
+    const response = await specializedAgent.fetch(
+      new Request("https://agent/run", {
+        method: "POST",
+        body: JSON.stringify({ query, classification }),
+      })
+    );
+
+    return response;
+  }
+}
+
+export class SupportAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { query } = await request.json();
+
+    const response = await this.generateText({
+      model: this.env.AI_MODEL,
+      system: "You are an expert customer service agent handling general inquiries.",
+      prompt: query,
+    });
+
+    return new Response(
+      JSON.stringify({ type: "support", response: response.text }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+
+export class RefundAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { query } = await request.json();
+
+    const response = await this.generateText({
+      model: this.env.AI_MODEL,
+      system: "You are a customer service agent specializing in refund requests. Follow company policy and collect necessary information.",
+      prompt: query,
+    });
+
+    return new Response(
+      JSON.stringify({ type: "refund", response: response.text }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
+
+export class TechnicalAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { query } = await request.json();
+
+    const response = await this.generateText({
+      model: this.env.AI_MODEL,
+      system: "You are a technical support specialist with deep product knowledge. Focus on clear step-by-step troubleshooting.",
+      prompt: query,
+    });
+
+    // Store technical queries for analytics
+    await this.sql`
+      INSERT INTO technical_queries (query, response, timestamp)
+      VALUES (${query}, ${response.text}, ${Date.now()})
+    `;
+
+    return new Response(
+      JSON.stringify({ type: "technical", response: response.text }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}</code></pre><!--]--><!----></div> <p class="mt-4 text-sm">Agents can call other agents. Each agent is a Durable Object instance.
+        Routing decisions logged to database for analytics.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PATTERN 3: PARALLELIZATION</h2> <p class="mb-3 font-mono">Run multiple tasks concurrently. With result aggregation and database
+        logging.</p> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Pattern 3: Parallelization with Result Aggregation
+import { Agent } from "@cloudflare/agents";
+import { generateObject } from "ai";
+import { z } from "zod";
+
+export class CodeReviewAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { code } = await request.json();
+
+    // Track parallel execution state
+    await this.setState({ 
+      status: "processing",
+      startTime: Date.now(),
+      tasks: ["security", "performance", "maintainability"]
+    });
+
+    // Step 1: Run parallel reviews
+    const [securityReview, performanceReview, maintainabilityReview] =
+      await Promise.all([
+        this.reviewSecurity(code),
+        this.reviewPerformance(code),
+        this.reviewMaintainability(code),
+      ]);
+
+    const reviews = [
+      { ...securityReview, type: "security" },
+      { ...performanceReview, type: "performance" },
+      { ...maintainabilityReview, type: "maintainability" },
+    ];
+
+    // Step 2: Store results in database
+    await this.sql`
+      INSERT INTO code_reviews (code_hash, reviews, created_at)
+      VALUES (${this.hashCode(code)}, ${JSON.stringify(reviews)}, ${Date.now()})
+    `;
+
+    // Step 3: Aggregate results
+    const summary = await this.generateText({
+      model: this.env.AI_MODEL,
+      system: "You are a technical lead summarizing multiple code reviews.",
+      prompt: `Synthesize these code review results into a concise summary with key actions:
+      ${JSON.stringify(reviews, null, 2)}`,
+    });
+
+    await this.setState({ 
+      status: "completed",
+      endTime: Date.now(),
+      summary: summary.text
+    });
+
+    return new Response(
+      JSON.stringify({ reviews, summary: summary.text }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  private async reviewSecurity(code: string) {
+    const { object } = await generateObject({
+      model: this.env.AI_MODEL,
+      system: "You are an expert in code security. Focus on identifying security vulnerabilities, injection risks, and authentication issues.",
+      schema: z.object({
+        vulnerabilities: z.array(z.string()),
+        riskLevel: z.enum(["low", "medium", "high"]),
+        suggestions: z.array(z.string()),
+      }),
+      prompt: `Review this code for security issues:
+      ${code}`,
+    });
+    return object;
+  }
+
+  private async reviewPerformance(code: string) {
+    const { object } = await generateObject({
+      model: this.env.AI_MODEL,
+      system: "You are an expert in code performance. Focus on identifying performance bottlenecks, memory leaks, and optimization opportunities.",
+      schema: z.object({
+        issues: z.array(z.string()),
+        impact: z.enum(["low", "medium", "high"]),
+        optimizations: z.array(z.string()),
+      }),
+      prompt: `Review this code for performance issues:
+      ${code}`,
+    });
+    return object;
+  }
+
+  private async reviewMaintainability(code: string) {
+    const { object } = await generateObject({
+      model: this.env.AI_MODEL,
+      system: "You are an expert in code quality. Focus on code structure, readability, and adherence to best practices.",
+      schema: z.object({
+        concerns: z.array(z.string()),
+        qualityScore: z.number().min(1).max(10),
+        recommendations: z.array(z.string()),
+      }),
+      prompt: `Review this code for maintainability:
+      ${code}`,
+    });
+    return object;
+  }
+
+  private hashCode(code: string): string {
+    // Simple hash for tracking
+    return Buffer.from(code).toString("base64").slice(0, 16);
+  }
+}</code></pre><!--]--><!----></div> <p class="mt-4 text-sm">Results stored in database automatically. Agent state tracks parallel
+        execution. Can resume if partial completion.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PATTERN 4: ORCHESTRATOR-WORKERS</h2> <p class="mb-3 font-mono">Central agent delegates to worker agents. With proper agent namespace
+        communication.</p> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Pattern 4: Orchestrator-Workers with Agent Namespace
+import { Agent, AgentNamespace } from "@cloudflare/agents";
+import { generateObject } from "ai";
+import { z } from "zod";
+
+export class OrchestratorAgent extends Agent {
+  private agents: AgentNamespace;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.agents = env.AGENTS;
+  }
+
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { featureRequest } = await request.json();
+
+    // Track orchestration state
+    await this.setState({
+      status: "planning",
+      featureRequest,
+      startTime: Date.now(),
+    });
+
+    // Step 1: Plan the implementation
+    const { object: implementationPlan } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        files: z.array(
+          z.object({
+            purpose: z.string(),
+            filePath: z.string(),
+            changeType: z.enum(["create", "modify", "delete"]),
+          })
+        ),
+        estimatedComplexity: z.enum(["low", "medium", "high"]),
+      }),
+      system: "You are a senior software architect planning feature implementations.",
+      prompt: `Analyze this feature request and create an implementation plan:
+      ${featureRequest}`,
+    });
+
+    await this.setState({
+      status: "executing",
+      plan: implementationPlan,
+    });
+
+    // Step 2: Delegate to worker agents
+    const workerTasks = implementationPlan.files.map((file, index) =>
+      this.delegateToWorker(file, featureRequest, index)
+    );
+
+    // Step 3: Collect results
+    const results = await Promise.allSettled(workerTasks);
+
+    const fileChanges = results.map((result, index) => {
+      if (result.status === "fulfilled") {
+        return {
+          file: implementationPlan.files[index],
+          implementation: result.value,
+        };
+      } else {
+        return {
+          file: implementationPlan.files[index],
+          error: result.reason.message,
+        };
+      }
+    });
+
+    // Step 4: Store orchestration results
+    await this.sql`
+      INSERT INTO orchestrations (feature_request, plan, results, created_at)
+      VALUES (${featureRequest}, ${JSON.stringify(implementationPlan)}, ${JSON.stringify(fileChanges)}, ${Date.now()})
+    `;
+
+    await this.setState({
+      status: "completed",
+      endTime: Date.now(),
+    });
+
+    return new Response(
+      JSON.stringify({
+        plan: implementationPlan,
+        changes: fileChanges,
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  private async delegateToWorker(
+    file: { purpose: string; filePath: string; changeType: string },
+    featureRequest: string,
+    index: number
+  ) {
+    const workerId = this.agents.idFromName(`worker-${index}`);
+    const worker = this.agents.get(workerId);
+
+    const workerSystemPrompt = {
+      create:
+        "You are an expert at implementing new files following best practices and project patterns.",
+      modify:
+        "You are an expert at modifying existing code while maintaining consistency and avoiding regressions.",
+      delete:
+        "You are an expert at safely removing code while ensuring no breaking changes.",
+    }[file.changeType];
+
+    const response = await worker.fetch(
+      new Request("https://agent/run", {
+        method: "POST",
+        body: JSON.stringify({
+          file,
+          featureRequest,
+          systemPrompt: workerSystemPrompt,
+        }),
+      })
+    );
+
+    return response.json();
+  }
+}
+
+export class WorkerAgent extends Agent {
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { file, featureRequest, systemPrompt } = await request.json();
+
+    const { object: change } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        explanation: z.string(),
+        code: z.string(),
+      }),
+      system: systemPrompt,
+      prompt: `Implement the changes for ${file.filePath} to support:
+      ${file.purpose}
+      
+      Consider the overall feature context:
+      ${featureRequest}`,
+    });
+
+    // Store worker result
+    await this.sql`
+      INSERT INTO worker_results (worker_id, file_path, result, created_at)
+      VALUES (${this.ctx.id.toString()}, ${file.filePath}, ${JSON.stringify(change)}, ${Date.now()})
+    `;
+
+    return new Response(
+      JSON.stringify(change),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}</code></pre><!--]--><!----></div> <p class="mt-4 text-sm">Orchestrator uses AgentNamespace to communicate with workers. Each
+        worker is isolated Durable Object. Results aggregated with state
+        tracking.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">PATTERN 5: EVALUATOR-OPTIMIZER</h2> <p class="mb-3 font-mono">Evaluation loop with scheduled optimization. Using built-in scheduling.</p> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// Pattern 5: Evaluator-Optimizer with Scheduling
+import { Agent, AgentNamespace } from "@cloudflare/agents";
+import { generateText, generateObject } from "ai";
+import { z } from "zod";
+
+export class EvaluatorAgent extends Agent {
+  async onStart() {
+    // Schedule daily evaluation
+    await this.schedule({
+      name: "daily-evaluation",
+      cron: "0 2 * * *", // 2 AM daily
+      action: async () => {
+        await this.evaluateSystem();
+      },
+    });
+  }
+
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { systemOutput, context } = await request.json();
+
+    const evaluation = await this.evaluateOutput(systemOutput, context);
+
+    return new Response(
+      JSON.stringify(evaluation),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  private async evaluateSystem() {
+    // Get recent system outputs
+    const recentOutputs = await this.sql`
+      SELECT output, context FROM system_outputs 
+      WHERE created_at > ${Date.now() - 24 * 60 * 60 * 1000}
+      ORDER BY created_at DESC
+      LIMIT 10
+    `;
+
+    for (const row of recentOutputs) {
+      await this.evaluateOutput(row.output, row.context);
+    }
+  }
+
+  private async evaluateOutput(
+    systemOutput: string,
+    context?: Record&lt;string, any>
+  ) {
+    const { object: evaluation } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        accuracy: z.number().min(0).max(10),
+        relevance: z.number().min(0).max(10),
+        completeness: z.number().min(0).max(10),
+        overallScore: z.number().min(0).max(10),
+        strengths: z.array(z.string()),
+        weaknesses: z.array(z.string()),
+        recommendations: z.array(z.string()),
+      }),
+      system: "You are an expert in evaluating system performance.",
+      prompt: `Evaluate this system output:
+      Output: ${systemOutput}
+      Context: ${JSON.stringify(context || {})}
+      
+      Consider:
+      1. Overall quality (0-10)
+      2. Accuracy (0-10)
+      3. Relevance (0-10)
+      4. Completeness (0-10)
+      5. Strengths and weaknesses
+      6. Improvement recommendations`,
+    });
+
+    // Store evaluation history
+    await this.sql`
+      INSERT INTO evaluations (output_hash, overall_score, evaluation_data, created_at)
+      VALUES (${this.hashOutput(systemOutput)}, ${evaluation.overallScore}, ${JSON.stringify(evaluation)}, ${Date.now()})
+    `;
+
+    // Trigger optimizer if score is low
+    if (evaluation.overallScore &lt; 7) {
+      await this.triggerOptimizer(evaluation);
+    }
+
+    return evaluation;
+  }
+
+  private async triggerOptimizer(evaluation: any) {
+    const agents = this.env.AGENTS as AgentNamespace;
+    const optimizerId = agents.idFromName("optimizer");
+    const optimizer = agents.get(optimizerId);
+
+    await optimizer.fetch(
+      new Request("https://agent/run", {
+        method: "POST",
+        body: JSON.stringify({ evaluation }),
+      })
+    );
+  }
+
+  private hashOutput(output: string): string {
+    return Buffer.from(output).toString("base64").slice(0, 16);
+  }
+}
+
+export class OptimizerAgent extends Agent {
+  private agents: AgentNamespace;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.agents = env.AGENTS;
+  }
+
+  async onRequest(request: Request): Promise&lt;Response> {
+    const { evaluation } = await request.json();
+
+    // Step 1: Determine optimization strategy
+    const { object: strategy } = await generateObject({
+      model: this.env.AI_MODEL,
+      schema: z.object({
+        priority: z.enum(["high", "medium", "low"]),
+        strategies: z.array(z.string()),
+        expectedImprovement: z.number().min(0).max(10),
+        implementationSteps: z.array(z.string()),
+      }),
+      system: "You are an expert in system optimization.",
+      prompt: `Based on this evaluation, suggest specific optimization strategies:
+      Evaluation: ${JSON.stringify(evaluation)}
+      
+      Provide:
+      1. Priority level (high/medium/low)
+      2. Specific strategies
+      3. Expected improvement (0-10)
+      4. Implementation steps`,
+    });
+
+    // Step 2: Apply optimization if priority is high
+    if (strategy.priority === "high") {
+      const { text: implementation } = await generateText({
+        model: this.env.AI_MODEL,
+        system: "You are an expert at implementing optimizations.",
+        prompt: `Implement the following optimization strategies:
+        ${strategy.strategies.join("\n")}
+        
+        Provide a detailed implementation plan.`,
+      });
+
+      // Store optimization history
+      await this.sql`
+        INSERT INTO optimizations (evaluation_id, strategy, result, created_at)
+        VALUES (${evaluation.overallScore}, ${JSON.stringify(strategy)}, ${implementation}, ${Date.now()})
+      `;
+
+      // Schedule follow-up evaluation
+      await this.schedule({
+        name: "post-optimization-evaluation",
+        cron: "0 */6 * * *", // Every 6 hours
+        action: async () => {
+          const evaluatorId = this.agents.idFromName("evaluator");
+          const evaluator = this.agents.get(evaluatorId);
+
+          await evaluator.fetch(
+            new Request("https://agent/run", {
+              method: "POST",
+              body: JSON.stringify({
+                systemOutput: implementation,
+                context: { optimized: true },
+              }),
+            })
+          );
+        },
+      });
+
+      return new Response(
+        JSON.stringify({
+          optimized: true,
+          strategy,
+          implementation,
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        optimized: false,
+        strategy,
+        reason: "Priority not high enough for immediate optimization",
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+}</code></pre><!--]--><!----></div> <p class="mt-4 text-sm">Uses <code>schedule()</code> for recurring evaluations. Optimization history
+        in database. Can trigger other agents on conditions.</p></div> <div><h2 class="text-2xl font-bold font-mono mb-4">WRANGLER CONFIG</h2> <div class="border-2 border-black"><!--[!--><pre class="bg-black border-2 border-black p-4 overflow-x-auto text-white"><code>// wrangler.jsonc
+{
+  "name": "agents-patterns",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
+  
+  "agents": {
+    "binding": "AGENTS",
+    "agents": [
+      { "name": "MarketingCopyAgent", "class": "MarketingCopyAgent" },
+      { "name": "RoutingAgent", "class": "RoutingAgent" },
+      { "name": "SupportAgent", "class": "SupportAgent" },
+      { "name": "RefundAgent", "class": "RefundAgent" },
+      { "name": "TechnicalAgent", "class": "TechnicalAgent" },
+      { "name": "CodeReviewAgent", "class": "CodeReviewAgent" },
+      { "name": "OrchestratorAgent", "class": "OrchestratorAgent" },
+      { "name": "WorkerAgent", "class": "WorkerAgent" },
+      { "name": "EvaluatorAgent", "class": "EvaluatorAgent" },
+      { "name": "OptimizerAgent", "class": "OptimizerAgent" }
+    ]
+  },
+  
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agents_db",
+      "database_id": "your-database-id"
+    }
+  ],
+  
+  "ai": {
+    "binding": "AI_MODEL",
+    "model": "@cf/meta/llama-3-8b-instruct"
+  }
+}</code></pre><!--]--><!----></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">AGENTS SDK FEATURES</h2> <ul class="list-disc ml-6 space-y-2"><li><strong>State persistence:</strong> Agents survive restarts with state
+          management.</li> <li><strong>Database access:</strong> Built-in <code>sql</code> template tag
+          for database operations.</li> <li><strong>Scheduling:</strong> <code>schedule()</code> for recurring tasks
+          and workflows.</li> <li><strong>Agent communication:</strong> AgentNamespace for agent-to-agent
+          calls with proper isolation.</li> <li><strong>Durable Objects:</strong> Each agent runs as a Durable Object instance
+          with automatic scaling and persistence.</li></ul></div> <div><h2 class="text-2xl font-bold font-mono mb-4">AGENTS SDK CAPABILITIES</h2> <div class="border-2 border-black p-6"><ul class="space-y-2"><li>• Agent class extends DurableObject</li> <li>• Built-in state management with <code>setState()</code> and <code>getState()</code></li> <li>• <code>schedule()</code> for recurring tasks and workflows</li> <li>• AgentNamespace for agent-to-agent communication</li> <li>• <code>sql</code> template tag for database operations</li> <li>• State persistence across restarts</li> <li>• Automatic scaling with Durable Objects</li></ul></div></div> <div><h2 class="text-2xl font-bold font-mono mb-4">REFERENCE</h2> <p class="mb-4">Original patterns: <a href="https://developers.cloudflare.com/agents/patterns/" class="underline" target="_blank" rel="noopener noreferrer">Cloudflare Agents Patterns</a></p> <p class="mb-4">Agents SDK docs: <a href="https://developers.cloudflare.com/agents/" class="underline" target="_blank" rel="noopener noreferrer">Cloudflare Agents Documentation</a></p></div> <div class="border-t-2 border-black pt-6"><h3 class="text-xl font-bold font-mono mb-2">Related articles</h3> <ul class="list-disc ml-6"><li><a class="underline" href="/agentic-architecture">Agentic AI Architectures</a></li> <li><a class="underline" href="/trust-broker">Trust Broker: Human-mediated agent communication</a></li> <li><a class="underline" href="/fleet-pattern">Fleet Pattern: Hierarchical Durable Objects</a></li> <li><a class="underline" href="/ditto">Ditto: Edge-native parallel LLM orchestration</a></li></ul></div></div></section><!----><!----></main><!----><!--]--> <!--[!--><!--]--><!--]-->
+			
+			<script>
+				{
+					__sveltekit_seuxg2 = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("./_app/immutable/entry/start.B6XN_71n.js"),
+						import("./_app/immutable/entry/app.BC487iTC.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 6],
+							data: [{type:"data",data:{user:null,session:null},uses:{}},null],
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>
