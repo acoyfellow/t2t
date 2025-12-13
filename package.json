@@ -1,6 +1,27 @@
 {
   "name": "t2t",
   "version": "0.1.0",
+  "description": "Fn push-to-talk dictation for macOS: local Whisper transcription + auto-paste into the focused app.",
+  "keywords": [
+    "tauri",
+    "rust",
+    "svelte",
+    "sveltekit",
+    "svelte5",
+    "macos",
+    "desktop-app",
+    "speech-to-text",
+    "dictation",
+    "push-to-talk",
+    "fn-key",
+    "whisper",
+    "whisper-rs",
+    "offline",
+    "local-first",
+    "clipboard",
+    "accessibility",
+    "productivity"
+  ],
   "private": true,
   "scripts": {
     "dev": "vite dev",
