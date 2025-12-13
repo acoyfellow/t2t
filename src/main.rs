@@ -21,6 +21,7 @@ static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
 static FOCUSED_AX_ELEM: OnceCell<Mutex<Option<usize>>> = OnceCell::new();
+static FOCUSED_AX_FINGERPRINT: OnceCell<Mutex<Option<String>>> = OnceCell::new();
 
 enum AudioCmd {
     Start,
@@ -193,6 +194,9 @@ mod macos_fn_key {
         fn CFRetain(cf: *const c_void) -> *const c_void;
         fn CFRelease(cf: *const c_void);
         fn CFStringCreateWithCString(alloc: *const c_void, c_str: *const i8, encoding: u32) -> *const c_void;
+        fn CFStringGetLength(the_string: *const c_void) -> CFIndex;
+        fn CFStringGetMaximumSizeForEncoding(length: CFIndex, encoding: u32) -> CFIndex;
+        fn CFStringGetCString(the_string: *const c_void, buffer: *mut i8, buffer_size: CFIndex, encoding: u32) -> bool;
     }
 
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
@@ -211,15 +215,11 @@ mod macos_fn_key {
         static kAXTrustedCheckOptionPrompt: *const c_void;
 
         fn AXUIElementCreateSystemWide() -> *mut c_void;
+        fn AXUIElementGetPid(element: *mut c_void, pid: *mut i32) -> i32;
         fn AXUIElementCopyAttributeValue(
             element: *mut c_void,
             attribute: *const c_void,
             value: *mut *mut c_void,
-        ) -> i32;
-        fn AXUIElementSetAttributeValue(
-            element: *mut c_void,
-            attribute: *const c_void,
-            value: *const c_void,
         ) -> i32;
     }
 
@@ -249,22 +249,6 @@ mod macos_fn_key {
         }
     }
 
-    fn activate_pid(pid: i32) {
-        if pid <= 0 {
-            return;
-        }
-        unsafe {
-            // NSRunningApplication.runningApplicationWithProcessIdentifier(pid).activateWithOptions(NSApplicationActivateIgnoringOtherApps)
-            let running: *mut Object = msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier:pid];
-            if running.is_null() {
-                return;
-            }
-            // NSApplicationActivateIgnoringOtherApps = 1 << 1
-            let opts: u64 = 1u64 << 1;
-            let _: bool = msg_send![running, activateWithOptions:opts];
-        }
-    }
-
     fn capture_focused_ax_element() -> Option<usize> {
         unsafe {
             let sys = AXUIElementCreateSystemWide();
@@ -283,20 +267,104 @@ mod macos_fn_key {
         }
     }
 
-    fn restore_focused_ax_element() {
-        let Some(cell) = FOCUSED_AX_ELEM.get() else { return; };
-        let stored = cell.lock().ok().and_then(|g| *g);
-        let Some(ptr_usize) = stored else { return; };
-        let elem = ptr_usize as *mut c_void;
-        if elem.is_null() {
-            return;
+    fn cfstring_to_string(s: *const c_void) -> Option<String> {
+        if s.is_null() {
+            return None;
         }
         unsafe {
-            let attr = cfstr("AXFocused");
-            let err = AXUIElementSetAttributeValue(elem, attr, kCFBooleanTrue);
-            CFRelease(attr);
-            log_line(&format!("AX restore focus result={err}"));
+            let len = CFStringGetLength(s);
+            let max = CFStringGetMaximumSizeForEncoding(len, K_CF_STRING_ENCODING_UTF8) + 1;
+            if max <= 0 {
+                return None;
+            }
+            let mut buf = vec![0u8; max as usize];
+            let ok = CFStringGetCString(
+                s,
+                buf.as_mut_ptr() as *mut i8,
+                max,
+                K_CF_STRING_ENCODING_UTF8,
+            );
+            if !ok {
+                return None;
+            }
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            Some(cstr.to_string_lossy().to_string())
         }
+    }
+
+    fn ax_attr_string(elem: *mut c_void, attr_name: &'static str) -> Option<String> {
+        unsafe {
+            let attr = cfstr(attr_name);
+            let mut out: *mut c_void = ptr::null_mut();
+            let err = AXUIElementCopyAttributeValue(elem, attr, &mut out);
+            CFRelease(attr);
+            if err != 0 || out.is_null() {
+                return None;
+            }
+            let s = cfstring_to_string(out as *const c_void);
+            CFRelease(out as *const c_void);
+            s
+        }
+    }
+
+    fn focused_fingerprint(elem: *mut c_void) -> Option<String> {
+        // Stable-ish across Electron pointer churn; usually differs between chat/editor.
+        let role = ax_attr_string(elem, "AXRole")?;
+        let subrole = ax_attr_string(elem, "AXSubrole").unwrap_or_default();
+        let desc = ax_attr_string(elem, "AXRoleDescription").unwrap_or_default();
+        Some(format!("{role}|{subrole}|{desc}"))
+    }
+
+    fn strict_focus_ok(app: &AppHandle) -> bool {
+        // Safety gate: only block paste when we're confident focus moved to a different target.
+        // If we can't reliably fingerprint the focused element (common on some apps), we still allow paste
+        // as long as the frontmost PID matches what was captured on Fn-down.
+        let expected_pid = FRONTMOST_PID.load(Ordering::SeqCst);
+        let expected_fp = FOCUSED_AX_FINGERPRINT
+            .get()
+            .and_then(|cell| cell.lock().ok().and_then(|g| g.clone()));
+
+        let (tx, rx) = mpsc::channel::<bool>();
+        let _ = app.run_on_main_thread(move || {
+            let cur_pid = capture_frontmost_pid();
+            let cur_elem = capture_focused_ax_element().map(|u| u as *mut c_void);
+
+            let mut ok = cur_pid == expected_pid;
+            let mut cur_fp_match: Option<bool> = None;
+
+            if let Some(elem) = cur_elem {
+                let mut ax_pid: i32 = 0;
+                let ax_err = unsafe { AXUIElementGetPid(elem, &mut ax_pid as *mut i32) };
+                if ax_err != 0 || ax_pid != expected_pid {
+                    ok = false;
+                }
+                // Only enforce fingerprint match if we successfully captured both expected + current fingerprints.
+                if let (Some(expected_fp), Some(fp)) = (expected_fp.as_ref(), focused_fingerprint(elem)) {
+                    let matches = fp == *expected_fp;
+                    cur_fp_match = Some(matches);
+                    if !matches {
+                        ok = false;
+                    }
+                }
+                unsafe { CFRelease(elem as *const c_void) };
+            } else {
+                // Can't read focused element; fall back to PID-only.
+            }
+
+            if !ok {
+                log_line(&format!(
+                    "paste preflight failed: cur_pid={cur_pid} expected_pid={expected_pid} fp_match={cur_fp_match:?}"
+                ));
+            } else if expected_fp.is_none() {
+                log_line("paste preflight: no stored AX fingerprint; allowing pid-only");
+            } else if cur_fp_match.is_none() {
+                log_line("paste preflight: no current AX fingerprint; allowing pid-only");
+            }
+
+            let _ = tx.send(ok);
+        });
+
+        rx.recv_timeout(std::time::Duration::from_millis(250)).unwrap_or(false)
     }
 
     fn env_truthy(key: &str) -> bool {
@@ -493,6 +561,7 @@ mod macos_fn_key {
             if let Some(app) = APP_HANDLE.get().cloned() {
                 let _ = app.run_on_main_thread(|| {
                     let cell = FOCUSED_AX_ELEM.get_or_init(|| Mutex::new(None));
+                    let fp_cell = FOCUSED_AX_FINGERPRINT.get_or_init(|| Mutex::new(None));
                     // Release old
                     if let Ok(mut g) = cell.lock() {
                         if let Some(old) = *g {
@@ -500,20 +569,17 @@ mod macos_fn_key {
                         }
                         *g = capture_focused_ax_element();
                     }
+                    if let Ok(mut fp) = fp_cell.lock() {
+                        *fp = cell
+                            .lock()
+                            .ok()
+                            .and_then(|g| g.map(|u| u as *mut c_void))
+                            .and_then(|e| focused_fingerprint(e));
+                    }
                     log_line("Captured AX focused element (best effort)");
                 });
             }
             log_line("Fn pressed - start recording");
-            // Dismiss emoji picker if it pops up (best effort).
-            std::thread::spawn(|| {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = std::process::Command::new("osascript")
-                        .args(["-e", r#"tell application "System Events" to key code 53"#])
-                        .output();
-                }
-            });
 
             // Watchdog: if macOS steals focus and we miss release, poll modifier flags until Fn-up.
             std::thread::spawn(|| {
@@ -617,20 +683,22 @@ mod macos_fn_key {
                 if text.is_empty() || text.contains("[BLANK") {
                     log_line("Skipping paste (blank transcription)");
                 } else {
-                    // Restore focus to the app the user was using when they started holding Fn.
                     #[cfg(target_os = "macos")]
                     {
-                        let pid = FRONTMOST_PID.load(Ordering::SeqCst);
-                        log_line(&format!("Restoring focus to pid={pid}"));
-                        activate_pid(pid);
-                        // If the target is inside the same app (e.g. Cursor chat vs editor),
-                        // restore the exact focused UI element captured on Fn-down.
-                        restore_focused_ax_element();
-                        // small delay to let focus settle
-                        std::thread::sleep(std::time::Duration::from_millis(30));
+                        let Some(app) = app.clone() else {
+                            log_line("Skipping paste: no app handle");
+                            return;
+                        };
+
+                        if !strict_focus_ok(&app) {
+                            // Critical: do NOT touch clipboard, do NOT paste, do NOT try to restore focus.
+                            log_line("Skipping paste: focus moved");
+                            return;
+                        }
                     }
                     #[cfg(target_os = "macos")]
                     {
+                        let text = format!("{text} ");
                         set_clipboard_macos(&text);
                     }
                     paste_text();
@@ -1019,11 +1087,13 @@ fn main() {
                     let size = monitor.size();
                     let scale = monitor.scale_factor();
                     let (screen_w, screen_h) = (size.width as f64 / scale, size.height as f64 / scale);
-                    let (win_w, win_h) = (80.0, 80.0);
+                    let (win_w, win_h) = (screen_w, 3.0);
                     use tauri::LogicalPosition;
+                    use tauri::LogicalSize;
+                    window.set_size(LogicalSize::new(win_w, win_h)).ok();
                     window.set_position(LogicalPosition::new(
-                        (screen_w - win_w) / 2.0,
-                        screen_h - win_h - 60.0,
+                        0.0,
+                        screen_h - win_h,
                     )).ok();
                 }
             }

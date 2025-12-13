@@ -18,15 +18,15 @@
       {
         "label": "main",
         "title": "",
-        "width": 80,
-        "height": 80,
+        "width": 1920,
+        "height": 2,
         "visible": true,
-        "resizable": false,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "skipTaskbar": true,
         "alwaysOnTop": true,
-        "center": true
+        "center": false
       }
     ],
     "macOSPrivateApi": true
