@@ -31,6 +31,7 @@ enum AudioCmd {
 }
 
 static AUDIO_TX: OnceCell<mpsc::Sender<AudioCmd>> = OnceCell::new();
+static VOLUME_LEVEL_TX: OnceCell<mpsc::Sender<f32>> = OnceCell::new();
 
 fn log_line(msg: &str) {
     // Best-effort persistent log to help debug Finder vs Terminal launch differences.
@@ -757,6 +758,42 @@ fn init_audio_thread() -> Result<(), String> {
         .set(tx)
         .map_err(|_| "AUDIO_TX already initialized".to_string())?;
 
+    // Channel for volume levels (from audio callback to throttled sender)
+    let (vol_tx, vol_rx) = mpsc::channel::<f32>();
+    VOLUME_LEVEL_TX
+        .set(vol_tx)
+        .map_err(|_| "VOLUME_LEVEL_TX already initialized".to_string())?;
+
+    // Throttled sender thread: sends volume updates to frontend at ~25Hz
+    let app_handle_for_vol = APP_HANDLE.get().cloned();
+    std::thread::spawn(move || {
+        let mut last_send = std::time::Instant::now();
+        let min_interval = std::time::Duration::from_millis(40); // ~25Hz max
+        let mut last_level = 0.0f32;
+
+        for level in vol_rx.iter() {
+            let now = std::time::Instant::now();
+            if now.duration_since(last_send) >= min_interval {
+                // Only send if level changed meaningfully (avoid spam)
+                if (level - last_level).abs() > 0.005 {
+                    if let Some(app) = app_handle_for_vol.as_ref() {
+                        let app = app.clone();
+                        let app2 = app.clone();
+                        let level_val = level;
+                        let _ = app.run_on_main_thread(move || {
+                            if let Some(w) = app2.get_webview_window("main") {
+                                let js = format!("window.__setLevel && window.__setLevel({})", level_val);
+                                let _ = w.eval(&js);
+                            }
+                        });
+                    }
+                    last_level = level;
+                    last_send = now;
+                }
+            }
+        }
+    });
+
     std::thread::spawn(move || {
         let host = cpal::default_host();
         let device = match host.default_input_device() {
@@ -788,6 +825,8 @@ fn init_audio_thread() -> Result<(), String> {
         ));
 
         let samples_mono: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        // Rolling buffer for volume metering (~100ms at typical sample rates)
+        let volume_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
         let mut stream: Option<cpal::Stream> = None;
 
         let err_fn = |err| log_line(&format!("cpal stream error: {err}"));
@@ -801,6 +840,10 @@ fn init_audio_thread() -> Result<(), String> {
                         let mut buf = samples_mono.lock().unwrap();
                         buf.clear();
                     }
+                    {
+                        let mut vol_buf = volume_buffer.lock().unwrap();
+                        vol_buf.clear();
+                    }
 
                     // (Re)read config to reflect system changes.
                     match device.default_input_config() {
@@ -812,20 +855,53 @@ fn init_audio_thread() -> Result<(), String> {
 
                     let cfg: cpal::StreamConfig = input_cfg.clone().into();
                     let samples_cb = samples_mono.clone();
+                    let vol_buf_cb = volume_buffer.clone();
+                    // Get volume channel sender (must be initialized by now)
+                    let vol_tx_cb = VOLUME_LEVEL_TX.get().cloned().expect("VOLUME_LEVEL_TX not initialized");
+                    // Target ~100ms window for RMS (adjust based on sample rate)
+                    let window_samples = (sample_rate as f64 * 0.1).ceil() as usize;
 
                     let built = match sample_format {
                         cpal::SampleFormat::I16 => device.build_input_stream(
                             &cfg,
                             move |data: &[i16], _| {
                                 let mut out = samples_cb.lock().unwrap();
+                                let mut vol_buf = vol_buf_cb.lock().unwrap();
+                                
+                                // Convert to mono f32 and accumulate
+                                let mut mono_samples = Vec::with_capacity(data.len() / channels as usize);
                                 if channels == 1 {
-                                    out.extend(data.iter().map(|&s| (s as f32) / 32768.0));
+                                    for &s in data {
+                                        let sample = (s as f32) / 32768.0;
+                                        out.push(sample);
+                                        mono_samples.push(sample);
+                                    }
                                 } else {
                                     for frame in data.chunks_exact(channels as usize) {
                                         let sum: i32 = frame.iter().map(|&v| v as i32).sum();
                                         let avg = (sum as f32) / (channels as f32);
-                                        out.push(avg / 32768.0);
+                                        let sample = avg / 32768.0;
+                                        out.push(sample);
+                                        mono_samples.push(sample);
                                     }
+                                }
+                                
+                                // Update rolling volume buffer
+                                vol_buf.extend(mono_samples);
+                                if vol_buf.len() > window_samples {
+                                    let excess = vol_buf.len() - window_samples;
+                                    vol_buf.drain(0..excess);
+                                }
+                                
+                                // Compute RMS over rolling window
+                                if !vol_buf.is_empty() {
+                                    let sum_sq: f64 = vol_buf.iter().map(|&s| (s as f64) * (s as f64)).sum();
+                                    let rms = (sum_sq / vol_buf.len() as f64).sqrt() as f32;
+                                    // Normalize: map RMS to [0,1] with reasonable scaling
+                                    // Make it punchier: curve + higher gain so quiet speech visibly moves the bar.
+                                    // level ~= sqrt(clamp(rms * gain, 0..1))
+                                    let normalized = ((rms * 10.0).min(1.0)).sqrt();
+                                    let _ = vol_tx_cb.send(normalized);
                                 }
                             },
                             err_fn,
@@ -835,13 +911,36 @@ fn init_audio_thread() -> Result<(), String> {
                             &cfg,
                             move |data: &[f32], _| {
                                 let mut out = samples_cb.lock().unwrap();
+                                let mut vol_buf = vol_buf_cb.lock().unwrap();
+                                
+                                // Convert to mono and accumulate
+                                let mut mono_samples = Vec::with_capacity(data.len() / channels as usize);
                                 if channels == 1 {
                                     out.extend_from_slice(data);
+                                    mono_samples.extend_from_slice(data);
                                 } else {
                                     for frame in data.chunks_exact(channels as usize) {
                                         let sum: f32 = frame.iter().copied().sum();
-                                        out.push(sum / (channels as f32));
+                                        let sample = sum / (channels as f32);
+                                        out.push(sample);
+                                        mono_samples.push(sample);
                                     }
+                                }
+                                
+                                // Update rolling volume buffer
+                                vol_buf.extend(mono_samples);
+                                if vol_buf.len() > window_samples {
+                                    let excess = vol_buf.len() - window_samples;
+                                    vol_buf.drain(0..excess);
+                                }
+                                
+                                // Compute RMS over rolling window
+                                if !vol_buf.is_empty() {
+                                    let sum_sq: f64 = vol_buf.iter().map(|&s| (s as f64) * (s as f64)).sum();
+                                    let rms = (sum_sq / vol_buf.len() as f64).sqrt() as f32;
+                                    // Make it punchier: curve + higher gain so quiet speech visibly moves the bar.
+                                    let normalized = ((rms * 10.0).min(1.0)).sqrt();
+                                    let _ = vol_tx_cb.send(normalized);
                                 }
                             },
                             err_fn,
@@ -867,6 +966,14 @@ fn init_audio_thread() -> Result<(), String> {
                 }
                 AudioCmd::Stop { reply } => {
                     stream.take(); // drop to stop capture
+                    {
+                        let mut vol_buf = volume_buffer.lock().unwrap();
+                        vol_buf.clear();
+                    }
+                    // Send zero level to reset UI
+                    if let Some(tx) = VOLUME_LEVEL_TX.get() {
+                        let _ = tx.send(0.0);
+                    }
                     let samples = samples_mono.lock().unwrap().clone();
                     let _ = reply.send(Ok((samples, sample_rate)));
                     log_line("Native mic recording stopped");
@@ -1087,7 +1194,9 @@ fn main() {
                     let size = monitor.size();
                     let scale = monitor.scale_factor();
                     let (screen_w, screen_h) = (size.width as f64 / scale, size.height as f64 / scale);
-                    let (win_w, win_h) = (screen_w, 3.0);
+                    // Give the webview enough height so CSS glow/height animations aren't clipped.
+                    // The visible "bar" stays pinned to the bottom via CSS; the extra height is just headroom.
+                    let (win_w, win_h) = (screen_w, 72.0);
                     use tauri::LogicalPosition;
                     use tauri::LogicalSize;
                     window.set_size(LogicalSize::new(win_w, win_h)).ok();

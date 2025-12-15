@@ -6,6 +6,9 @@
 
   let recording = $state(false);
   let processing = $state(false);
+  let level = $state(0);
+
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
   onMount(() => {
     const fiber = Runtime.runFork(
@@ -14,6 +17,7 @@
         installUiBridge({
           setRecording: (v) => (recording = v),
           setProcessing: (v) => (processing = v),
+          setLevel: (v) => (level = v),
         })
       )
     );
@@ -22,7 +26,18 @@
   });
 </script>
 
-<div class="indicator" class:recording class:processing>
+<div
+  class="indicator"
+  class:recording
+  class:processing
+  style={(() => {
+    const l = clamp01(level);
+    const h = 6 + l * 30; // px (more)
+    const glow = 18 + l * 90; // px (more)
+    const a = 0.35 + l * 0.45; // 0..1
+    return `--h:${h}px;--glow:${glow}px;--alpha:${a};`;
+  })()}
+>
   <div class="border"></div>
 </div>
 
@@ -48,8 +63,11 @@
     opacity: 0;
     transition:
       opacity 0.3s ease,
-      height 0.3s ease;
+      height 0.15s ease;
     pointer-events: none;
+    --h: 6px;
+    --glow: 16px;
+    --alpha: 0.55;
   }
 
   .border {
@@ -61,18 +79,20 @@
     background: transparent;
     transition:
       background 0.3s ease,
-      box-shadow 0.3s ease;
+      box-shadow 0.15s ease,
+      height 0.15s ease;
   }
 
   /* Recording state */
   .indicator.recording {
-    height: 6px;
     opacity: 1;
+    height: var(--h);
   }
 
   .indicator.recording .border {
     background: #ef4444;
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+    height: 100%;
+    box-shadow: 0 0 var(--glow) rgba(239, 68, 68, var(--alpha));
   }
 
   /* Processing state */
