@@ -1194,12 +1194,46 @@ fn update_stats(app: &AppHandle, words: usize, seconds: f64) {
             let new_total_seconds = total_seconds + seconds;
             let new_session_count = session_count + 1;
             let new_session_wpm_sum = session_wpm_sum + session_wpm;
+
+            // Hourly activity buckets for recent graph (last 48 hours)
+            let now_hour: i64 = (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() / 3600) as i64;
+            let mut hourly: Vec<(i64, u64)> = store
+                .get("activity_hourly")
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|v| {
+                    let arr = v.as_array()?;
+                    if arr.len() != 2 {
+                        return None;
+                    }
+                    Some((arr[0].as_i64()?, arr[1].as_u64()?))
+                })
+                .collect();
+            // prune + update current hour
+            hourly.retain(|(h, _)| *h >= now_hour - 47);
+            if let Some((_, w)) = hourly.iter_mut().find(|(h, _)| *h == now_hour) {
+                *w = w.saturating_add(words as u64);
+            } else {
+                hourly.push((now_hour, words as u64));
+            }
+            hourly.sort_by_key(|(h, _)| *h);
             
             // Write back
             store.set("total_words", serde_json::json!(new_total_words));
             store.set("total_seconds", serde_json::json!(new_total_seconds));
             store.set("session_count", serde_json::json!(new_session_count));
             store.set("session_wpm_sum", serde_json::json!(new_session_wpm_sum));
+            store.set(
+                "activity_hourly",
+                serde_json::json!(hourly
+                    .into_iter()
+                    .map(|(h, w)| serde_json::json!([h, w]))
+                    .collect::<Vec<_>>()),
+            );
             
             if let Err(e) = store.save() {
                 log_line(&format!("ERROR: Failed to save stats: {e}"));
@@ -1298,6 +1332,18 @@ fn main() {
                             if let Some(existing) = app.get_webview_window("stats") {
                                 let _ = existing.show();
                                 let _ = existing.set_focus();
+                                let _ = existing.set_always_on_top(true);
+                                // Drop back out of always-on-top after bringing forward.
+                                let app2 = app.clone();
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(200));
+                                    let app3 = app2.clone();
+                                    let _ = app2.run_on_main_thread(move || {
+                                        if let Some(w) = app3.get_webview_window("stats") {
+                                            let _ = w.set_always_on_top(false);
+                                        }
+                                    });
+                                });
                                 log_line("tray: showing existing stats window");
                             } else {
                                 // Create new stats window
@@ -1309,9 +1355,9 @@ fn main() {
                                         WebviewUrl::App("/stats".into()),
                                     )
                                     .title("t2t - Stats")
-                                    .inner_size(520.0, 300.0)
+                                    .inner_size(1100.0, 720.0)
                                     .resizable(true)
-                                    .min_inner_size(280.0, 200.0)
+                                    .min_inner_size(520.0, 300.0)
                                     .build()
                                     {
                                         Ok(_) => log_line("tray: created stats window"),
