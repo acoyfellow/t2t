@@ -27,7 +27,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "lsof -ti tcp:5173 | xargs kill -9 && tauri",
     "install": "bash ./scripts/macos-install.sh"
   },
   "devDependencies": {
@@ -42,6 +42,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
+    "@tauri-apps/plugin-store": "^2.0.0",
     "effect": "^3.19.11"
   },
   "type": "module"

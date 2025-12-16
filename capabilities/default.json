@@ -2,11 +2,12 @@
   "$schema": "https://schemas.tauri.app/capability/1",
   "identifier": "default",
   "description": "Default capabilities for Push to Type",
-  "windows": ["main"],
+  "windows": ["main", "stats"],
   "permissions": [
     "core:default",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text"
+    "clipboard-manager:allow-read-text",
+    "store:default"
   ]
 }
 

@@ -9,11 +9,13 @@ use std::sync::atomic::AtomicI32;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Manager,
+    AppHandle, Manager, WebviewUrl,
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
+    webview::WebviewWindowBuilder,
 };
+use tauri_plugin_store::StoreExt;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
@@ -704,6 +706,13 @@ mod macos_fn_key {
                     }
                     paste_text();
                     log_line(&format!("Pasted native text len={}", text.len()));
+                    
+                    // Update stats: only count successful pastes
+                    if let Some(app) = app.clone() {
+                        let words = text.split_whitespace().count();
+                        let seconds = dur_ms / 1000.0;
+                        update_stats(&app, words, seconds);
+                    }
                 }
             });
         }
@@ -1157,6 +1166,53 @@ fn log_event(message: String) {
     log_line(&format!("FE: {message}"));
 }
 
+fn update_stats(app: &AppHandle, words: usize, seconds: f64) {
+    if seconds <= 0.0 {
+        return;
+    }
+    
+    let session_wpm = words as f64 / (seconds / 60.0);
+    
+    match app.store("stats.json") {
+        Ok(store) => {
+            // Get current values or defaults
+            let total_words = store.get("total_words")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let total_seconds = store.get("total_seconds")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let session_count = store.get("session_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let session_wpm_sum = store.get("session_wpm_sum")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            
+            // Update aggregates
+            let new_total_words = total_words + words;
+            let new_total_seconds = total_seconds + seconds;
+            let new_session_count = session_count + 1;
+            let new_session_wpm_sum = session_wpm_sum + session_wpm;
+            
+            // Write back
+            store.set("total_words", serde_json::json!(new_total_words));
+            store.set("total_seconds", serde_json::json!(new_total_seconds));
+            store.set("session_count", serde_json::json!(new_session_count));
+            store.set("session_wpm_sum", serde_json::json!(new_session_wpm_sum));
+            
+            if let Err(e) = store.save() {
+                log_line(&format!("ERROR: Failed to save stats: {e}"));
+            } else {
+                log_line(&format!("Stats updated: words={words} seconds={seconds:.2} wpm={session_wpm:.1}"));
+            }
+        }
+        Err(e) => {
+            log_line(&format!("ERROR: Failed to load stats.json store: {e}"));
+        }
+    }
+}
+
 fn main() {
     std::thread::spawn(|| {
         if let Err(e) = init_whisper() {
@@ -1169,6 +1225,7 @@ fn main() {
             println!("Another instance tried to start - ignoring");
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -1210,8 +1267,9 @@ fn main() {
             // Debug controls so we can validate mic/recording even if Fn capture fails.
             let start = MenuItem::with_id(app, "start", "Start recording", true, None::<&str>)?;
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
+            let stats = MenuItem::with_id(app, "stats", "View stats", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&start, &stop, &quit])?;
+            let menu = Menu::with_items(app, &[&start, &stop, &stats, &quit])?;
             let icon = create_circular_icon(32);
 
             TrayIconBuilder::new()
@@ -1234,6 +1292,32 @@ fn main() {
                                 log_line("tray: stop recording");
                             } else {
                                 log_line("tray: stop recording but main window not found");
+                            }
+                        }
+                        "stats" => {
+                            if let Some(existing) = app.get_webview_window("stats") {
+                                let _ = existing.show();
+                                let _ = existing.set_focus();
+                                log_line("tray: showing existing stats window");
+                            } else {
+                                // Create new stats window
+                                let app_handle = app.clone();
+                                let _ = app.run_on_main_thread(move || {
+                                    match WebviewWindowBuilder::new(
+                                        &app_handle,
+                                        "stats",
+                                        WebviewUrl::App("/stats".into()),
+                                    )
+                                    .title("t2t - Stats")
+                                    .inner_size(520.0, 300.0)
+                                    .resizable(true)
+                                    .min_inner_size(280.0, 200.0)
+                                    .build()
+                                    {
+                                        Ok(_) => log_line("tray: created stats window"),
+                                        Err(e) => log_line(&format!("tray: failed to create stats window: {e}")),
+                                    }
+                                });
                             }
                         }
                         "quit" => app.exit(0),
