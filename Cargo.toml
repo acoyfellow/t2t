@@ -22,6 +22,7 @@ once_cell = "1.19"
 objc = "0.2"
 block = "0.1"
 cpal = "0.15"
+png = "0.17"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 enigo = "0.2"

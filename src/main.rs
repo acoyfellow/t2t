@@ -1335,7 +1335,58 @@ fn main() {
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&stats, &start, &stop, &quit])?;
-            let icon = create_circular_icon(32);
+            
+            // Load tray icon from file - need to decode PNG to RGBA
+            fn load_png_as_image(path: &std::path::Path) -> Option<Image<'static>> {
+                let data = std::fs::read(path).ok()?;
+                let decoder = png::Decoder::new(std::io::Cursor::new(data));
+                let mut reader = decoder.read_info().ok()?;
+                let mut buf = vec![0; reader.output_buffer_size()];
+                let info = reader.next_frame(&mut buf).ok()?;
+                let bytes = &buf[..info.buffer_size()];
+                
+                // Convert to RGBA if needed
+                let rgba = match info.color_type {
+                    png::ColorType::Rgba => bytes.to_vec(),
+                    png::ColorType::Rgb => {
+                        let mut rgba = Vec::with_capacity(bytes.len() / 3 * 4);
+                        for chunk in bytes.chunks(3) {
+                            rgba.extend_from_slice(chunk);
+                            rgba.push(255);
+                        }
+                        rgba
+                    }
+                    png::ColorType::GrayscaleAlpha => {
+                        let mut rgba = Vec::with_capacity(bytes.len() * 2);
+                        for chunk in bytes.chunks(2) {
+                            rgba.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
+                        }
+                        rgba
+                    }
+                    png::ColorType::Grayscale => {
+                        let mut rgba = Vec::with_capacity(bytes.len() * 4);
+                        for &g in bytes {
+                            rgba.extend_from_slice(&[g, g, g, 255]);
+                        }
+                        rgba
+                    }
+                    _ => return None,
+                };
+                Some(Image::new_owned(rgba, info.width, info.height))
+            }
+            
+            let icon = {
+                // Try multiple paths for the tray icon
+                let paths = [
+                    std::path::PathBuf::from("icons/tray-icon.png"),
+                    app.path().resource_dir().ok().map(|p| p.join("icons/tray-icon.png")).unwrap_or_default(),
+                    std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("../Resources/icons/tray-icon.png"))).unwrap_or_default(),
+                ];
+                paths.iter()
+                    .filter(|p| p.exists())
+                    .find_map(|p| load_png_as_image(p))
+                    .unwrap_or_else(|| create_circular_icon(32))
+            };
 
             TrayIconBuilder::new()
                 .icon(icon)
