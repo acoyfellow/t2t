@@ -9,13 +9,11 @@ use std::sync::atomic::AtomicI32;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Manager, WebviewUrl,
+    AppHandle, Manager,
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    webview::WebviewWindowBuilder,
 };
-use tauri_plugin_store::StoreExt;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
@@ -24,6 +22,8 @@ static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
 static FOCUSED_AX_ELEM: OnceCell<Mutex<Option<usize>>> = OnceCell::new();
 static FOCUSED_AX_FINGERPRINT: OnceCell<Mutex<Option<String>>> = OnceCell::new();
+static IS_TEXT_INPUT_MODE: AtomicBool = AtomicBool::new(true); // default to paste
+static LAST_FN_PRESS_MS: OnceCell<Mutex<u128>> = OnceCell::new();
 
 enum AudioCmd {
     Start,
@@ -318,6 +318,47 @@ mod macos_fn_key {
         Some(format!("{role}|{subrole}|{desc}"))
     }
 
+    fn is_text_input(elem: *mut c_void) -> bool {
+        let role = ax_attr_string(elem, "AXRole").unwrap_or_default();
+        let subrole = ax_attr_string(elem, "AXSubrole").unwrap_or_default();
+        
+        log_line(&format!("is_text_input check: role='{}' subrole='{}'", role, subrole));
+        
+        // Standard text input roles
+        if matches!(
+            role.as_str(),
+            "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField"
+        ) {
+            log_line("  -> text input (standard role)");
+            return true;
+        }
+        
+        // For web content (Electron apps, browsers), check if it's a web area
+        // with an editable focused element inside
+        if role == "AXWebArea" || role == "AXGroup" {
+            // Check AXFocusedUIElement of this element for text input
+            unsafe {
+                let attr = cfstr("AXFocusedUIElement");
+                let mut child: *mut c_void = ptr::null_mut();
+                let err = AXUIElementCopyAttributeValue(elem, attr, &mut child);
+                CFRelease(attr);
+                if err == 0 && !child.is_null() {
+                    let child_role = ax_attr_string(child, "AXRole").unwrap_or_default();
+                    log_line(&format!("  -> child role='{}'", child_role));
+                    CFRelease(child as *const c_void);
+                    // Web text inputs often show as AXTextField, AXTextArea, or AXStaticText (contenteditable)
+                    if matches!(child_role.as_str(), "AXTextField" | "AXTextArea" | "AXStaticText") {
+                        log_line("  -> text input (web child)");
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        log_line("  -> NOT text input");
+        false
+    }
+
     fn strict_focus_ok(app: &AppHandle) -> bool {
         // Safety gate: only block paste when we're confident focus moved to a different target.
         // If we can't reliably fingerprint the focused element (common on some apps), we still allow paste
@@ -496,12 +537,15 @@ mod macos_fn_key {
                 }
 
                 let pressed = (flags & fn_flag) != 0;
+                // Check if Control is held
+                let control_flag: u64 = 1u64 << 18; // kCGEventFlagMaskControl
+                let control_held = (flags & control_flag) != 0;
                 // Avoid duplicate transitions
                 let was_recording = IS_RECORDING.load(Ordering::SeqCst);
                 if pressed && !was_recording {
-                    handle_fn_key(true);
+                    handle_fn_key(true, control_held);
                 } else if !pressed && was_recording {
-                    handle_fn_key(false);
+                    handle_fn_key(false, false);
                 }
             })
             .copy();
@@ -546,15 +590,27 @@ mod macos_fn_key {
         
         if is_fn_key {
             let pressed = int_value != 0;
-            handle_fn_key(pressed);
+            // Check if Control key is held for agent mode
+            let flags = unsafe { CGEventSourceFlagsState(K_CG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE) };
+            let control_held = (flags & (1u64 << 18)) != 0; // kCGEventFlagMaskControl
+            handle_fn_key(pressed, control_held);
         }
     }
     
-    fn handle_fn_key(pressed: bool) {
+    fn handle_fn_key(pressed: bool, control_held: bool) {
         let was_recording = IS_RECORDING.load(Ordering::SeqCst);
         
         if pressed && !was_recording {
             IS_RECORDING.store(true, Ordering::SeqCst);
+            
+            // Fn alone = typing mode, Fn + Control = agent mode
+            let is_text = !control_held;
+            IS_TEXT_INPUT_MODE.store(is_text, Ordering::SeqCst);
+            
+            if control_held {
+                log_line("Fn + Control detected -> agent mode");
+            }
+            
             // Remember where the user was typing so we can restore focus before pasting.
             let pid = capture_frontmost_pid();
             FRONTMOST_PID.store(pid, Ordering::SeqCst);
@@ -562,7 +618,8 @@ mod macos_fn_key {
 
             // Capture the focused UI element (critical for apps like Cursor where PID isn't enough).
             if let Some(app) = APP_HANDLE.get().cloned() {
-                let _ = app.run_on_main_thread(|| {
+                let app_clone = app.clone();
+                let _ = app.run_on_main_thread(move || {
                     let cell = FOCUSED_AX_ELEM.get_or_init(|| Mutex::new(None));
                     let fp_cell = FOCUSED_AX_FINGERPRINT.get_or_init(|| Mutex::new(None));
                     // Release old
@@ -572,6 +629,7 @@ mod macos_fn_key {
                         }
                         *g = capture_focused_ax_element();
                     }
+                    
                     if let Ok(mut fp) = fp_cell.lock() {
                         *fp = cell
                             .lock()
@@ -579,16 +637,26 @@ mod macos_fn_key {
                             .and_then(|g| g.map(|u| u as *mut c_void))
                             .and_then(|e| focused_fingerprint(e));
                     }
-                    log_line("Captured AX focused element (best effort)");
+                    
+                    // Send mode to frontend
+                    let mode_str = if is_text { "typing" } else { "agent" };
+                    if let Some(w) = app_clone.get_webview_window("main") {
+                        let _ = w.eval(&format!("window.__setMode && window.__setMode('{}')", mode_str));
+                    }
+                    
+                    log_line(&format!("Captured AX focused element (best effort), mode={mode_str}"));
                 });
             }
             log_line("Fn pressed - start recording");
 
-            // Watchdog: if macOS steals focus and we miss release, poll modifier flags until Fn-up.
+            // Watchdog: poll modifier flags, update mode on-the-fly when Control changes
             std::thread::spawn(|| {
                 // hard cap so we never get stuck forever
-                let max_ms = 15_000u64;
+                let max_ms = 60_000u64; // 60 seconds max recording
                 let start = std::time::Instant::now();
+                let control_flag: u64 = 1u64 << 18;
+                let mut last_control = IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) == false;
+                
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                     if !IS_RECORDING.load(Ordering::SeqCst) {
@@ -596,14 +664,36 @@ mod macos_fn_key {
                     }
                     let flags = unsafe { CGEventSourceFlagsState(K_CG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE) };
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
+                    let control_down = (flags & control_flag) != 0;
+                    
+                    // Update mode on-the-fly if Control state changed
+                    if control_down != last_control {
+                        last_control = control_down;
+                        let is_text = !control_down;
+                        IS_TEXT_INPUT_MODE.store(is_text, Ordering::SeqCst);
+                        let mode_str = if is_text { "typing" } else { "agent" };
+                        log_line(&format!("Mode switched to {} (Control {})", mode_str, if control_down { "pressed" } else { "released" }));
+                        
+                        // Update frontend
+                        if let Some(app) = APP_HANDLE.get().cloned() {
+                            let mode = mode_str.to_string();
+                            let app_clone = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if let Some(w) = app_clone.get_webview_window("main") {
+                                    let _ = w.eval(&format!("window.__setMode && window.__setMode('{}')", mode));
+                                }
+                            });
+                        }
+                    }
+                    
                     if !fn_down {
                         // Force stop (idempotent)
-                        handle_fn_key(false);
+                        handle_fn_key(false, false);
                         break;
                     }
                     if start.elapsed().as_millis() as u64 > max_ms {
                         log_line("Fn watchdog timeout - forcing stop");
-                        handle_fn_key(false);
+                        handle_fn_key(false, false);
                         break;
                     }
                 }
@@ -701,17 +791,30 @@ mod macos_fn_key {
                     }
                     #[cfg(target_os = "macos")]
                     {
-                        let text = format!("{text} ");
-                        set_clipboard_macos(&text);
-                    }
-                    paste_text();
-                    log_line(&format!("Pasted native text len={}", text.len()));
-                    
-                    // Update stats: only count successful pastes
-                    if let Some(app) = app.clone() {
-                        let words = text.split_whitespace().count();
-                        let seconds = dur_ms / 1000.0;
-                        update_stats(&app, words, seconds);
+                        if IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
+                            // Typing mode: save clipboard, paste, restore
+                            let original = get_clipboard_macos();
+                            let text_with_space = format!("{text} ");
+                            set_clipboard_macos(&text_with_space);
+                            paste_text();
+                            std::thread::sleep(std::time::Duration::from_millis(80));
+                            if let Some(orig) = original {
+                                set_clipboard_macos(&orig);
+                            }
+                            log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
+                        } else {
+                            // Agent mode - emit event to frontend
+                            if let Some(app) = app.clone() {
+                                let text_clone = text.clone();
+                                let app_clone = app.clone();
+                                let _ = app.run_on_main_thread(move || {
+                                    if let Some(w) = app_clone.get_webview_window("main") {
+                                        let _ = w.eval(&format!("window.__agentInput && window.__agentInput('{}')", text_clone.replace('\\', "\\\\").replace('\'', "\\'")));
+                                    }
+                                });
+                            }
+                            log_line(&format!("Agent mode: text len={}", text.len()));
+                        }
                     }
                 }
             });
@@ -1151,6 +1254,16 @@ fn paste_text() {
 }
 
 #[cfg(target_os = "macos")]
+fn get_clipboard_macos() -> Option<String> {
+    use std::process::Command;
+    Command::new("pbpaste")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+}
+
+#[cfg(target_os = "macos")]
 fn set_clipboard_macos(text: &str) {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -1166,87 +1279,6 @@ fn log_event(message: String) {
     log_line(&format!("FE: {message}"));
 }
 
-fn update_stats(app: &AppHandle, words: usize, seconds: f64) {
-    if seconds <= 0.0 {
-        return;
-    }
-    
-    let session_wpm = words as f64 / (seconds / 60.0);
-    
-    match app.store("stats.json") {
-        Ok(store) => {
-            // Get current values or defaults
-            let total_words = store.get("total_words")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-            let total_seconds = store.get("total_seconds")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let session_count = store.get("session_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
-            let session_wpm_sum = store.get("session_wpm_sum")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            
-            // Update aggregates
-            let new_total_words = total_words + words;
-            let new_total_seconds = total_seconds + seconds;
-            let new_session_count = session_count + 1;
-            let new_session_wpm_sum = session_wpm_sum + session_wpm;
-
-            // Hourly activity buckets for recent graph (last 48 hours)
-            let now_hour: i64 = (std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() / 3600) as i64;
-            let mut hourly: Vec<(i64, u64)> = store
-                .get("activity_hourly")
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|v| {
-                    let arr = v.as_array()?;
-                    if arr.len() != 2 {
-                        return None;
-                    }
-                    Some((arr[0].as_i64()?, arr[1].as_u64()?))
-                })
-                .collect();
-            // prune + update current hour
-            hourly.retain(|(h, _)| *h >= now_hour - 47);
-            if let Some((_, w)) = hourly.iter_mut().find(|(h, _)| *h == now_hour) {
-                *w = w.saturating_add(words as u64);
-            } else {
-                hourly.push((now_hour, words as u64));
-            }
-            hourly.sort_by_key(|(h, _)| *h);
-            
-            // Write back
-            store.set("total_words", serde_json::json!(new_total_words));
-            store.set("total_seconds", serde_json::json!(new_total_seconds));
-            store.set("session_count", serde_json::json!(new_session_count));
-            store.set("session_wpm_sum", serde_json::json!(new_session_wpm_sum));
-            store.set(
-                "activity_hourly",
-                serde_json::json!(hourly
-                    .into_iter()
-                    .map(|(h, w)| serde_json::json!([h, w]))
-                    .collect::<Vec<_>>()),
-            );
-            
-            if let Err(e) = store.save() {
-                log_line(&format!("ERROR: Failed to save stats: {e}"));
-            } else {
-                log_line(&format!("Stats updated: words={words} seconds={seconds:.2} wpm={session_wpm:.1}"));
-            }
-        }
-        Err(e) => {
-            log_line(&format!("ERROR: Failed to load stats.json store: {e}"));
-        }
-    }
-}
-
 fn main() {
     std::thread::spawn(|| {
         if let Err(e) = init_whisper() {
@@ -1259,7 +1291,6 @@ fn main() {
             println!("Another instance tried to start - ignoring");
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -1287,7 +1318,7 @@ fn main() {
                     let (screen_w, screen_h) = (size.width as f64 / scale, size.height as f64 / scale);
                     // Give the webview enough height so CSS glow/height animations aren't clipped.
                     // The visible "bar" stays pinned to the bottom via CSS; the extra height is just headroom.
-                    let (win_w, win_h) = (screen_w, 72.0);
+                    let (win_w, win_h) = (screen_w, 24.0);
                     use tauri::LogicalPosition;
                     use tauri::LogicalSize;
                     window.set_size(LogicalSize::new(win_w, win_h)).ok();
@@ -1299,11 +1330,11 @@ fn main() {
             }
 
             // Debug controls so we can validate mic/recording even if Fn capture fails.
+            let stats = MenuItem::with_id(app, "stats", "View Stats", true, None::<&str>)?;
             let start = MenuItem::with_id(app, "start", "Start recording", true, None::<&str>)?;
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
-            let stats = MenuItem::with_id(app, "stats", "View stats", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&start, &stop, &stats, &quit])?;
+            let menu = Menu::with_items(app, &[&stats, &start, &stop, &quit])?;
             let icon = create_circular_icon(32);
 
             TrayIconBuilder::new()
@@ -1312,6 +1343,16 @@ fn main() {
                 .tooltip("t2t - Hold Fn")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
+                        "stats" => {
+                            // Show the stats window
+                            if let Some(w) = app.get_webview_window("stats") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                                log_line("tray: view stats (existing window)");
+                            } else {
+                                log_line("tray: stats window not found");
+                            }
+                        }
                         "start" => {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.eval("window.__startRecording && window.__startRecording()");
@@ -1326,44 +1367,6 @@ fn main() {
                                 log_line("tray: stop recording");
                             } else {
                                 log_line("tray: stop recording but main window not found");
-                            }
-                        }
-                        "stats" => {
-                            if let Some(existing) = app.get_webview_window("stats") {
-                                let _ = existing.show();
-                                let _ = existing.set_focus();
-                                let _ = existing.set_always_on_top(true);
-                                // Drop back out of always-on-top after bringing forward.
-                                let app2 = app.clone();
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(std::time::Duration::from_millis(200));
-                                    let app3 = app2.clone();
-                                    let _ = app2.run_on_main_thread(move || {
-                                        if let Some(w) = app3.get_webview_window("stats") {
-                                            let _ = w.set_always_on_top(false);
-                                        }
-                                    });
-                                });
-                                log_line("tray: showing existing stats window");
-                            } else {
-                                // Create new stats window
-                                let app_handle = app.clone();
-                                let _ = app.run_on_main_thread(move || {
-                                    match WebviewWindowBuilder::new(
-                                        &app_handle,
-                                        "stats",
-                                        WebviewUrl::App("/stats".into()),
-                                    )
-                                    .title("t2t - Stats")
-                                    .inner_size(1100.0, 720.0)
-                                    .resizable(true)
-                                    .min_inner_size(520.0, 300.0)
-                                    .build()
-                                    {
-                                        Ok(_) => log_line("tray: created stats window"),
-                                        Err(e) => log_line(&format!("tray: failed to create stats window: {e}")),
-                                    }
-                                });
                             }
                         }
                         "quit" => app.exit(0),

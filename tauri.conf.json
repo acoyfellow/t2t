@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.t2t.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "./build"
   },
   "app": {
@@ -27,6 +27,18 @@
         "skipTaskbar": true,
         "alwaysOnTop": true,
         "center": false
+      },
+      {
+        "label": "stats",
+        "title": "t2t Stats",
+        "url": "/stats",
+        "width": 800,
+        "height": 600,
+        "visible": false,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "center": true
       }
     ],
     "macOSPrivateApi": true

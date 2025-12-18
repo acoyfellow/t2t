@@ -5,8 +5,10 @@ Hold **Fn key** to record audio, release to transcribe and auto-paste.
 ## How It Works
 
 - Press and hold Fn key → records microphone audio
-- Release Fn key → transcribes using a local Whisper model, copies to clipboard, and pastes automatically
-- Visual feedback: red orb while recording, orange while processing
+- Release Fn key → transcribes using local Whisper model
+- **Typing mode** (red bar): focused on text field → pastes transcription, preserves clipboard
+- **Agent mode** (cyan bar): not in text field → future agent features
+- Visual feedback: red/cyan bar while recording (based on mode), orange while processing
 
 ## Setup
 
