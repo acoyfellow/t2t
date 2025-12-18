@@ -1,6 +1,6 @@
 {
   "name": "t2t",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Fn push-to-talk dictation for macOS: local Whisper transcription + auto-paste into the focused app.",
   "keywords": [
     "tauri",

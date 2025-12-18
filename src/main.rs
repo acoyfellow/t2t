@@ -14,6 +14,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
+use tauri_plugin_store::StoreExt;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
@@ -1291,6 +1292,7 @@ fn main() {
             println!("Another instance tried to start - ignoring");
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
