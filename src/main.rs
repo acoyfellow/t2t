@@ -24,7 +24,6 @@ static FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
 static FOCUSED_AX_ELEM: OnceCell<Mutex<Option<usize>>> = OnceCell::new();
 static FOCUSED_AX_FINGERPRINT: OnceCell<Mutex<Option<String>>> = OnceCell::new();
 static IS_TEXT_INPUT_MODE: AtomicBool = AtomicBool::new(true); // default to paste
-static LAST_FN_PRESS_MS: OnceCell<Mutex<u128>> = OnceCell::new();
 
 enum AudioCmd {
     Start,
@@ -141,7 +140,7 @@ fn update_stats(app: AppHandle, text: String, dur_ms: f64) {
     
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let Ok(mut store) = app_clone.store("stats.json") {
+        if let Ok(store) = app_clone.store("stats.json") {
             let total_words: f64 = store.get("total_words")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or(0.0);
@@ -438,6 +437,7 @@ mod macos_fn_key {
         Some(format!("{role}|{subrole}|{desc}"))
     }
 
+    #[allow(dead_code)]
     fn is_text_input(elem: *mut c_void) -> bool {
         let role = ax_attr_string(elem, "AXRole").unwrap_or_default();
         let subrole = ax_attr_string(elem, "AXSubrole").unwrap_or_default();
@@ -648,8 +648,8 @@ mod macos_fn_key {
                     return;
                 }
 
-                let key_code: u16 = unsafe { msg_send![event, keyCode] };
-                let flags: u64 = unsafe { msg_send![event, modifierFlags] };
+                let key_code: u16 = msg_send![event, keyCode];
+                let flags: u64 = msg_send![event, modifierFlags];
 
                 // Fn key reports as flagsChanged with keyCode 63 on Apple keyboards.
                 if key_code != 63 {
