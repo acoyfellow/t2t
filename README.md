@@ -1,20 +1,46 @@
 # t2t
 
-Hold **Fn key** to record audio, release to transcribe and auto-paste.
+![t2t logo](static/logo.svg)
+
+**Voice-to-text with intelligence. Hold fn to talk, hold fn+ctrl to command.**
+
+## Download
+
+**[Download for macOS →](https://t2t.now)**
+
+[View all releases on GitHub →](https://github.com/acoyfellow/t2t/releases)
+
+> **Note:** The app is not code-signed yet. On first launch, macOS may show a security warning. To open it:
+> - Right-click the app → **Open**, then click **Open** in the dialog
+> - Or run: `xattr -cr /Applications/t2t.app` in Terminal
 
 ## How It Works
 
-- Press and hold Fn key → records microphone audio
-- Release Fn key → transcribes using local Whisper model
-- **Typing mode** (red bar): focused on text field → pastes transcription, preserves clipboard
-- **Agent mode** (cyan bar): not in text field → future agent features
-- Visual feedback: red/cyan bar while recording (based on mode), orange while processing
+- **Hold Fn key** → records microphone audio
+- **Release Fn key** → transcribes using local Whisper model
+- **Typing mode** (red bar): Hold Fn alone → pastes transcription into focused text field, preserves clipboard
+- **Agent mode** (cyan bar): Hold Fn+Ctrl → speaks commands to AI agent that generates and executes AppleScript
+- Visual feedback: red/cyan bar while recording (based on mode), amber while processing
 
-## Setup
+## Requirements
+
+- **macOS** (currently macOS only; tested on Apple Silicon)
+- **Accessibility permission** - Required for Fn key detection and focusing the correct field before paste
+- **Microphone permission** - Required for audio recording
+
+The app will prompt you if permissions are missing.
+
+## First Run
+
+On first launch, the app automatically downloads the Whisper model (~150MB) to `~/.cache/whisper/ggml-base.en.bin`. This happens in the background.
+
+## For Developers
+
+### Setup
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Development
 bun tauri dev
@@ -23,34 +49,21 @@ bun tauri dev
 bun tauri build
 ```
 
-## Requirements
+### Requirements
 
 - **Rust** (install via rustup)
 - **Bun** (recommended) or Node.js 18+
-- **macOS** (currently macOS only; tested on Apple Silicon)
 
-## First Run
-
-On first launch, the app automatically downloads the Whisper model (~150MB) to `~/.cache/whisper/ggml-base.en.bin`. This happens in the background.
-
-## Permissions (macOS)
-
-Grant these in **System Settings > Privacy & Security**:
-
-- **Accessibility** - Required for Fn key detection and focusing the correct field before paste
-- **Microphone** - Required for audio recording
-
-The app will prompt you if permissions are missing.
-
-## Tech Stack
+### Tech Stack
 
 - **Frontend**: Svelte 5 + SvelteKit
 - **Backend**: Rust + Tauri
 - **STT**: whisper-rs (local Whisper.cpp model)
+- **Agent API**: Cloudflare Workers AI (hosted at t2t.now)
 - **Hotkey**: macOS event monitoring (Fn key) + fallbacks
 - **Audio capture**: native (Rust via cpal)
 
-## Notes / Debugging
+### Debugging
 
 - **Logs**: `~/Library/Logs/t2t.log`
 - **Model location**: `~/.cache/whisper/ggml-base.en.bin`

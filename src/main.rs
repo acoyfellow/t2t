@@ -37,11 +37,13 @@ static AUDIO_TX: OnceCell<mpsc::Sender<AudioCmd>> = OnceCell::new();
 static VOLUME_LEVEL_TX: OnceCell<mpsc::Sender<f32>> = OnceCell::new();
 
 // Agent API URL - dev vs prod
+// Note: In dev, this should point to your local SvelteKit app (typically http://localhost:5173/api/agent)
+// Adjust port if Alchemy assigns a different one
 #[cfg(debug_assertions)]
-const AGENT_API_URL: &str = "http://localhost:1337/agent";
+const AGENT_API_URL: &str = "http://localhost:5173/api/agent";
 
 #[cfg(not(debug_assertions))]
-const AGENT_API_URL: &str = "https://t2t-agent-api.YOUR_SUBDOMAIN.workers.dev/agent";
+const AGENT_API_URL: &str = "https://t2t.now/api/agent";
 
 #[derive(serde::Deserialize)]
 struct AgentResponse {
@@ -117,6 +119,65 @@ fn log_line(msg: &str) {
             }
         }
     }
+}
+
+fn update_stats(app: AppHandle, text: String, dur_ms: f64) {
+    let word_count = text.split_whitespace().count();
+    if word_count == 0 {
+        return;
+    }
+    
+    let dur_seconds = dur_ms / 1000.0;
+    let wpm = if dur_seconds > 0.0 {
+        (word_count as f64) / (dur_seconds / 60.0)
+    } else {
+        0.0
+    };
+    
+    let now_hour = (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() / 3600) as i64;
+    
+    let app_clone = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Ok(mut store) = app_clone.store("stats.json") {
+            let total_words: f64 = store.get("total_words")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(0.0);
+            let total_seconds: f64 = store.get("total_seconds")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(0.0);
+            let session_count: f64 = store.get("session_count")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(0.0);
+            let session_wpm_sum: f64 = store.get("session_wpm_sum")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(0.0);
+            
+            let mut activity_hourly: Vec<(i64, f64)> = store
+                .get("activity_hourly")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default();
+            
+            let _ = store.set("total_words".to_string(), serde_json::json!(total_words + word_count as f64));
+            let _ = store.set("total_seconds".to_string(), serde_json::json!(total_seconds + dur_seconds));
+            let _ = store.set("session_count".to_string(), serde_json::json!(session_count + 1.0));
+            let _ = store.set("session_wpm_sum".to_string(), serde_json::json!(session_wpm_sum + wpm));
+            
+            let hour_idx = activity_hourly.iter().position(|(h, _)| *h == now_hour);
+            if let Some(idx) = hour_idx {
+                activity_hourly[idx].1 += word_count as f64;
+            } else {
+                activity_hourly.push((now_hour, word_count as f64));
+            }
+            let _ = store.set("activity_hourly".to_string(), serde_json::json!(activity_hourly));
+            
+            if let Err(e) = store.save() {
+                log_line(&format!("Failed to save stats: {e}"));
+            }
+        }
+    });
 }
 
 fn create_circular_icon(size: u32) -> Image<'static> {
@@ -698,8 +759,11 @@ mod macos_fn_key {
                 });
             }
             log_line("Fn pressed - start recording");
+            
+            // Reset to typing mode at start of each recording
+            IS_TEXT_INPUT_MODE.store(true, Ordering::SeqCst);
 
-            // Watchdog: monitor for Ctrl (one-way switch to agent) and Fn release
+            // Watchdog: monitor for Ctrl (switch to agent) and Fn release
             std::thread::spawn(|| {
                 let max_ms = 60_000u64; // 60 seconds max recording
                 let start = std::time::Instant::now();
@@ -716,10 +780,10 @@ mod macos_fn_key {
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
                     let control_down = (flags & control_flag) != 0;
                     
-                    // One-way switch: if Ctrl pressed at any time, switch to agent mode permanently
+                    // Switch to agent mode while Ctrl is held
                     if control_down && IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
                         IS_TEXT_INPUT_MODE.store(false, Ordering::SeqCst);
-                        log_line("Control pressed -> agent mode (locked)");
+                        log_line("Control pressed -> agent mode");
                         
                         // Update frontend
                         if let Some(app) = APP_HANDLE.get().cloned() {
@@ -848,6 +912,9 @@ mod macos_fn_key {
                                 set_clipboard_macos(&orig);
                             }
                             log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
+                            if let Some(app_for_stats) = app.clone() {
+                                update_stats(app_for_stats, text.clone(), dur_ms);
+                            }
                         } else {
                             // Agent mode - call worker API, execute AppleScript
                             log_line(&format!("Agent mode: calling API with '{}'", text));
@@ -868,6 +935,9 @@ mod macos_fn_key {
                                                     show_notification("t2t", &format!("Script error: {}", e));
                                                 }
                                             }
+                                        }
+                                        if let Some(app_for_stats) = app.clone() {
+                                            update_stats(app_for_stats, text.clone(), dur_ms);
                                         }
                                     } else if response.blocked == Some(true) {
                                         log_line("Agent: script blocked by safety filter");
@@ -1469,16 +1539,25 @@ fn main() {
                     match event.id.as_ref() {
                         "stats" => {
                             // Show the stats window and bring to front
-                            if let Some(w) = app.get_webview_window("stats") {
+                            let w = app.get_webview_window("stats").or_else(|| {
+                                tauri::WebviewWindowBuilder::new(
+                                    app,
+                                    "stats",
+                                    tauri::WebviewUrl::App("/stats".into())
+                                )
+                                .title("t2t Stats")
+                                .inner_size(800.0, 600.0)
+                                .center()
+                                .build()
+                                .ok()
+                            });
+                            if let Some(w) = w {
                                 let _ = w.show();
                                 let _ = w.unminimize();
-                                // Force to front by briefly setting always-on-top
                                 let _ = w.set_always_on_top(true);
                                 let _ = w.set_always_on_top(false);
                                 let _ = w.set_focus();
-                                log_line("tray: view stats (existing window)");
-                            } else {
-                                log_line("tray: stats window not found");
+                                log_line("tray: view stats");
                             }
                         }
                         "start" => {
