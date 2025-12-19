@@ -36,6 +36,64 @@ enum AudioCmd {
 static AUDIO_TX: OnceCell<mpsc::Sender<AudioCmd>> = OnceCell::new();
 static VOLUME_LEVEL_TX: OnceCell<mpsc::Sender<f32>> = OnceCell::new();
 
+// Agent API URL - dev vs prod
+#[cfg(debug_assertions)]
+const AGENT_API_URL: &str = "http://localhost:1337/agent";
+
+#[cfg(not(debug_assertions))]
+const AGENT_API_URL: &str = "https://t2t-agent-api.YOUR_SUBDOMAIN.workers.dev/agent";
+
+#[derive(serde::Deserialize)]
+struct AgentResponse {
+    success: bool,
+    script: Option<String>,
+    blocked: Option<bool>,
+    error: Option<String>,
+}
+
+fn call_agent_api(transcript: &str) -> Result<AgentResponse, String> {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(AGENT_API_URL)
+        .json(&serde_json::json!({ "transcript": transcript }))
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .map_err(|e| format!("Agent API request failed: {e}"))?;
+    
+    if !resp.status().is_success() {
+        return Err(format!("Agent API returned {}", resp.status()));
+    }
+    
+    resp.json::<AgentResponse>()
+        .map_err(|e| format!("Failed to parse agent response: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn execute_applescript(script: &str) -> Result<String, String> {
+    use std::process::Command;
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {e}"))?;
+    
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_notification(title: &str, message: &str) {
+    let script = format!(
+        r#"display notification "{}" with title "{}""#,
+        message.replace('"', "\\\""),
+        title.replace('"', "\\\"")
+    );
+    let _ = execute_applescript(&script);
+}
+
 fn log_line(msg: &str) {
     // Best-effort persistent log to help debug Finder vs Terminal launch differences.
     let ts = SystemTime::now()
@@ -598,19 +656,11 @@ mod macos_fn_key {
         }
     }
     
-    fn handle_fn_key(pressed: bool, control_held: bool) {
+    fn handle_fn_key(pressed: bool, _control_held: bool) {
         let was_recording = IS_RECORDING.load(Ordering::SeqCst);
         
         if pressed && !was_recording {
             IS_RECORDING.store(true, Ordering::SeqCst);
-            
-            // Fn alone = typing mode, Fn + Control = agent mode
-            let is_text = !control_held;
-            IS_TEXT_INPUT_MODE.store(is_text, Ordering::SeqCst);
-            
-            if control_held {
-                log_line("Fn + Control detected -> agent mode");
-            }
             
             // Remember where the user was typing so we can restore focus before pasting.
             let pid = capture_frontmost_pid();
@@ -639,49 +689,44 @@ mod macos_fn_key {
                             .and_then(|e| focused_fingerprint(e));
                     }
                     
-                    // Send mode to frontend
-                    let mode_str = if is_text { "typing" } else { "agent" };
+                    // Start in "pending" state - frontend shows neutral color
                     if let Some(w) = app_clone.get_webview_window("main") {
-                        let _ = w.eval(&format!("window.__setMode && window.__setMode('{}')", mode_str));
+                        let _ = w.eval("window.__setMode && window.__setMode('typing')");
                     }
                     
-                    log_line(&format!("Captured AX focused element (best effort), mode={mode_str}"));
+                    log_line("Captured AX focused element (best effort)");
                 });
             }
             log_line("Fn pressed - start recording");
 
-            // Watchdog: poll modifier flags, update mode on-the-fly when Control changes
+            // Watchdog: monitor for Ctrl (one-way switch to agent) and Fn release
             std::thread::spawn(|| {
-                // hard cap so we never get stuck forever
                 let max_ms = 60_000u64; // 60 seconds max recording
                 let start = std::time::Instant::now();
                 let control_flag: u64 = 1u64 << 18;
-                let mut last_control = IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) == false;
                 
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(25));
                     if !IS_RECORDING.load(Ordering::SeqCst) {
                         break;
                     }
+                    
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
                     let flags = unsafe { CGEventSourceFlagsState(K_CG_EVENT_SOURCE_STATE_COMBINED_SESSION_STATE) };
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
                     let control_down = (flags & control_flag) != 0;
                     
-                    // Update mode on-the-fly if Control state changed
-                    if control_down != last_control {
-                        last_control = control_down;
-                        let is_text = !control_down;
-                        IS_TEXT_INPUT_MODE.store(is_text, Ordering::SeqCst);
-                        let mode_str = if is_text { "typing" } else { "agent" };
-                        log_line(&format!("Mode switched to {} (Control {})", mode_str, if control_down { "pressed" } else { "released" }));
+                    // One-way switch: if Ctrl pressed at any time, switch to agent mode permanently
+                    if control_down && IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
+                        IS_TEXT_INPUT_MODE.store(false, Ordering::SeqCst);
+                        log_line("Control pressed -> agent mode (locked)");
                         
                         // Update frontend
                         if let Some(app) = APP_HANDLE.get().cloned() {
-                            let mode = mode_str.to_string();
                             let app_clone = app.clone();
                             let _ = app.run_on_main_thread(move || {
                                 if let Some(w) = app_clone.get_webview_window("main") {
-                                    let _ = w.eval(&format!("window.__setMode && window.__setMode('{}')", mode));
+                                    let _ = w.eval("window.__setMode && window.__setMode('agent')");
                                 }
                             });
                         }
@@ -692,7 +737,7 @@ mod macos_fn_key {
                         handle_fn_key(false, false);
                         break;
                     }
-                    if start.elapsed().as_millis() as u64 > max_ms {
+                    if elapsed_ms > max_ms {
                         log_line("Fn watchdog timeout - forcing stop");
                         handle_fn_key(false, false);
                         break;
@@ -804,17 +849,43 @@ mod macos_fn_key {
                             }
                             log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
                         } else {
-                            // Agent mode - emit event to frontend
-                            if let Some(app) = app.clone() {
-                                let text_clone = text.clone();
-                                let app_clone = app.clone();
-                                let _ = app.run_on_main_thread(move || {
-                                    if let Some(w) = app_clone.get_webview_window("main") {
-                                        let _ = w.eval(&format!("window.__agentInput && window.__agentInput('{}')", text_clone.replace('\\', "\\\\").replace('\'', "\\'")));
+                            // Agent mode - call worker API, execute AppleScript
+                            log_line(&format!("Agent mode: calling API with '{}'", text));
+                            
+                            match call_agent_api(&text) {
+                                Ok(response) => {
+                                    if response.success {
+                                        if let Some(script) = response.script {
+                                            log_line(&format!("Agent: executing script: {}", script));
+                                            #[cfg(target_os = "macos")]
+                                            match execute_applescript(&script) {
+                                                Ok(output) => {
+                                                    log_line(&format!("Agent: script succeeded: {}", output));
+                                                    show_notification("t2t", "Done");
+                                                }
+                                                Err(e) => {
+                                                    log_line(&format!("Agent: script failed: {}", e));
+                                                    show_notification("t2t", &format!("Script error: {}", e));
+                                                }
+                                            }
+                                        }
+                                    } else if response.blocked == Some(true) {
+                                        log_line("Agent: script blocked by safety filter");
+                                        #[cfg(target_os = "macos")]
+                                        show_notification("t2t", "Action blocked for safety");
+                                    } else {
+                                        let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                                        log_line(&format!("Agent: API error: {}", err));
+                                        #[cfg(target_os = "macos")]
+                                        show_notification("t2t", &format!("Error: {}", err));
                                     }
-                                });
+                                }
+                                Err(e) => {
+                                    log_line(&format!("Agent: API call failed: {}", e));
+                                    #[cfg(target_os = "macos")]
+                                    show_notification("t2t", "Could not reach agent");
+                                }
                             }
-                            log_line(&format!("Agent mode: text len={}", text.len()));
                         }
                     }
                 }
@@ -1397,9 +1468,13 @@ fn main() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "stats" => {
-                            // Show the stats window
+                            // Show the stats window and bring to front
                             if let Some(w) = app.get_webview_window("stats") {
                                 let _ = w.show();
+                                let _ = w.unminimize();
+                                // Force to front by briefly setting always-on-top
+                                let _ = w.set_always_on_top(true);
+                                let _ = w.set_always_on_top(false);
                                 let _ = w.set_focus();
                                 log_line("tray: view stats (existing window)");
                             } else {

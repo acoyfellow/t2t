@@ -25,9 +25,12 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
+    "dev:worker": "cd worker && bun run dev",
+    "dev:all": "bun run dev:worker & bun tauri dev",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "lsof -ti tcp:5173 | xargs kill -9 && tauri",
+    "deploy:worker": "cd worker && bun run deploy",
     "macos:install": "bash ./scripts/macos-install.sh"
   },
   "devDependencies": {
