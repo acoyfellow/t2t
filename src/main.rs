@@ -44,12 +44,42 @@ const AGENT_API_URL: &str = "http://localhost:5173/api/agent";
 #[cfg(not(debug_assertions))]
 const AGENT_API_URL: &str = "https://t2t.now/api/agent";
 
+#[cfg(debug_assertions)]
+const MCP_AGENT_API_URL: &str = "http://localhost:5173/api/mcp-agent";
+
+#[cfg(not(debug_assertions))]
+const MCP_AGENT_API_URL: &str = "https://t2t.now/api/mcp-agent";
+
 #[derive(serde::Deserialize)]
 struct AgentResponse {
     success: bool,
     script: Option<String>,
     blocked: Option<bool>,
     error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct MCPAgentResponse {
+    success: bool,
+    text: Option<String>,
+    #[serde(rename = "toolCalls")]
+    tool_calls: Option<Vec<serde_json::Value>>,
+    error: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct MCPServer {
+    id: String,
+    name: String,
+    transport: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    enabled: Option<bool>,
 }
 
 fn call_agent_api(transcript: &str) -> Result<AgentResponse, String> {
@@ -67,6 +97,116 @@ fn call_agent_api(transcript: &str) -> Result<AgentResponse, String> {
     
     resp.json::<AgentResponse>()
         .map_err(|e| format!("Failed to parse agent response: {e}"))
+}
+
+fn call_mcp_agent_api(transcript: &str, mcp_servers: Vec<MCPServer>, openrouter_key: String) -> Result<MCPAgentResponse, String> {
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(MCP_AGENT_API_URL)
+        .json(&serde_json::json!({
+            "transcript": transcript,
+            "mcpServers": mcp_servers,
+            "openrouterKey": openrouter_key,
+        }))
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .map_err(|e| format!("MCP Agent API request failed: {e}"))?;
+    
+    if !resp.status().is_success() {
+        return Err(format!("MCP Agent API returned {}", resp.status()));
+    }
+    
+    resp.json::<MCPAgentResponse>()
+        .map_err(|e| format!("Failed to parse MCP agent response: {e}"))
+}
+
+fn get_mcp_config(app: &AppHandle) -> Option<(Vec<MCPServer>, String)> {
+    // Try to get OpenRouter key from store, fallback to env var
+    let key = if let Ok(key_store) = app.store("openrouter-key") {
+        key_store.get("key")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .filter(|k| !k.is_empty())
+    } else {
+        log_line("get_mcp_config: failed to open openrouter-key store");
+        None
+    };
+    
+    let key = key.or_else(|| {
+        log_line("get_mcp_config: trying OPENROUTER_API_KEY env var");
+        std::env::var("OPENROUTER_API_KEY").ok()
+    }).filter(|k| !k.is_empty());
+    
+    let key = match key {
+        Some(k) => {
+            log_line(&format!("get_mcp_config: found OpenRouter key (len={})", k.len()));
+            k
+        },
+        None => {
+            log_line("get_mcp_config: no OpenRouter key found");
+            return None;
+        }
+    };
+    
+    // Get MCP servers from store
+    let servers_store = match app.store("mcp-servers.json") {
+        Ok(store) => store,
+        Err(e) => {
+            log_line(&format!("get_mcp_config: failed to open mcp-servers.json store: {:?}", e));
+            return None;
+        }
+    };
+    
+    let servers_data: Vec<serde_json::Value> = match servers_store.get("servers") {
+        Some(v) => {
+            match v.as_array() {
+                Some(arr) => {
+                    log_line(&format!("get_mcp_config: found {} servers in store", arr.len()));
+                    arr.clone()
+                },
+                None => {
+                    log_line("get_mcp_config: servers field is not an array");
+                    return None;
+                }
+            }
+        },
+        None => {
+            log_line("get_mcp_config: no 'servers' field in store");
+            return None;
+        }
+    };
+    
+    if servers_data.is_empty() {
+        log_line("get_mcp_config: servers array is empty");
+        return None;
+    }
+    
+    let servers: Result<Vec<MCPServer>, _> = servers_data
+        .into_iter()
+        .map(|v| serde_json::from_value(v))
+        .collect();
+    
+    match servers {
+        Ok(s) => {
+            let total_count = s.len();
+            // Filter to only enabled servers (default to enabled=true if not specified)
+            let enabled: Vec<MCPServer> = s.into_iter()
+                .filter(|server| server.enabled.unwrap_or(true))
+                .collect();
+            
+            log_line(&format!("get_mcp_config: successfully loaded {} servers ({} enabled)", total_count, enabled.len()));
+            
+            if enabled.is_empty() {
+                log_line("get_mcp_config: no enabled servers");
+                return None;
+            }
+            
+            Some((enabled, key))
+        },
+        Err(e) => {
+            log_line(&format!("get_mcp_config: failed to deserialize servers: {:?}", e));
+            None
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -762,6 +902,16 @@ mod macos_fn_key {
             
             // Reset to typing mode at start of each recording
             IS_TEXT_INPUT_MODE.store(true, Ordering::SeqCst);
+            
+            // Immediately set mode to typing (red bar) - don't wait for async
+            if let Some(app) = APP_HANDLE.get().cloned() {
+                let app_clone = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(w) = app_clone.get_webview_window("main") {
+                        let _ = w.eval("window.__setMode && window.__setMode('typing')");
+                    }
+                });
+            }
 
             // Watchdog: monitor for Ctrl (switch to agent) and Fn release
             std::thread::spawn(|| {
@@ -888,19 +1038,17 @@ mod macos_fn_key {
                 } else {
                     #[cfg(target_os = "macos")]
                     {
-                        let Some(app) = app.clone() else {
+                        let Some(app_unwrapped) = app.clone() else {
                             log_line("Skipping paste: no app handle");
                             return;
                         };
 
-                        if !strict_focus_ok(&app) {
+                        if !strict_focus_ok(&app_unwrapped) {
                             // Critical: do NOT touch clipboard, do NOT paste, do NOT try to restore focus.
                             log_line("Skipping paste: focus moved");
                             return;
                         }
-                    }
-                    #[cfg(target_os = "macos")]
-                    {
+                        
                         if IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
                             // Typing mode: save clipboard, paste, restore
                             let original = get_clipboard_macos();
@@ -912,48 +1060,130 @@ mod macos_fn_key {
                                 set_clipboard_macos(&orig);
                             }
                             log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
-                            if let Some(app_for_stats) = app.clone() {
-                                update_stats(app_for_stats, text.clone(), dur_ms);
-                            }
+                            update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
                         } else {
-                            // Agent mode - call worker API, execute AppleScript
+                            // Agent mode: check for MCP servers first
                             log_line(&format!("Agent mode: calling API with '{}'", text));
                             
-                            match call_agent_api(&text) {
-                                Ok(response) => {
+                            let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
+                                log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
+                                Some(call_mcp_agent_api(&text, servers, key))
+                            } else {
+                                log_line("No MCP servers configured, falling back to AppleScript agent");
+                                None
+                            };
+                            
+                            match mcp_result {
+                                Some(Ok(response)) => {
                                     if response.success {
-                                        if let Some(script) = response.script {
-                                            log_line(&format!("Agent: executing script: {}", script));
-                                            #[cfg(target_os = "macos")]
-                                            match execute_applescript(&script) {
-                                                Ok(output) => {
-                                                    log_line(&format!("Agent: script succeeded: {}", output));
-                                                    show_notification("t2t", "Done");
-                                                }
-                                                Err(e) => {
-                                                    log_line(&format!("Agent: script failed: {}", e));
-                                                    show_notification("t2t", &format!("Script error: {}", e));
+                                        // Log tool calls if any
+                                        if let Some(tool_calls) = &response.tool_calls {
+                                            if !tool_calls.is_empty() {
+                                                log_line(&format!("MCP Agent: {} tool(s) executed", tool_calls.len()));
+                                                for (i, call) in tool_calls.iter().enumerate() {
+                                                    if let Some(tool_name) = call.get("toolName").and_then(|v| v.as_str()) {
+                                                        log_line(&format!("  Tool {}: {}", i + 1, tool_name));
+                                                    }
                                                 }
                                             }
                                         }
-                                        if let Some(app_for_stats) = app.clone() {
-                                            update_stats(app_for_stats, text.clone(), dur_ms);
+                                        
+                                        if let Some(response_text) = response.text {
+                                            log_line(&format!("MCP Agent response: {}", response_text));
+                                            
+                                            // Build notification message with tool info
+                                            let mut msg = String::new();
+                                            if let Some(tool_calls) = &response.tool_calls {
+                                                if !tool_calls.is_empty() {
+                                                    let tool_names: Vec<String> = tool_calls.iter()
+                                                        .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                                        .collect();
+                                                    if !tool_names.is_empty() {
+                                                        msg.push_str(&format!("Used: {}. ", tool_names.join(", ")));
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // If response is short and single-line, try to paste it
+                                            if response_text.len() < 500 && !response_text.contains('\n') {
+                                                // Save clipboard, paste result, restore
+                                                let original = get_clipboard_macos();
+                                                set_clipboard_macos(&response_text);
+                                                paste_text();
+                                                std::thread::sleep(std::time::Duration::from_millis(80));
+                                                if let Some(orig) = original {
+                                                    set_clipboard_macos(&orig);
+                                                }
+                                                if msg.is_empty() {
+                                                    show_notification("t2t", "Result pasted");
+                                                } else {
+                                                    show_notification("t2t", &format!("{}Result pasted", msg));
+                                                }
+                                            } else {
+                                                // Long or multi-line response - show notification with preview
+                                                let preview = if response_text.len() > 100 {
+                                                    format!("{}...", &response_text[..100])
+                                                } else {
+                                                    response_text.clone()
+                                                };
+                                                if msg.is_empty() {
+                                                    show_notification("t2t", &preview);
+                                                } else {
+                                                    show_notification("t2t", &format!("{}\n{}", msg.trim(), preview));
+                                                }
+                                            }
+                                        } else if let Some(tool_calls) = &response.tool_calls {
+                                            if !tool_calls.is_empty() {
+                                                let tool_names: Vec<String> = tool_calls.iter()
+                                                    .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                                    .collect();
+                                                show_notification("t2t", &format!("Executed: {}", tool_names.join(", ")));
+                                            }
                                         }
-                                    } else if response.blocked == Some(true) {
-                                        log_line("Agent: script blocked by safety filter");
-                                        #[cfg(target_os = "macos")]
-                                        show_notification("t2t", "Action blocked for safety");
+                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
                                     } else {
                                         let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                                        log_line(&format!("Agent: API error: {}", err));
-                                        #[cfg(target_os = "macos")]
+                                        log_line(&format!("MCP Agent: API error: {}", err));
                                         show_notification("t2t", &format!("Error: {}", err));
                                     }
                                 }
-                                Err(e) => {
-                                    log_line(&format!("Agent: API call failed: {}", e));
-                                    #[cfg(target_os = "macos")]
-                                    show_notification("t2t", "Could not reach agent");
+                                Some(Err(e)) => {
+                                    log_line(&format!("MCP Agent: API call failed: {}", e));
+                                    show_notification("t2t", &format!("API error: {}", e));
+                                }
+                                None => {
+                                    // Fallback to AppleScript agent
+                                    match call_agent_api(&text) {
+                                        Ok(response) => {
+                                            if response.success {
+                                                if let Some(script) = response.script {
+                                                    log_line(&format!("Agent: executing script: {}", script));
+                                                    match execute_applescript(&script) {
+                                                        Ok(output) => {
+                                                            log_line(&format!("Agent: script succeeded: {}", output));
+                                                            show_notification("t2t", "Done");
+                                                        }
+                                                        Err(e) => {
+                                                            log_line(&format!("Agent: script failed: {}", e));
+                                                            show_notification("t2t", &format!("Script error: {}", e));
+                                                        }
+                                                    }
+                                                }
+                                                update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
+                                            } else if response.blocked == Some(true) {
+                                                log_line("Agent: script blocked by safety filter");
+                                                show_notification("t2t", "Action blocked for safety");
+                                            } else {
+                                                let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
+                                                log_line(&format!("Agent: API error: {}", err));
+                                                show_notification("t2t", &format!("Error: {}", err));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log_line(&format!("Agent: API call failed: {}", e));
+                                            show_notification("t2t", "Could not reach agent");
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1473,11 +1703,11 @@ fn main() {
             }
 
             // Debug controls so we can validate mic/recording even if Fn capture fails.
-            let stats = MenuItem::with_id(app, "stats", "View Stats", true, None::<&str>)?;
+            let settings = MenuItem::with_id(app, "settings", "View Settings", true, None::<&str>)?;
             let start = MenuItem::with_id(app, "start", "Start recording", true, None::<&str>)?;
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&stats, &start, &stop, &quit])?;
+            let menu = Menu::with_items(app, &[&settings, &start, &stop, &quit])?;
             
             // Load tray icon from file - need to decode PNG to RGBA
             fn load_png_as_image(path: &std::path::Path) -> Option<Image<'static>> {
@@ -1537,27 +1767,32 @@ fn main() {
                 .tooltip("t2t - Hold Fn")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
-                        "stats" => {
-                            // Show the stats window and bring to front
-                            let w = app.get_webview_window("stats").or_else(|| {
+                        "settings" => {
+                            // Change activation policy to Regular so it appears in Command+Tab
+                            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                            
+                            // Show the settings window and bring to front
+                            let w = app.get_webview_window("settings").or_else(|| {
                                 tauri::WebviewWindowBuilder::new(
                                     app,
-                                    "stats",
-                                    tauri::WebviewUrl::App("/stats".into())
+                                    "settings",
+                                    tauri::WebviewUrl::App("/settings".into())
                                 )
-                                .title("t2t Stats")
-                                .inner_size(800.0, 600.0)
+                                .title("Settings")
+                                .inner_size(900.0, 700.0)
                                 .center()
+                                .skip_taskbar(false)
                                 .build()
                                 .ok()
                             });
                             if let Some(w) = w {
+                                let _ = w.set_skip_taskbar(false);
                                 let _ = w.show();
                                 let _ = w.unminimize();
                                 let _ = w.set_always_on_top(true);
                                 let _ = w.set_always_on_top(false);
                                 let _ = w.set_focus();
-                                log_line("tray: view stats");
+                                log_line("tray: view settings");
                             }
                         }
                         "start" => {

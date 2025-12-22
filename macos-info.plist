@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleIconFile</key>
+  <string>icon</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>t2t needs microphone access to transcribe speech while you hold Fn.</string>
   <key>NSAppleEventsUsageDescription</key>

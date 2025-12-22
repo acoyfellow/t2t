@@ -47,11 +47,16 @@
 
   onMount(() => {
     // Expose hooks to Rust
-    (window as any).__setMode = (m: "typing" | "agent") => (mode = m);
+    (window as any).__setMode = (m: "typing" | "agent") => {
+      mode = m;
+    };
     (window as any).__agentInput = (text: string) => {
       console.log("Agent mode:", text);
       // Future: show UI, trigger agent workflow
     };
+
+    // Initialize mode to typing (red bar)
+    mode = "typing";
 
     const fiber = Runtime.runFork(
       runtime,

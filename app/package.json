@@ -33,7 +33,11 @@
     "vite": "^7.3.0"
   },
   "dependencies": {
-    "alchemy": "^0.82.0",
+    "ai": "beta",
+    "@ai-sdk/mcp": "beta",
+    "@openrouter/ai-sdk-provider": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "alchemy": "^0.82.1",
     "better-auth": "1.4.7",
     "drizzle-orm": "^0.45.1",
     "effect": "^3.19.13"

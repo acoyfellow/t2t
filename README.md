@@ -19,7 +19,7 @@
 - **Hold Fn key** → records microphone audio
 - **Release Fn key** → transcribes using local Whisper model
 - **Typing mode** (red bar): Hold Fn alone → pastes transcription into focused text field, preserves clipboard
-- **Agent mode** (cyan bar): Hold Fn+Ctrl → speaks commands to AI agent that generates and executes AppleScript
+- **Agent mode** (cyan bar): Hold Fn+Ctrl → speaks commands to AI agent. MCP mode (if configured): connects to MCP servers, uses their tools via OpenRouter AI. AppleScript mode (fallback): generates and executes AppleScript for macOS automation
 - Visual feedback: red/cyan bar while recording (based on mode), amber while processing
 
 ## Requirements
@@ -29,6 +29,17 @@
 - **Microphone permission** - Required for audio recording
 
 The app will prompt you if permissions are missing.
+
+## MCP (Model Context Protocol) Support
+
+When MCP servers are configured in settings, agent mode uses MCP instead of AppleScript. This enables:
+
+- **Extensible automation**: Connect to any MCP-compatible service (databases, APIs, file systems, etc.)
+- **Tool-based execution**: AI agent uses tools provided by your MCP servers
+- **Multiple servers**: Connect to multiple MCP servers simultaneously
+- **Transport options**: Supports stdio, HTTP, and SSE transports
+
+Configure MCP servers in the app settings. Requires an OpenRouter API key.
 
 ## First Run
 
@@ -60,6 +71,7 @@ bun tauri build
 - **Backend**: Rust + Tauri
 - **STT**: whisper-rs (local Whisper.cpp model)
 - **Agent API**: Cloudflare Workers AI (hosted at t2t.now)
+- **MCP**: Model Context Protocol support via @ai-sdk/mcp
 - **Hotkey**: macOS event monitoring (Fn key) + fallbacks
 - **Audio capture**: native (Rust via cpal)
 

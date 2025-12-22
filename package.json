@@ -48,6 +48,9 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "beta",
+    "@lucide/svelte": "^0.562.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
