@@ -5,7 +5,7 @@ const app = await alchemy("t2t-agent", {
   stage: process.env.ALCHEMY_STAGE ?? "dev",
 });
 
-export const worker = await Worker("t2t-agent-api", {
+export const worker = await Worker("agent-api", {
   entrypoint: "./src/index.ts",
   url: true,
   compatibilityDate: "2024-12-01",

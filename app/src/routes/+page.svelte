@@ -181,8 +181,8 @@
               >
                 fn+ctrl
               </kbd>{" "}
-              to speak commands. The AI executes them. Control your Mac with your
-              voice.
+              to speak commands. With MCP servers configured, the agent uses their
+              tools. Otherwise, it generates AppleScript. Your choice, same two keys.
             </p>
           </div>
         </div>
@@ -202,17 +202,41 @@
               >
             </div>
             <h2 class="text-6xl md:text-8xl font-black mb-8 leading-none">
-              <span class="text-pink-400">Your MCP Servers</span>
+              <span class="text-pink-400">Talk to any</span>
               <br />
-              At Your Fingertips
+              MCP Server
             </h2>
+            <p
+              class="text-3xl md:text-4xl text-zinc-400 mb-12 max-w-4xl leading-relaxed"
+            >
+              Press{" "}
+              <kbd
+                class="px-4 py-2 bg-zinc-900 border-2 border-pink-400 text-pink-400 font-mono rounded text-2xl"
+              >
+                fn+ctrl
+              </kbd>{" "}
+              and speak. The agent connects to your MCP servers and executes tools.
+              No code. No complexity. Just works.
+            </p>
           </div>
 
           <div class="grid md:grid-cols-2 gap-12 items-center relative z-10">
-            <p class="text-2xl text-zinc-400 leading-relaxed">
-              Connect to databases, APIs, filesystems. The agent uses tools from
-              your MCP servers. Unlimited extensibility.
-            </p>
+            <div class="space-y-6">
+              <p class="text-2xl text-zinc-400 leading-relaxed">
+                Connect databases, APIs, filesystems, or any MCP-compatible
+                service. Configure once in settings, then control everything
+                with your voice.
+              </p>
+              <div class="flex flex-wrap gap-3 pt-4">
+                {#each mcpTags as tag}
+                  <span
+                    class="px-5 py-3 bg-zinc-900 border border-zinc-700 hover:border-pink-400 hover:text-pink-400 rounded text-sm font-bold uppercase tracking-wider transition-all cursor-default"
+                  >
+                    {tag}
+                  </span>
+                {/each}
+              </div>
+            </div>
             <div class="flex justify-center">
               <img
                 src="/mcp.jpg"

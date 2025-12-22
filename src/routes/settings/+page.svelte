@@ -115,7 +115,8 @@
       servers = serversData.map((s) => ({
         ...s,
         enabled: s.enabled ?? true,
-        status: s.status ?? "active",
+        // Reset loading status on load - don't persist "loading" state
+        status: s.status === "loading" ? "active" : (s.status ?? "active"),
         tools: s.tools,
         toolsCount: s.toolsCount ?? s.tools?.length,
         promptsCount: s.promptsCount,

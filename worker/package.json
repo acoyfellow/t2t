@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@types/node": "^25.0.3",
-    "alchemy": "^0.82.0",
+    "alchemy": "^0.82.1",
     "effect": "^3.19.13",
     "hono": "^4.11.1"
   },

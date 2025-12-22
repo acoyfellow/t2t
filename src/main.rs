@@ -15,6 +15,7 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 use tauri_plugin_store::StoreExt;
+use tauri_plugin_log::{Builder, Target, TargetKind};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
@@ -1659,6 +1660,16 @@ fn main() {
     });
 
     tauri::Builder::default()
+        .plugin(
+            Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: Some("t2t.log".into()) }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
             println!("Another instance tried to start - ignoring");
         }))
