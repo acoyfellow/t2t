@@ -64,3 +64,4 @@ export const generateAppleScript = (ai: CloudflareAI, transcript: string) =>
     },
     catch: (error) => new Error(`AI generation failed: ${error}`),
   });
+

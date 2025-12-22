@@ -55,3 +55,4 @@ export const checkDenylist = (script: string) =>
 export const getDenylistMatches = (script: string): string[] => {
   return DENY_PATTERNS.filter((p) => p.test(script)).map((p) => p.source);
 };
+
