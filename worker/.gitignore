@@ -1,6 +1,0 @@
-node_modules/
-.wrangler/
-.alchemy/
-.dev.vars
-dist/
-*.log

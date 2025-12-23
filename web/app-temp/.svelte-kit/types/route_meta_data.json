@@ -1,0 +1,18 @@
+{
+	"/": [
+		"src/routes/+layout.server.ts",
+		"src/routes/+layout.server.ts"
+	],
+	"/api/agent": [
+		"src/routes/api/agent/+server.ts"
+	],
+	"/api/auth/[...all]": [
+		"src/routes/api/auth/[...all]/+server.ts"
+	],
+	"/api/mcp-agent": [
+		"src/routes/api/mcp-agent/+server.ts"
+	],
+	"/api/mcp-tools": [
+		"src/routes/api/mcp-tools/+server.ts"
+	]
+}

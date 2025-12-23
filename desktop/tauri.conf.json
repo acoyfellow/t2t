@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "t2t",
+  "version": "0.1.0",
+  "identifier": "com.t2t.desktop",
+  "build": {
+    "beforeDevCommand": "bunx vite dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "bunx vite build",
+    "frontendDist": "./build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "",
+        "width": 1920,
+        "height": 2,
+        "visible": true,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "center": false
+      },
+      {
+        "label": "settings",
+        "title": "Settings",
+        "url": "/settings",
+        "width": 900,
+        "height": 700,
+        "visible": false,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "center": true,
+        "skipTaskbar": false
+      }
+    ],
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "active": true,
+    "resources": [
+      "icons/tray-icon.png",
+      "icons/tray-icon@2x.png"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
+    "macOS": {
+      "entitlements": "./entitlements.plist",
+      "infoPlist": "./macos-info.plist"
+    }
+  },
+  "plugins": {}
+}

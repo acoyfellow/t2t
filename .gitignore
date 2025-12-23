@@ -1,9 +1,17 @@
-target/
+# Desktop app
+desktop/target/
+desktop/node_modules/
+desktop/.svelte-kit/
+desktop/build/
+desktop/gen/
+
+# Web app
+web/node_modules/
+web/.svelte-kit/
+web/.alchemy/
+
+# Root
 node_modules/
-.svelte-kit/
-build/
-gen/
 .env
 *.lock
 .DS_Store
-.alchemy/

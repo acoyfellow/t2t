@@ -1,0 +1,56 @@
+{
+  "name": "t2t-app",
+  "main": "../../.svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2025-12-17",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": "../../.svelte-kit/cloudflare",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "html_handling": "auto-trailing-slash",
+    "run_worker_first": false
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MY_DO",
+        "class_name": "MyDO",
+        "script_name": "t2t-worker"
+      }
+    ]
+  },
+  "services": [
+    {
+      "binding": "WORKER",
+      "service": "t2t-worker"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "t2t-db",
+      "database_name": "t2t-db",
+      "migrations_dir": "migrations",
+      "preview_database_id": "t2t-db"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "MyDO"
+      ],
+      "new_classes": []
+    }
+  ],
+  "vars": {
+    "BETTER_AUTH_SECRET": "b2368580005fe60b35d8275181c2b3b4d2ac0e098e55a15eb4dc9495f652dddd",
+    "BETTER_AUTH_URL": "http://localhost:5173"
+  }
+}

@@ -24,38 +24,12 @@
   ],
   "private": true,
   "scripts": {
-    "dev": "vite dev",
-    "dev:worker": "cd worker && bun run dev",
-    "dev:all": "bun run dev:worker & bun tauri dev",
-    "build": "vite build",
-    "preview": "vite preview",
-    "tauri": "lsof -ti tcp:5173 | xargs kill -9 && tauri",
-    "deploy:worker": "cd worker && bun run deploy",
-    "macos:install": "bash ./scripts/macos-install.sh",
+    "dev": "cd desktop && bunx tauri dev",
+    "build": "cd desktop && bunx tauri build",
+    "dev:web": "cd web && bun dev",
+    "deploy:web": "cd web && bun run deploy",
     "release": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",
     "release:major": "npm version major && git push && git push --tags"
-  },
-  "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.49.2",
-    "@sveltejs/vite-plugin-svelte": "^6.2.1",
-    "@tailwindcss/vite": "^4.1.18",
-    "@tauri-apps/cli": "^2.9.6",
-    "svelte": "^5.46.0",
-    "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.0"
-  },
-  "dependencies": {
-    "@ai-sdk/mcp": "beta",
-    "@lucide/svelte": "^0.562.0",
-    "@modelcontextprotocol/sdk": "^1.25.1",
-    "@tauri-apps/api": "^2.9.1",
-    "@tauri-apps/plugin-log": "^2.7.1",
-    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
-    "@tauri-apps/plugin-store": "^2.4.1",
-    "effect": "^3.19.13"
-  },
-  "type": "module"
+  }
 }

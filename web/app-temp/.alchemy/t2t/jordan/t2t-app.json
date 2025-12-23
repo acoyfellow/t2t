@@ -1,0 +1,217 @@
+{
+  "kind": "cloudflare::Worker",
+  "id": "t2t-app",
+  "fqn": "t2t/jordan/t2t-app",
+  "seq": 2,
+  "data": {},
+  "status": "updated",
+  "output": {
+    "Symbol(alchemy::ResourceKind)": "cloudflare::Worker",
+    "Symbol(alchemy::ResourceID)": "t2t-app",
+    "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-app",
+    "Symbol(alchemy::ResourceScope)": {
+      "@scope": null
+    },
+    "Symbol(alchemy::ResourceSeq)": 2,
+    "domains": [],
+    "bindings": {
+      "MY_DO": {
+        "type": "durable_object_namespace",
+        "id": "t2t-do",
+        "className": "MyDO",
+        "scriptName": "t2t-worker",
+        "sqlite": true
+      },
+      "WORKER": {
+        "Symbol(alchemy::ResourceKind)": "cloudflare::Worker",
+        "Symbol(alchemy::ResourceID)": "t2t-worker",
+        "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-worker",
+        "Symbol(alchemy::ResourceScope)": {
+          "@scope": null
+        },
+        "Symbol(alchemy::ResourceSeq)": 1,
+        "name": "t2t-worker",
+        "entrypoint": "./worker/index.ts",
+        "adopt": true,
+        "bindings": {
+          "MY_DO": {
+            "type": "durable_object_namespace",
+            "id": "t2t-do",
+            "className": "MyDO",
+            "scriptName": "t2t-worker",
+            "sqlite": true
+          }
+        },
+        "url": "http://localhost:1338/",
+        "type": "service",
+        "id": "t2t-worker",
+        "cwd": "",
+        "compatibilityDate": "2025-12-17",
+        "compatibilityFlags": [],
+        "format": "esm",
+        "createdAt": {
+          "@date": "2025-12-19T14:42:11.545Z"
+        },
+        "updatedAt": 1766486840291,
+        "routes": [],
+        "domains": [],
+        "dev": {
+          "hasRemote": true
+        }
+      },
+      "DB": {
+        "Symbol(alchemy::ResourceKind)": "cloudflare::D1Database",
+        "Symbol(alchemy::ResourceID)": "t2t-db",
+        "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-db",
+        "Symbol(alchemy::ResourceScope)": {
+          "@scope": null
+        },
+        "Symbol(alchemy::ResourceSeq)": 0,
+        "type": "d1",
+        "id": "620a6278-071c-4c62-8d74-d2f2ff812107",
+        "name": "t2t-db",
+        "migrationsDir": "migrations",
+        "migrationsTable": "d1_migrations",
+        "dev": {
+          "id": "t2t-db",
+          "remote": false
+        },
+        "jurisdiction": "default"
+      },
+      "AI": {
+        "type": "ai"
+      }
+    },
+    "url": "http://localhost:5174/",
+    "adopt": true,
+    "env": {
+      "BETTER_AUTH_SECRET": "b2368580005fe60b35d8275181c2b3b4d2ac0e098e55a15eb4dc9495f652dddd",
+      "BETTER_AUTH_URL": "http://localhost:5173"
+    },
+    "entrypoint": ".svelte-kit/cloudflare/_worker.js",
+    "compatibilityFlags": [
+      "nodejs_compat"
+    ],
+    "compatibilityDate": "2025-12-17",
+    "wrangler": {
+      "secrets": true
+    },
+    "name": "t2t-app",
+    "cwd": "",
+    "assets": {
+      "html_handling": "auto-trailing-slash",
+      "not_found_handling": "single-page-application",
+      "run_worker_first": false,
+      "directory": ".svelte-kit/cloudflare"
+    },
+    "dev": {
+      "hasRemote": true
+    },
+    "type": "service",
+    "id": "t2t-app",
+    "format": "esm",
+    "createdAt": {
+      "@date": "2025-12-19T14:42:51.769Z"
+    },
+    "updatedAt": 1766486843734,
+    "routes": []
+  },
+  "props": {
+    "domains": [
+      "t2t.now"
+    ],
+    "bindings": {
+      "MY_DO": {
+        "type": "durable_object_namespace",
+        "id": "t2t-do",
+        "className": "MyDO",
+        "scriptName": "t2t-worker",
+        "sqlite": true
+      },
+      "WORKER": {
+        "Symbol(alchemy::ResourceKind)": "cloudflare::Worker",
+        "Symbol(alchemy::ResourceID)": "t2t-worker",
+        "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-worker",
+        "Symbol(alchemy::ResourceScope)": {
+          "@scope": null
+        },
+        "Symbol(alchemy::ResourceSeq)": 1,
+        "name": "t2t-worker",
+        "entrypoint": "./worker/index.ts",
+        "adopt": true,
+        "bindings": {
+          "MY_DO": {
+            "type": "durable_object_namespace",
+            "id": "t2t-do",
+            "className": "MyDO",
+            "scriptName": "t2t-worker",
+            "sqlite": true
+          }
+        },
+        "url": "http://localhost:1338/",
+        "type": "service",
+        "id": "t2t-worker",
+        "cwd": "",
+        "compatibilityDate": "2025-12-17",
+        "compatibilityFlags": [],
+        "format": "esm",
+        "createdAt": {
+          "@date": "2025-12-19T14:42:11.545Z"
+        },
+        "updatedAt": 1766486840291,
+        "routes": [],
+        "domains": [],
+        "dev": {
+          "hasRemote": true
+        }
+      },
+      "DB": {
+        "Symbol(alchemy::ResourceKind)": "cloudflare::D1Database",
+        "Symbol(alchemy::ResourceID)": "t2t-db",
+        "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-db",
+        "Symbol(alchemy::ResourceScope)": {
+          "@scope": null
+        },
+        "Symbol(alchemy::ResourceSeq)": 0,
+        "type": "d1",
+        "id": "620a6278-071c-4c62-8d74-d2f2ff812107",
+        "name": "t2t-db",
+        "migrationsDir": "migrations",
+        "migrationsTable": "d1_migrations",
+        "dev": {
+          "id": "t2t-db",
+          "remote": false
+        },
+        "jurisdiction": "default"
+      },
+      "AI": {
+        "type": "ai"
+      }
+    },
+    "url": true,
+    "adopt": true,
+    "env": {
+      "BETTER_AUTH_SECRET": "b2368580005fe60b35d8275181c2b3b4d2ac0e098e55a15eb4dc9495f652dddd",
+      "BETTER_AUTH_URL": "http://localhost:5173"
+    },
+    "entrypoint": ".svelte-kit/cloudflare/_worker.js",
+    "compatibilityFlags": [
+      "nodejs_compat"
+    ],
+    "compatibilityDate": "2025-12-17",
+    "wrangler": {
+      "secrets": true
+    },
+    "name": "t2t-app",
+    "cwd": "",
+    "assets": {
+      "html_handling": "auto-trailing-slash",
+      "not_found_handling": "single-page-application",
+      "run_worker_first": false,
+      "directory": ".svelte-kit/cloudflare"
+    },
+    "dev": {
+      "url": "http://localhost:5174/"
+    }
+  }
+}

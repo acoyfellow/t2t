@@ -1,0 +1,42 @@
+{
+  "kind": "cloudflare::D1Database",
+  "id": "t2t-db",
+  "fqn": "t2t/jordan/t2t-db",
+  "seq": 0,
+  "data": {},
+  "status": "updated",
+  "output": {
+    "Symbol(alchemy::ResourceKind)": "cloudflare::D1Database",
+    "Symbol(alchemy::ResourceID)": "t2t-db",
+    "Symbol(alchemy::ResourceFQN)": "t2t/jordan/t2t-db",
+    "Symbol(alchemy::ResourceScope)": {
+      "@scope": null
+    },
+    "Symbol(alchemy::ResourceSeq)": 0,
+    "type": "d1",
+    "id": "620a6278-071c-4c62-8d74-d2f2ff812107",
+    "name": "t2t-db",
+    "migrationsDir": "migrations",
+    "migrationsTable": "d1_migrations",
+    "dev": {
+      "id": "t2t-db",
+      "remote": false
+    },
+    "jurisdiction": "default"
+  },
+  "props": {
+    "name": "t2t-db",
+    "migrationsDir": "migrations",
+    "adopt": true,
+    "migrationsFiles": [
+      {
+        "id": "0000_mushy_may_parker.sql",
+        "hash": "086e40a44b837fe235c168e006e05540612a359ff601e25aa1cfcc1ceeb21629"
+      }
+    ],
+    "importFiles": [],
+    "dev": {
+      "force": true
+    }
+  }
+}

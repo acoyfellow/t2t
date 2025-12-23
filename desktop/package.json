@@ -1,0 +1,57 @@
+{
+  "name": "t2t",
+  "version": "0.2.5",
+  "description": "Fn push-to-talk dictation for macOS: local Whisper transcription + auto-paste into the focused app.",
+  "keywords": [
+    "tauri",
+    "rust",
+    "svelte",
+    "sveltekit",
+    "svelte5",
+    "macos",
+    "desktop-app",
+    "speech-to-text",
+    "dictation",
+    "push-to-talk",
+    "fn-key",
+    "whisper",
+    "whisper-rs",
+    "offline",
+    "local-first",
+    "clipboard",
+    "accessibility",
+    "productivity"
+  ],
+  "private": true,
+  "scripts": {
+    "dev": "bunx tauri dev",
+    "build": "bunx tauri build",
+    "preview": "vite preview",
+    "tauri": "lsof -ti tcp:5173 | xargs kill -9 && bunx tauri",
+    "macos:install": "bash ./scripts/macos-install.sh",
+    "release": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.49.2",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2.9.6",
+    "svelte": "^5.46.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^0.562.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-log": "^2.7.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-store": "^2.4.1",
+    "effect": "^3.19.13"
+  },
+  "type": "module"
+}
