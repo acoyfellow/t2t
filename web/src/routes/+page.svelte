@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import Github from "@lucide/svelte/icons/github";
   import Download from "@lucide/svelte/icons/download";
+  import Mail from "@lucide/svelte/icons/mail";
+  import Twitter from "@lucide/svelte/icons/twitter";
 
   const GITHUB_RELEASES_URL = "https://github.com/acoyfellow/t2t/releases";
 
@@ -111,6 +113,12 @@
           <Github class="inline-block mr-2 h-5 w-5" />
           View Source
         </a>
+        <a
+          href="/docs"
+          class="px-10 py-5 border-2 border-zinc-700 text-white text-lg font-bold rounded-none hover:border-[#00FFA3] hover:text-[#00FFA3] transition-all duration-200 bg-black"
+        >
+          Documentation
+        </a>
       </div>
     </div>
 
@@ -122,7 +130,7 @@
     </div>
   </div>
 
-  <div class="relative py px-4">
+  <div class="relative py px-4 text-balance">
     <!-- Background grid -->
     <div
       class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-size-[100px_100px] mask-[radial-gradient(ellipse_at_center,black,transparent_80%)]"
@@ -145,7 +153,8 @@
               >
                 fn
               </kbd>{" "}
-              anywhere. Your voice becomes text. No apps. No setup. No friction.
+              anywhere. Your voice becomes text. Nearly 4x faster than typing. No
+              apps. No setup. No friction.
             </p>
           </div>
           <div class="order-1 lg:order-2 flex justify-center">
@@ -181,8 +190,8 @@
               >
                 fn+ctrl
               </kbd>{" "}
-              to speak commands. The AI executes them. Control your Mac with your
-              voice.
+              to speak commands. Your OpenRouter key. Any model. Local agent, zero
+              servers.
             </p>
           </div>
         </div>
@@ -202,7 +211,7 @@
               >
             </div>
             <h2 class="text-6xl md:text-8xl font-black mb-8 leading-none">
-              <span class="text-pink-400">Your MCP Servers</span>
+              <span class="text-pink-400">Any MCP Server</span>
               <br />
               At Your Fingertips
             </h2>
@@ -236,13 +245,43 @@
           >Open Source. MIT License.</span
         >
       </div>
-      <a
-        href="https://github.com/acoyfellow/t2t"
-        class="flex items-center gap-3 text-zinc-400 hover:text-[#00FFA3] transition-colors group"
-      >
-        <Github class="h-6 w-6" />
-        <span class="font-mono font-bold">VIEW ON GITHUB</span>
-      </a>
+      <div class="flex flex-col md:flex-row items-center gap-6">
+        <div class="flex items-center gap-6">
+          <a
+            href="/docs"
+            class="text-zinc-400 hover:text-[#00FFA3] transition-colors font-mono font-bold"
+          >
+            DOCS
+          </a>
+          <a
+            href="https://github.com/acoyfellow/t2t"
+            class="flex items-center gap-3 text-zinc-400 hover:text-[#00FFA3] transition-colors group"
+          >
+            <Github class="h-6 w-6" />
+            <span class="font-mono font-bold">VIEW ON GITHUB</span>
+          </a>
+        </div>
+        <div class="flex items-center gap-4">
+          <a
+            href="mailto:support@t2t.now"
+            class="flex items-center gap-2 text-zinc-400 hover:text-[#00FFA3] transition-colors"
+            title="Support Email"
+          >
+            <Mail class="h-5 w-5" />
+            <span class="font-mono text-sm">support@t2t.now</span>
+          </a>
+          <a
+            href="https://x.com/acoyfellow"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex items-center gap-2 text-zinc-400 hover:text-[#00FFA3] transition-colors"
+            title="Follow on X"
+          >
+            <Twitter class="h-5 w-5" />
+            <span class="font-mono text-sm">@acoyfellow</span>
+          </a>
+        </div>
+      </div>
     </div>
   </footer>
 </div>
