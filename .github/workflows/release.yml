@@ -16,14 +16,21 @@ jobs:
         with:
           rustflags: ""
       
-      - run: bun install
+      - name: Install dependencies
+        run: bun install
       
-      - run: bun tauri build
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: bun install
+      
+      - name: Build Tauri app
+        working-directory: desktop
+        run: bun tauri build
       
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: target/release/bundle/dmg/*.dmg
+          path: desktop/target/release/bundle/dmg/*.dmg
 
   release:
     needs: build-macos
