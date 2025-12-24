@@ -12,7 +12,15 @@
     RefreshCw,
     ChevronDown,
     ChevronUp,
+    ChevronsUpDown,
+    Check,
   } from "@lucide/svelte";
+  import { tick } from "svelte";
+  import * as Command from "$lib/components/ui/command/index.js";
+  import * as Popover from "$lib/components/ui/popover/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { cn } from "$lib/utils.js";
+  import { resolvedTheme, saveTheme as saveThemeStore } from "../../lib/theme";
 
   type MCPServer = {
     id: string;
@@ -60,6 +68,26 @@
   let models = $state<Array<{ id: string; name?: string }>>([]);
   let selectedModel = $state("openai/gpt-5-nano");
   let modelsLoading = $state(false);
+  let modelComboboxOpen = $state(false);
+  let modelTriggerRef = $state<HTMLButtonElement>(null!);
+
+  const selectedModelLabel = $derived(
+    models.find((m) => m.id === selectedModel)?.name || selectedModel
+  );
+
+  function closeAndFocusTrigger() {
+    modelComboboxOpen = false;
+    tick().then(() => {
+      modelTriggerRef?.focus();
+    });
+  }
+
+  // OpenRouter key state
+  let openrouterKey = $state("");
+  let keyLoading = $state(false);
+
+  // Theme state
+  let isDark = $state(false);
 
   const HOUR_MS = 3600 * 1000;
 
@@ -152,6 +180,34 @@
     }
   }
 
+  async function loadOpenRouterKey() {
+    try {
+      keyLoading = true;
+      const key = (await invoke("get_openrouter_key")) as string | null;
+      if (key) {
+        openrouterKey = key;
+      }
+    } catch (e) {
+      console.error("Failed to load OpenRouter key:", e);
+    } finally {
+      keyLoading = false;
+    }
+  }
+
+  async function saveOpenRouterKey() {
+    try {
+      if (!openrouterKey || openrouterKey.length === 0) {
+        console.error("OpenRouter key cannot be empty");
+        return;
+      }
+      await invoke("set_openrouter_key", { key: openrouterKey });
+      // Refresh models after saving key
+      await fetchModels();
+    } catch (e) {
+      console.error("Failed to save OpenRouter key:", e);
+    }
+  }
+
   async function saveModel() {
     try {
       if (!window.__TAURI__?.store) return;
@@ -167,14 +223,11 @@
   async function fetchModels() {
     try {
       modelsLoading = true;
-      // Get OpenRouter key
-      if (!window.__TAURI__?.store) return;
-      const { load } = window.__TAURI__.store;
-      const keyStore = await load("openrouter-key", { autoSave: true });
-      const key = (await keyStore.get("key")) as string | undefined;
+      // Get OpenRouter key (from store or env var)
+      const key = (await invoke("get_openrouter_key")) as string | null;
 
       if (!key || key.length === 0) {
-        console.error("No OpenRouter key found");
+        console.error("No OpenRouter key found. Please set it in Settings.");
         modelsLoading = false;
         return;
       }
@@ -183,11 +236,23 @@
         openrouterKey: key,
       })) as { data?: Array<{ id: string; name?: string }> };
 
-      if (result.data) {
-        models = result.data;
+      console.log("OpenRouter models response:", result);
+
+      if (result && result.data && Array.isArray(result.data)) {
+        // Sort models by name/id for better UX
+        models = result.data.sort((a, b) => {
+          const aName = a.name || a.id;
+          const bName = b.name || b.id;
+          return aName.localeCompare(bName);
+        });
+        console.log(`Loaded ${models.length} models`);
+      } else {
+        console.warn("Unexpected response structure:", result);
+        models = [];
       }
     } catch (e) {
       console.error("Failed to fetch models:", e);
+      models = [];
     } finally {
       modelsLoading = false;
     }
@@ -195,7 +260,12 @@
 
   async function loadData() {
     loading = true;
-    await Promise.all([loadAnalytics(), loadServers(), loadModel()]);
+    await Promise.all([
+      loadAnalytics(),
+      loadServers(),
+      loadModel(),
+      loadOpenRouterKey(),
+    ]);
     loading = false;
   }
 
@@ -389,46 +459,53 @@
   function getStatusColor(status?: string) {
     switch (status) {
       case "active":
-        return "bg-[oklch(0.62_0.21_146.43)]";
+        return "bg-green-500";
       case "loading":
-        return "bg-[oklch(0.75_0.15_85.87)]";
+        return "bg-yellow-500";
       case "error":
-        return "bg-[oklch(0.58_0.22_29.23)]";
+        return "bg-destructive";
       default:
-        return "bg-[oklch(0.24_0.012_258.34)]";
+        return "bg-muted";
     }
   }
 
-  onMount(async () => {
-    await loadData();
-    // Auto-fetch models if we have an OpenRouter key
-    try {
-      if (window.__TAURI__?.store) {
-        const { load } = window.__TAURI__.store;
-        const keyStore = await load("openrouter-key", { autoSave: true });
-        const key = (await keyStore.get("key")) as string | undefined;
-        if (key && key.length > 0) {
-          fetchModels();
-        }
-      }
-    } catch (e) {
-      // Ignore - models can be fetched manually
-    }
+  onMount(() => {
+    // Subscribe to resolved theme
+    const unsubscribe = resolvedTheme.subscribe((t) => {
+      isDark = t === "dark";
+    });
+
+    // Load data and models asynchronously
+    loadData().then(() => {
+      // Auto-fetch models if we have an OpenRouter key
+      invoke("get_openrouter_key")
+        .then((key) => {
+          if (key && typeof key === "string" && key.length > 0) {
+            openrouterKey = key;
+            fetchModels();
+          }
+        })
+        .catch(() => {
+          // Ignore - models can be fetched manually
+        });
+    });
+
+    return unsubscribe;
   });
 </script>
 
 <div
-  class="h-screen flex flex-col bg-[oklch(0.11_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] overflow-hidden"
+  class="h-screen flex flex-col bg-background text-foreground overflow-hidden"
 >
   <!-- Header with Tabs -->
   <header
-    class="border-b border-[oklch(0.28_0.012_258.34)] bg-[oklch(0.15_0.01_258.34)]/50 backdrop-blur-sm sticky top-0 z-10"
+    class="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10"
   >
     <div class="container mx-auto max-w-6xl px-6">
       <div class="flex items-center justify-between py-4">
         <div class="flex items-center gap-6">
           <div class="flex items-center gap-3">
-            <img src="/logo.svg" alt="t2t" class="h-8 w-8 invert" />
+            <img src="/logo.svg" alt="t2t" class="h-8 w-8 dark:invert" />
             <h1 class="sr-only">t2t</h1>
           </div>
 
@@ -438,8 +515,8 @@
               onclick={() => (activeTab = "analytics")}
               class="flex items-center gap-2 px-4 py-2 rounded-md transition-colors {activeTab ===
               'analytics'
-                ? 'bg-[oklch(0.58_0.21_262.29)]/10 text-[oklch(0.58_0.21_262.29)] font-medium'
-                : 'text-[oklch(0.58_0.008_258.34)] hover:text-[oklch(0.88_0.01_258.34)] hover:bg-[oklch(0.22_0.015_258.34)]/50'}"
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
             >
               <BarChart3 class="w-4 h-4" />
               Analytics
@@ -448,11 +525,11 @@
               onclick={() => (activeTab = "servers")}
               class="flex items-center gap-2 px-4 py-2 rounded-md transition-colors {activeTab ===
               'servers'
-                ? 'bg-[oklch(0.58_0.21_262.29)]/10 text-[oklch(0.58_0.21_262.29)] font-medium'
-                : 'text-[oklch(0.58_0.008_258.34)] hover:text-[oklch(0.88_0.01_258.34)] hover:bg-[oklch(0.22_0.015_258.34)]/50'}"
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
             >
               <Server class="w-4 h-4" />
-              MCP Servers
+              Settings
             </button>
           </nav>
         </div>
@@ -460,14 +537,10 @@
         <!-- Ready Status -->
         {#if activeTab === "analytics"}
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[oklch(0.58_0.21_262.29)]/10 border border-[oklch(0.58_0.21_262.29)]/20"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20"
           >
-            <div
-              class="w-2 h-2 rounded-full bg-[oklch(0.58_0.21_262.29)] animate-pulse"
-            ></div>
-            <span class="text-sm font-medium text-[oklch(0.58_0.21_262.29)]"
-              >Ready</span
-            >
+            <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+            <span class="text-sm font-medium text-primary">Ready</span>
           </div>
         {/if}
       </div>
@@ -479,60 +552,15 @@
     {#if activeTab === "analytics"}
       <!-- Analytics Dashboard -->
       <div class="p-6 space-y-6">
-        <!-- Model Selection -->
-        <div
-          class="p-4 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
-        >
-          <div class="flex items-center justify-between mb-3">
-            <label class="text-sm font-medium text-[oklch(0.85_0.01_258.34)]"
-              >AI Model</label
-            >
-            <button
-              onclick={fetchModels}
-              disabled={modelsLoading}
-              class="text-xs text-[oklch(0.58_0.21_262.29)] hover:text-[oklch(0.75_0.15_85.87)] disabled:opacity-50"
-            >
-              {modelsLoading ? "Loading..." : "Refresh Models"}
-            </button>
-          </div>
-          <select
-            bind:value={selectedModel}
-            onchange={saveModel}
-            class="w-full px-3 py-2 bg-[oklch(0.22_0.015_258.34)] border border-[oklch(0.28_0.012_258.34)] rounded text-[oklch(0.88_0.01_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.58_0.21_262.29)]"
-          >
-            {#if models.length === 0}
-              <option value={selectedModel}>{selectedModel}</option>
-            {:else}
-              {#each models as model}
-                <option value={model.id}>
-                  {model.name || model.id}
-                </option>
-              {/each}
-            {/if}
-          </select>
-          <p class="text-xs text-[oklch(0.58_0.008_258.34)] mt-2">
-            Model used for agent mode. Defaults to <code
-              class="px-1 py-0.5 bg-[oklch(0.22_0.015_258.34)] rounded"
-              >openai/gpt-5-nano</code
-            >
-            or
-            <code class="px-1 py-0.5 bg-[oklch(0.22_0.015_258.34)] rounded"
-              >OPENROUTER_MODEL</code
-            > env var.
-          </p>
-        </div>
-
-        <p class="text-sm text-[oklch(0.58_0.008_258.34)]">
+        <p class="text-sm text-muted-foreground">
           Voice transcription analytics
         </p>
 
         {#if loading}
           <div class="flex items-center justify-center py-12">
-            <div
-              class="flex items-center gap-3 text-[oklch(0.58_0.008_258.34)]"
-            >
+            <div class="flex items-center gap-3 text-muted-foreground">
               <div
-                class="w-5 h-5 border-2 border-[oklch(0.58_0.21_262.29)] border-t-transparent rounded-full animate-spin"
+                class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
               ></div>
               <span class="text-sm">Loading...</span>
             </div>
@@ -542,22 +570,20 @@
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <!-- Total Words -->
             <div
-              class="p-6 space-y-4 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
+              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg"
             >
               <div
-                class="w-12 h-12 rounded-xl bg-[oklch(0.58_0.21_262.29)]/10 flex items-center justify-center"
+                class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center"
               >
-                <Activity class="w-6 h-6 text-[oklch(0.58_0.21_262.29)]" />
+                <Activity class="w-6 h-6 text-primary" />
               </div>
               <div>
                 <p
-                  class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-2"
+                  class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
                 >
                   Total Words
                 </p>
-                <p
-                  class="text-5xl font-bold text-[oklch(0.88_0.01_258.34)] tabular-nums"
-                >
+                <p class="text-5xl font-bold text-foreground tabular-nums">
                   {totalWords.toLocaleString()}
                 </p>
               </div>
@@ -565,59 +591,53 @@
 
             <!-- Lifetime Average -->
             <div
-              class="p-6 space-y-4 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
+              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg"
             >
               <div
-                class="w-12 h-12 rounded-xl bg-[oklch(0.58_0.21_262.29)]/10 flex items-center justify-center"
+                class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center"
               >
-                <Zap class="w-6 h-6 text-[oklch(0.58_0.21_262.29)]" />
+                <Zap class="w-6 h-6 text-primary" />
               </div>
               <div>
                 <p
-                  class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-2"
+                  class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
                 >
                   Lifetime Avg
                 </p>
                 <div class="flex items-baseline gap-2">
-                  <p
-                    class="text-5xl font-bold text-[oklch(0.88_0.01_258.34)] tabular-nums"
-                  >
+                  <p class="text-5xl font-bold text-foreground tabular-nums">
                     {lifetimeWpm.toFixed(1)}
                   </p>
-                  <p class="text-lg text-[oklch(0.58_0.008_258.34)]">WPM</p>
+                  <p class="text-lg text-muted-foreground">WPM</p>
                 </div>
               </div>
             </div>
 
             <!-- Session Average -->
             <div
-              class="p-6 space-y-4 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg relative"
+              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg relative"
             >
               <div
-                class="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-[oklch(0.58_0.21_262.29)]/10 border border-[oklch(0.58_0.21_262.29)]/20"
+                class="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-primary/10 border border-primary/20"
               >
-                <span class="text-xs font-medium text-[oklch(0.58_0.21_262.29)]"
-                  >Active</span
-                >
+                <span class="text-xs font-medium text-primary">Active</span>
               </div>
               <div
-                class="w-12 h-12 rounded-xl bg-[oklch(0.58_0.21_262.29)]/10 flex items-center justify-center"
+                class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center"
               >
-                <Mic class="w-6 h-6 text-[oklch(0.58_0.21_262.29)]" />
+                <Mic class="w-6 h-6 text-primary" />
               </div>
               <div>
                 <p
-                  class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-2"
+                  class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
                 >
                   Session Avg
                 </p>
                 <div class="flex items-baseline gap-2">
-                  <p
-                    class="text-5xl font-bold text-[oklch(0.88_0.01_258.34)] tabular-nums"
-                  >
+                  <p class="text-5xl font-bold text-foreground tabular-nums">
                     {sessionAvgWpm.toFixed(1)}
                   </p>
-                  <p class="text-lg text-[oklch(0.58_0.008_258.34)]">WPM</p>
+                  <p class="text-lg text-muted-foreground">WPM</p>
                 </div>
               </div>
             </div>
@@ -625,43 +645,33 @@
 
           <!-- Secondary Stats -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div
-              class="p-6 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
-            >
+            <div class="p-6 bg-card/50 border border-border rounded-lg">
               <p
-                class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-2"
+                class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
               >
                 Sessions
               </p>
-              <p
-                class="text-4xl font-bold text-[oklch(0.88_0.01_258.34)] tabular-nums"
-              >
+              <p class="text-4xl font-bold text-foreground tabular-nums">
                 {sessions}
               </p>
             </div>
 
-            <div
-              class="p-6 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
-            >
+            <div class="p-6 bg-card/50 border border-border rounded-lg">
               <p
-                class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-2"
+                class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
               >
                 Hours Active
               </p>
-              <p
-                class="text-4xl font-bold text-[oklch(0.88_0.01_258.34)] tabular-nums"
-              >
+              <p class="text-4xl font-bold text-foreground tabular-nums">
                 {hoursActive.toFixed(1)}h
               </p>
             </div>
           </div>
 
           <!-- Recent Activity Chart -->
-          <div
-            class="p-6 bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg"
-          >
+          <div class="p-6 bg-card/50 border border-border rounded-lg">
             <p
-              class="text-xs font-medium text-[oklch(0.58_0.008_258.34)] uppercase tracking-wider mb-6"
+              class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-6"
             >
               Recent Activity
             </p>
@@ -670,65 +680,209 @@
                 {@const maxValue = Math.max(...recent)}
                 {@const height = maxValue > 0 ? (value / maxValue) * 100 : 0}
                 <div
-                  class="flex-1 bg-[oklch(0.58_0.21_262.29)]/30 rounded-t hover:bg-[oklch(0.58_0.21_262.29)]/50 transition-colors cursor-pointer"
+                  class="flex-1 bg-primary/30 rounded-t hover:bg-primary/50 transition-colors cursor-pointer"
                   style="height: {height}%"
                   title="{value} words"
                 ></div>
               {/each}
             </div>
-            <div
-              class="mt-2 border-t-2 border-dashed border-[oklch(0.58_0.21_262.29)]/20"
-            ></div>
+            <div class="mt-2 border-t-2 border-dashed border-primary/20"></div>
           </div>
         {/if}
       </div>
     {:else}
-      <!-- MCP Servers -->
+      <!-- Settings -->
       <div class="p-6 space-y-6">
-        <p class="text-sm text-[oklch(0.58_0.008_258.34)]">
-          Manage your MCP servers
-        </p>
+        <!-- Theme Selection -->
+        <div class="flex items-center justify-between py-2">
+          <label class="text-sm font-medium text-foreground">Theme</label>
+          <label
+            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-all cursor-pointer {isDark
+              ? 'bg-primary'
+              : 'bg-muted'}"
+          >
+            <input
+              type="checkbox"
+              checked={isDark}
+              onchange={(e) => {
+                const newTheme = (e.currentTarget as HTMLInputElement).checked
+                  ? "dark"
+                  : "light";
+                saveThemeStore(newTheme);
+              }}
+              class="sr-only"
+            />
+            <span
+              class="pointer-events-none block h-4 w-4 rounded-full ring-0 transition-transform bg-background {isDark
+                ? 'translate-x-[calc(100%+2px)]'
+                : 'translate-x-0.5'}"
+            ></span>
+          </label>
+        </div>
 
-        <div
-          class="bg-[oklch(0.15_0.01_258.34)]/50 border border-[oklch(0.28_0.012_258.34)] rounded-lg overflow-hidden"
-        >
-          <div class="px-6 py-4 border-b border-[oklch(0.28_0.012_258.34)]">
-            <h2 class="text-lg font-medium text-[oklch(0.85_0.01_258.34)]">
+        <!-- OpenRouter API Key -->
+        <div class="p-4 bg-card/50 border border-border rounded-lg">
+          <label
+            for="openrouter-key"
+            class="block text-sm font-medium text-foreground mb-2"
+            >OpenRouter API Key</label
+          >
+          <div class="flex gap-2">
+            <input
+              id="openrouter-key"
+              type="password"
+              bind:value={openrouterKey}
+              placeholder={keyLoading ? "Loading..." : "sk-or-v1-..."}
+              class="flex-1 px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
+            />
+            <button
+              onclick={saveOpenRouterKey}
+              disabled={!openrouterKey || openrouterKey.length === 0}
+              class="px-4 py-2 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Save
+            </button>
+          </div>
+          <p class="text-xs text-muted-foreground mt-2">
+            Your API key is stored locally. Falls back to <code
+              class="px-1 py-0.5 bg-muted rounded">OPENROUTER_API_KEY</code
+            > env var if not set.
+          </p>
+        </div>
+
+        <!-- Model Selection -->
+        <div class="p-4 bg-card/50 border border-border rounded-lg">
+          <div class="flex items-center justify-between mb-3">
+            <label class="text-sm font-medium text-foreground">AI Model</label>
+            <button
+              onclick={fetchModels}
+              disabled={modelsLoading || !openrouterKey}
+              class="text-xs text-primary hover:text-primary disabled:opacity-50"
+            >
+              {modelsLoading ? "Loading..." : "Refresh Models"}
+            </button>
+          </div>
+
+          <Popover.Root bind:open={modelComboboxOpen}>
+            <Popover.Trigger bind:ref={modelTriggerRef}>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="outline"
+                  class="w-full justify-between bg-muted border-border/50 text-foreground hover:bg-muted/80"
+                  role="combobox"
+                  aria-expanded={modelComboboxOpen}
+                >
+                  {selectedModelLabel || "Select a model..."}
+                  <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              {/snippet}
+            </Popover.Trigger>
+            <Popover.Content class="w-full p-0" align="start">
+              <Command.Root>
+                <Command.Input placeholder="Search models..." class="h-9" />
+                <Command.List>
+                  <Command.Empty>No model found.</Command.Empty>
+                  <Command.Group>
+                    {#if models.length === 0}
+                      <Command.Item
+                        value={selectedModel}
+                        onSelect={() => {
+                          saveModel();
+                          closeAndFocusTrigger();
+                        }}
+                      >
+                        <Check class="me-2 size-4 opacity-100" />
+                        {selectedModel}
+                      </Command.Item>
+                    {:else}
+                      {#each models as model}
+                        <Command.Item
+                          value={model.name || model.id}
+                          onSelect={() => {
+                            selectedModel = model.id;
+                            saveModel();
+                            closeAndFocusTrigger();
+                          }}
+                        >
+                          <Check
+                            class={cn(
+                              "me-2 size-4",
+                              model.id === selectedModel
+                                ? "opacity-100"
+                                : "opacity-0"
+                            )}
+                          />
+                          {model.name || model.id}
+                        </Command.Item>
+                      {/each}
+                      <!-- Ensure selected model is always available even if not in fetched list -->
+                      {#if models.findIndex((m) => m.id === selectedModel) === -1}
+                        <Command.Item
+                          value={selectedModel}
+                          onSelect={() => {
+                            saveModel();
+                            closeAndFocusTrigger();
+                          }}
+                        >
+                          <Check class="me-2 size-4 opacity-100" />
+                          {selectedModel}
+                        </Command.Item>
+                      {/if}
+                    {/if}
+                  </Command.Group>
+                </Command.List>
+              </Command.Root>
+            </Popover.Content>
+          </Popover.Root>
+          <p class="text-xs text-muted-foreground mt-2">
+            Model used for agent mode. Defaults to <code
+              class="px-1 py-0.5 bg-muted rounded">openai/gpt-5-nano</code
+            >
+            or
+            <code class="px-1 py-0.5 bg-muted rounded">OPENROUTER_MODEL</code> env
+            var.
+          </p>
+        </div>
+
+        <p class="text-sm text-muted-foreground">Manage your MCP servers</p>
+
+        <div class="bg-card/50 border border-border rounded-lg overflow-hidden">
+          <div class="px-6 py-4 border-b border-border/30">
+            <h2 class="text-lg font-medium text-foreground">
               Installed MCP Servers
             </h2>
           </div>
 
           {#if loading}
             <div class="px-6 py-8 flex items-center justify-center">
-              <div
-                class="flex items-center gap-3 text-[oklch(0.58_0.008_258.34)]"
-              >
+              <div class="flex items-center gap-3 text-muted-foreground">
                 <div
-                  class="w-5 h-5 border-2 border-[oklch(0.58_0.21_262.29)] border-t-transparent rounded-full animate-spin"
+                  class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
                 ></div>
                 <span class="text-sm">Loading servers...</span>
               </div>
             </div>
           {:else if servers.length === 0}
             <div class="px-6 py-12 text-center">
-              <p class="text-[oklch(0.58_0.008_258.34)] text-sm">
+              <p class="text-muted-foreground text-sm">
                 No servers installed yet
               </p>
             </div>
           {:else}
-            <div class="divide-y divide-[oklch(0.28_0.012_258.34)]">
+            <div class="divide-y divide-border/30">
               {#each servers as server (server.id)}
                 <div class="group">
                   <div class="px-6 py-4 flex items-center gap-4">
                     <!-- Avatar with status indicator -->
                     <div class="relative">
                       <div
-                        class="w-12 h-12 rounded-full bg-[oklch(0.22_0.015_258.34)] flex items-center justify-center text-[oklch(0.88_0.01_258.34)] font-medium"
+                        class="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-foreground font-medium"
                       >
                         {getInitials(server.name)}
                       </div>
                       <div
-                        class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[oklch(0.15_0.01_258.34)] {getStatusColor(
+                        class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card {getStatusColor(
                           server.status
                         )}"
                       ></div>
@@ -737,27 +891,25 @@
                     <!-- Server info -->
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-2 mb-1">
-                        <h3
-                          class="text-base font-medium text-[oklch(0.85_0.01_258.34)]"
-                        >
+                        <h3 class="text-base font-medium text-foreground">
                           {server.name}
                         </h3>
                       </div>
 
                       <div
                         onclick={() => handleExpand(server.id)}
-                        class="flex items-center gap-2 text-sm text-[oklch(0.58_0.008_258.34)] cursor-pointer hover:text-[oklch(0.88_0.01_258.34)]"
+                        class="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:text-foreground"
                       >
                         {#if server.status === "loading"}
                           <div class="flex items-center gap-2">
                             <div
-                              class="w-3 h-3 border-2 border-[oklch(0.75_0.15_85.87)] border-t-transparent rounded-full animate-spin"
+                              class="w-3 h-3 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"
                             ></div>
                             <span>Loading tools</span>
                           </div>
                         {:else if server.status === "error"}
                           <div class="flex items-center gap-2">
-                            <span class="text-[oklch(0.98_0.002_282.32)]"
+                            <span class="text-primary-foreground"
                               >{server.statusMessage || "Error"}</span
                             >
                           </div>
@@ -791,22 +943,18 @@
 
                       <!-- Expanded tools list -->
                       {#if server.expanded && server.tools}
-                        <div
-                          class="mt-3 pt-3 border-t border-[oklch(0.28_0.012_258.34)]"
-                        >
+                        <div class="mt-3 pt-3 border-t border-border/50">
                           <div class="space-y-2">
                             {#each server.tools as tool}
                               <div
-                                class="px-3 py-2 bg-[oklch(0.22_0.015_258.34)]/50 rounded text-sm"
+                                class="px-3 py-2 bg-muted/50 rounded text-sm"
                               >
-                                <div
-                                  class="font-medium text-[oklch(0.85_0.01_258.34)]"
-                                >
+                                <div class="font-medium text-foreground">
                                   {tool.name}
                                 </div>
                                 {#if tool.description}
                                   <div
-                                    class="text-xs text-[oklch(0.58_0.008_258.34)] mt-1"
+                                    class="text-xs text-muted-foreground mt-1"
                                   >
                                     {tool.description}
                                   </div>
@@ -821,8 +969,8 @@
                     <!-- Toggle switch -->
                     <label
                       class="relative inline-flex h-[1.15rem] w-8 shrink-0 items-center rounded-full border border-transparent transition-all cursor-pointer {server.enabled
-                        ? 'bg-[oklch(0.58_0.21_262.29)]'
-                        : 'bg-[oklch(0.28_0.012_258.34)]'}"
+                        ? 'bg-primary'
+                        : 'bg-border'}"
                     >
                       <input
                         type="checkbox"
@@ -831,7 +979,7 @@
                         class="sr-only"
                       />
                       <span
-                        class="pointer-events-none block size-4 rounded-full ring-0 transition-transform bg-[oklch(0.11_0.012_258.34)] {server.enabled
+                        class="pointer-events-none block size-4 rounded-full ring-0 transition-transform bg-background {server.enabled
                           ? 'translate-x-[calc(100%-2px)]'
                           : 'translate-x-0'}"
                       ></span>
@@ -841,17 +989,17 @@
                     {#if server.enabled && server.status !== "loading"}
                       <button
                         onclick={() => fetchTools(server)}
-                        class="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 flex items-center justify-center text-[oklch(0.58_0.008_258.34)] hover:text-[oklch(0.88_0.01_258.34)] rounded"
+                        class="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-foreground rounded transition-colors"
                         title="Refresh tools"
                       >
                         <RefreshCw class="w-4 h-4" />
                       </button>
                     {/if}
 
-                    <!-- Delete button (shown on hover) -->
+                    <!-- Delete button -->
                     <button
                       onclick={() => handleDelete(server.id)}
-                      class="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 flex items-center justify-center text-[oklch(0.58_0.008_258.34)] hover:text-[oklch(0.58_0.22_29.23)] rounded"
+                      class="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-destructive rounded transition-colors"
                     >
                       <X class="w-4 h-4" />
                     </button>
@@ -864,18 +1012,18 @@
           <!-- Add New Server Button -->
           <button
             onclick={startAdd}
-            class="w-full px-6 py-4 flex items-center gap-4 hover:bg-[oklch(0.22_0.015_258.34)]/50 transition-colors border-t border-[oklch(0.28_0.012_258.34)]"
+            class="w-full px-6 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors border-t border-border/50"
           >
             <div
-              class="w-12 h-12 rounded-full bg-[oklch(0.22_0.015_258.34)] flex items-center justify-center"
+              class="w-12 h-12 rounded-full bg-muted flex items-center justify-center"
             >
-              <Plus class="w-5 h-5 text-[oklch(0.88_0.01_258.34)]" />
+              <Plus class="w-5 h-5 text-foreground" />
             </div>
             <div class="flex-1 text-left">
-              <div class="text-base font-medium text-[oklch(0.85_0.01_258.34)]">
+              <div class="text-base font-medium text-foreground">
                 New MCP Server
               </div>
-              <div class="text-sm text-[oklch(0.58_0.008_258.34)]">
+              <div class="text-sm text-muted-foreground">
                 Add a Custom MCP Server
               </div>
             </div>
@@ -894,14 +1042,14 @@
       }}
     >
       <div
-        class="bg-[oklch(0.15_0.01_258.34)] border border-[oklch(0.28_0.012_258.34)] rounded-lg shadow-lg w-full max-w-md mx-4"
+        class="bg-card border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
         onclick={(e) => e.stopPropagation()}
       >
-        <div class="px-6 py-4 border-b border-[oklch(0.28_0.012_258.34)]">
-          <h3 class="text-lg font-semibold text-[oklch(0.85_0.01_258.34)]">
+        <div class="px-6 py-4 border-b border-border/30">
+          <h3 class="text-lg font-semibold text-foreground">
             {editingId ? "Edit" : "Add"} MCP Server
           </h3>
-          <p class="text-sm text-[oklch(0.58_0.008_258.34)] mt-1">
+          <p class="text-sm text-muted-foreground mt-1">
             Configure your MCP server connection
           </p>
         </div>
@@ -916,7 +1064,7 @@
           <div>
             <label
               for="form-name"
-              class="block text-sm font-medium text-[oklch(0.85_0.01_258.34)] mb-2"
+              class="block text-sm font-medium text-foreground mb-2"
             >
               Server Name
             </label>
@@ -926,21 +1074,21 @@
               bind:value={formName}
               placeholder="e.g., my-custom-server"
               required
-              class="w-full px-3 py-2 rounded-md bg-[oklch(0.11_0.012_258.34)] border border-[oklch(0.28_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] placeholder:text-[oklch(0.58_0.008_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.52_0.19_262.29)]"
+              class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
 
           <div>
             <label
               for="form-transport"
-              class="block text-sm font-medium text-[oklch(0.85_0.01_258.34)] mb-2"
+              class="block text-sm font-medium text-foreground mb-2"
             >
               Transport
             </label>
             <select
               id="form-transport"
               bind:value={formTransport}
-              class="w-full px-3 py-2 rounded-md bg-[oklch(0.11_0.012_258.34)] border border-[oklch(0.28_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.52_0.19_262.29)]"
+              class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="stdio">stdio</option>
               <option value="http">http</option>
@@ -952,7 +1100,7 @@
             <div>
               <label
                 for="form-command"
-                class="block text-sm font-medium text-[oklch(0.85_0.01_258.34)] mb-2"
+                class="block text-sm font-medium text-foreground mb-2"
               >
                 Command
               </label>
@@ -962,13 +1110,13 @@
                 bind:value={formCommand}
                 placeholder="/usr/local/bin/mcp-server"
                 required
-                class="w-full px-3 py-2 rounded-md bg-[oklch(0.11_0.012_258.34)] border border-[oklch(0.28_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] placeholder:text-[oklch(0.58_0.008_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.52_0.19_262.29)] font-mono text-sm"
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
               />
             </div>
             <div>
               <label
                 for="form-args"
-                class="block text-sm font-medium text-[oklch(0.85_0.01_258.34)] mb-2"
+                class="block text-sm font-medium text-foreground mb-2"
               >
                 Args (space-separated)
               </label>
@@ -977,14 +1125,14 @@
                 type="text"
                 bind:value={formArgs}
                 placeholder="--port 8080"
-                class="w-full px-3 py-2 rounded-md bg-[oklch(0.11_0.012_258.34)] border border-[oklch(0.28_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] placeholder:text-[oklch(0.58_0.008_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.52_0.19_262.29)] font-mono text-sm"
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
               />
             </div>
           {:else}
             <div>
               <label
                 for="form-url"
-                class="block text-sm font-medium text-[oklch(0.85_0.01_258.34)] mb-2"
+                class="block text-sm font-medium text-foreground mb-2"
               >
                 URL
               </label>
@@ -994,7 +1142,7 @@
                 bind:value={formUrl}
                 placeholder="https://mcp.example.com"
                 required
-                class="w-full px-3 py-2 rounded-md bg-[oklch(0.11_0.012_258.34)] border border-[oklch(0.28_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] placeholder:text-[oklch(0.58_0.008_258.34)] focus:outline-none focus:ring-2 focus:ring-[oklch(0.52_0.19_262.29)] font-mono text-sm"
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
               />
             </div>
           {/if}
@@ -1003,14 +1151,14 @@
             <button
               type="button"
               onclick={resetForm}
-              class="flex-1 px-4 py-2 rounded-md border border-[oklch(0.28_0.012_258.34)] bg-[oklch(0.11_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] hover:bg-[oklch(0.22_0.015_258.34)] transition-colors font-medium"
+              class="flex-1 px-4 py-2 rounded-md border border-border/50 bg-background text-foreground hover:bg-muted transition-colors font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!formName.trim()}
-              class="flex-1 px-4 py-2 rounded-md bg-[oklch(0.58_0.21_262.29)] text-[oklch(0.98_0.002_282.32)] hover:bg-[oklch(0.52_0.19_262.29)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex-1 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {editingId ? "Save" : "Add"} Server
             </button>
@@ -1028,14 +1176,12 @@
       onclick={cancelDelete}
     >
       <div
-        class="bg-[oklch(0.15_0.01_258.34)] border border-[oklch(0.28_0.012_258.34)] rounded-lg shadow-lg w-full max-w-md mx-4"
+        class="bg-[oklch(0.15_0.01_258.34)] border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
         onclick={(e) => e.stopPropagation()}
       >
-        <div class="px-6 py-4 border-b border-[oklch(0.28_0.012_258.34)]">
-          <h3 class="text-lg font-semibold text-[oklch(0.85_0.01_258.34)]">
-            Delete Server
-          </h3>
-          <p class="text-sm text-[oklch(0.58_0.008_258.34)] mt-1">
+        <div class="px-6 py-4 border-b border-border/50">
+          <h3 class="text-lg font-semibold text-foreground">Delete Server</h3>
+          <p class="text-sm text-muted-foreground mt-1">
             Are you sure you want to delete "{serverToDelete?.name}"? This
             action cannot be undone.
           </p>
@@ -1045,14 +1191,14 @@
           <button
             type="button"
             onclick={cancelDelete}
-            class="flex-1 px-4 py-2 rounded-md border border-[oklch(0.28_0.012_258.34)] bg-[oklch(0.11_0.012_258.34)] text-[oklch(0.88_0.01_258.34)] hover:bg-[oklch(0.22_0.015_258.34)] transition-colors font-medium"
+            class="flex-1 px-4 py-2 rounded-md border border-border/50 bg-background text-foreground hover:bg-muted transition-colors font-medium"
           >
             Cancel
           </button>
           <button
             type="button"
             onclick={confirmDelete}
-            class="flex-1 px-4 py-2 rounded-md bg-[oklch(0.58_0.22_29.23)] text-[oklch(0.98_0.002_282.32)] hover:bg-[oklch(0.52_0.19_262.29)] transition-colors font-medium"
+            class="flex-1 px-4 py-2 rounded-md bg-destructive text-primary-foreground hover:bg-destructive/90 transition-colors font-medium"
           >
             Delete
           </button>

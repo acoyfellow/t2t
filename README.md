@@ -1,6 +1,6 @@
 # t2t
 
-![t2t logo](static/logo.svg)
+![t2t logo](web/static/logo.svg)
 
 **Voice-to-text with intelligence. Hold fn to talk, hold fn+ctrl to command.**
 

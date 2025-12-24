@@ -90,7 +90,7 @@
       <p
         class="text-xl md:text-3xl text-zinc-400 max-w-3xl mx-auto font-light tracking-wide text-balance"
       >
-        Voice becomes text. Instantly. Anywhere on macOS.
+        Voice becomes text. Talk to any MCP server. Cross-platform.
       </p>
 
       <!-- CTA -->

@@ -2116,6 +2116,86 @@ async fn fetch_openrouter_models(openrouter_key: String) -> Result<serde_json::V
         .map_err(|e| format!("Failed to parse models response: {e}"))
 }
 
+// Get OpenRouter key from store or env var
+#[tauri::command]
+fn get_openrouter_key(app: AppHandle) -> Option<String> {
+    // Try store first
+    if let Ok(key_store) = app.store("openrouter-key") {
+        if let Some(key_val) = key_store.get("key") {
+            if let Some(key_str) = key_val.as_str() {
+                if !key_str.is_empty() {
+                    return Some(key_str.to_string());
+                }
+            }
+        }
+    }
+    
+    // Fallback to env var
+    std::env::var("OPENROUTER_API_KEY").ok().filter(|k| !k.is_empty())
+}
+
+// Set OpenRouter key in store
+#[tauri::command]
+fn set_openrouter_key(app: AppHandle, key: String) -> Result<(), String> {
+    let store = app.store("openrouter-key")
+        .map_err(|e| format!("Failed to open store: {e}"))?;
+    store.set("key", key);
+    store.save()
+        .map_err(|e| format!("Failed to save store: {e}"))?;
+    Ok(())
+}
+
+// Get theme from store, defaults to "system"
+#[tauri::command]
+fn get_theme(app: AppHandle) -> String {
+    if let Ok(store) = app.store("theme") {
+        if let Some(theme_val) = store.get("theme") {
+            if let Some(theme_str) = theme_val.as_str() {
+                if !theme_str.is_empty() {
+                    return theme_str.to_string();
+                }
+            }
+        }
+    }
+    "system".to_string()
+}
+
+// Set theme in store
+#[tauri::command]
+fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let store = app.store("theme")
+        .map_err(|e| format!("Failed to open store: {e}"))?;
+    store.set("theme", theme);
+    store.save()
+        .map_err(|e| format!("Failed to save store: {e}"))?;
+    Ok(())
+}
+
+// Get system theme preference (macOS)
+#[tauri::command]
+fn get_system_theme() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("osascript")
+            .args(["-e", r#"tell application "System Events" to tell appearance preferences to get dark mode"#])
+            .output()
+            .ok();
+        
+        if let Some(output) = output {
+            if output.status.success() {
+                if let Ok(result) = String::from_utf8(output.stdout) {
+                    let trimmed = result.trim().to_lowercase();
+                    if trimmed == "true" {
+                        return "dark".to_string();
+                    }
+                }
+            }
+        }
+    }
+    "light".to_string()
+}
+
 // Get selected model from store, env var, or default
 fn get_selected_model(app: &AppHandle) -> String {
     // Try store first
@@ -2594,7 +2674,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
