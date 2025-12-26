@@ -23,6 +23,7 @@ use std::process::Stdio;
 static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
 static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
+static IS_CANCELLING: AtomicBool = AtomicBool::new(false);
 static FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
 static FOCUSED_AX_ELEM: OnceCell<Mutex<Option<usize>>> = OnceCell::new();
 static FOCUSED_AX_FINGERPRINT: OnceCell<Mutex<Option<String>>> = OnceCell::new();
@@ -129,8 +130,65 @@ struct MCPTool {
     input_schema: serde_json::Value,
 }
 
+/// Format user message with optional screenshot for image generation models
+/// 
+/// Creates an OpenAI-compatible message format that can include both text and images.
+/// If a screenshot is provided, the message uses the mixed content format with both
+/// text and image_url content types. Otherwise, returns a simple text message.
+/// 
+/// # Arguments
+/// * `text` - The user's text prompt/transcript
+/// * `screenshot_base64` - Optional base64-encoded image data URI
+/// 
+/// # Returns
+/// JSON value representing the message in OpenAI Chat Completions API format
+fn format_user_message(text: &str, screenshot_base64: Option<&str>) -> serde_json::Value {
+    if let Some(image_data) = screenshot_base64 {
+        // Mixed content: text + image
+        serde_json::json!({
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": text
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_data
+                    }
+                }
+            ]
+        })
+    } else {
+        // Text only
+        serde_json::json!({
+            "role": "user",
+            "content": text
+        })
+    }
+}
+
 // Local AppleScript agent: Calls OpenRouter directly, no worker needed
 fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str) -> Result<AgentResponse, String> {
+    // Check if model supports image generation and capture screenshot if so
+    let screenshot = if is_image_generation_model(model) {
+        match capture_screenshot() {
+            Ok(img) => {
+                log_line(&format!("Captured screenshot for image generation model: {}", model));
+                Some(img)
+            }
+            Err(e) => {
+                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    
+    let user_message = format_user_message(transcript, screenshot.as_deref());
+    
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(OPENROUTER_API_URL)
@@ -144,10 +202,7 @@ fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &
                     "role": "system",
                     "content": APPLESCRIPT_SYSTEM_PROMPT
                 },
-                {
-                    "role": "user",
-                    "content": transcript
-                }
+                user_message
             ],
             "max_tokens": 500
         }))
@@ -392,6 +447,24 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         .map(mcp_tool_to_openai)
         .collect();
     
+    // Check if model supports image generation and capture screenshot if so
+    let screenshot = if is_image_generation_model(model) {
+        match capture_screenshot() {
+            Ok(img) => {
+                log_line(&format!("Captured screenshot for image generation model: {}", model));
+                Some(img)
+            }
+            Err(e) => {
+                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    
+    let user_message = format_user_message(transcript, screenshot.as_deref());
+    
     // Call OpenRouter
     let client = reqwest::blocking::Client::new();
     let response = client
@@ -406,10 +479,7 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                     "role": "system",
                     "content": "You are a helpful assistant with access to tools. Use them when needed."
                 },
-                {
-                    "role": "user",
-                    "content": transcript
-                }
+                user_message
             ],
             "tools": openai_tools,
             "tool_choice": "auto"
@@ -489,10 +559,7 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                                 "role": "system",
                                 "content": "You are a helpful assistant with access to tools."
                             }),
-                            serde_json::json!({
-                                "role": "user",
-                                "content": transcript
-                            }),
+                            user_message.clone(), // Include original user message with screenshot if applicable
                             message.clone(),
                         ];
                         
@@ -1418,6 +1485,9 @@ mod macos_fn_key {
                     }
                 });
             }
+            // Reset cancellation flag when starting new processing
+            IS_CANCELLING.store(false, Ordering::SeqCst);
+            
             let app = APP_HANDLE.get().cloned();
             std::thread::spawn(move || {
                 // Always clear processing on exit, even if we early-return.
@@ -1432,6 +1502,8 @@ mod macos_fn_key {
                                 }
                             });
                         }
+                        // Reset cancellation flag when processing ends
+                        IS_CANCELLING.store(false, Ordering::SeqCst);
                     }
                 }
 
@@ -1498,6 +1570,12 @@ mod macos_fn_key {
                             // Agent mode: check for MCP servers first
                             log_line(&format!("Agent mode: calling API with '{}'", text));
                             
+                            // Check if cancelled before starting
+                            if IS_CANCELLING.load(Ordering::SeqCst) {
+                                log_line("Processing cancelled before API call");
+                                return;
+                            }
+                            
                             let selected_model = get_selected_model(&app_unwrapped);
                             let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
                                 log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
@@ -1507,8 +1585,20 @@ mod macos_fn_key {
                                 None
                             };
                             
+                            // Check if cancelled after API call
+                            if IS_CANCELLING.load(Ordering::SeqCst) {
+                                log_line("Processing cancelled after API call");
+                                return;
+                            }
+                            
                             match mcp_result {
                                 Some(Ok(response)) => {
+                                    // Check if cancelled after API response
+                                    if IS_CANCELLING.load(Ordering::SeqCst) {
+                                        log_line("Processing cancelled after API response - skipping result");
+                                        return;
+                                    }
+                                    
                                     if response.success {
                                         // Log tool calls if any
                                         if let Some(tool_calls) = &response.tool_calls {
@@ -1589,13 +1679,30 @@ mod macos_fn_key {
                                         std::env::var("OPENROUTER_API_KEY").ok()
                                     }).filter(|k| !k.is_empty());
                                     
+                                    // Check if cancelled before AppleScript agent call
+                                    if IS_CANCELLING.load(Ordering::SeqCst) {
+                                        log_line("Processing cancelled before AppleScript agent call");
+                                        return;
+                                    }
+                                    
                                     let selected_model = get_selected_model(&app_unwrapped);
                                     match openrouter_key {
                                         Some(key) => {
                                             match call_applescript_agent_local(&text, &key, &selected_model) {
                                                 Ok(response) => {
+                                                    // Check if cancelled after AppleScript agent call
+                                                    if IS_CANCELLING.load(Ordering::SeqCst) {
+                                                        log_line("Processing cancelled after AppleScript agent call - skipping execution");
+                                                        return;
+                                                    }
+                                                    
                                                     if response.success {
                                                         if let Some(script) = response.script {
+                                                            // Check again before executing script
+                                                            if IS_CANCELLING.load(Ordering::SeqCst) {
+                                                                log_line("Processing cancelled before script execution");
+                                                                return;
+                                                            }
                                                             log_line(&format!("Agent: executing script: {}", script));
                                                             match execute_applescript(&script) {
                                                                 Ok(output) => {
@@ -2171,6 +2278,13 @@ fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     Ok(())
 }
 
+// Cancel ongoing processing (called when user presses Escape during processing)
+#[tauri::command]
+fn cancel_processing() {
+    IS_CANCELLING.store(true, Ordering::SeqCst);
+    log_line("Processing cancellation requested (Escape key pressed)");
+}
+
 // Get system theme preference (macOS)
 #[tauri::command]
 fn get_system_theme() -> String {
@@ -2194,6 +2308,105 @@ fn get_system_theme() -> String {
         }
     }
     "light".to_string()
+}
+
+/// Check if a model is an image generation model (supports image input for generation)
+/// 
+/// This function detects image generation models based on common OpenRouter model ID patterns.
+/// When an image generation model is selected, screenshots are automatically included with
+/// every agent input to enable the "agent can see" feature.
+/// 
+/// Supported patterns include: DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram, and others.
+/// 
+/// # Arguments
+/// * `model_id` - The OpenRouter model ID (e.g., "openai/dall-e-3", "black-forest-labs/flux")
+/// 
+/// # Returns
+/// `true` if the model is an image generation model, `false` otherwise
+fn is_image_generation_model(model_id: &str) -> bool {
+    let model_lower = model_id.to_lowercase();
+    
+    // Common image generation model patterns
+    model_lower.contains("dall-e") ||
+    model_lower.contains("dalle") ||
+    model_lower.contains("stable-diffusion") ||
+    model_lower.contains("stablediffusion") ||
+    model_lower.contains("flux") ||
+    model_lower.contains("midjourney") ||
+    model_lower.contains("ideogram") ||
+    model_lower.contains("imagen") ||
+    model_lower.contains("cogview") ||
+    model_lower.contains("wuerstchen") ||
+    model_lower.contains("playground") ||
+    model_lower.contains("kandinsky") ||
+    model_lower.contains("realistic-vision") ||
+    model_lower.contains("dreamshaper") ||
+    model_lower.contains("sdxl") ||
+    model_lower.contains("black-forest-labs") ||
+    model_lower.contains("stability-ai")
+}
+
+/// Capture screenshot on macOS using screencapture command
+/// 
+/// This function captures the current screen and returns it as a base64-encoded PNG image
+/// suitable for inclusion in OpenAI-compatible API requests. The screenshot is captured
+/// to a temporary file, read into memory, then deleted.
+/// 
+/// # Returns
+/// `Ok(String)` containing base64-encoded PNG data URI (format: "data:image/png;base64,...")
+/// `Err(String)` if capture fails (e.g., permission denied, command not found)
+/// 
+/// # Requirements
+/// - macOS screen recording permission (may prompt user on first use)
+/// - `screencapture` command available (built into macOS)
+#[cfg(target_os = "macos")]
+fn capture_screenshot() -> Result<String, String> {
+    use std::process::Command;
+    use std::io::Read;
+    
+    // Create temporary file path
+    let temp_path = std::env::temp_dir().join(format!("t2t_screenshot_{}.png", 
+        SystemTime::now().duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()));
+    
+    let temp_path_str = temp_path.to_str()
+        .ok_or("Failed to create temp path")?;
+    
+    // Capture screenshot to temp file (-x = no sound, -t png = PNG format)
+    let output = Command::new("screencapture")
+        .args(&["-x", "-t", "png", temp_path_str])
+        .output()
+        .map_err(|e| format!("Failed to execute screencapture: {e}"))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("screencapture failed: {stderr}"));
+    }
+    
+    // Read the image file (clone temp_path before moving)
+    let temp_path_for_read = temp_path.clone();
+    let mut file = std::fs::File::open(&temp_path_for_read)
+        .map_err(|e| format!("Failed to open screenshot file: {e}"))?;
+    
+    let mut image_data = Vec::new();
+    file.read_to_end(&mut image_data)
+        .map_err(|e| format!("Failed to read screenshot: {e}"))?;
+    
+    // Clean up temp file
+    let _ = std::fs::remove_file(temp_path);
+    
+    // Encode to base64 using Engine trait (base64 0.21+)
+    use base64::{Engine as _, engine::general_purpose};
+    let base64_data = general_purpose::STANDARD.encode(&image_data);
+    
+    Ok(format!("data:image/png;base64,{}", base64_data))
+}
+
+// Placeholder for non-macOS platforms
+#[cfg(not(target_os = "macos"))]
+fn capture_screenshot() -> Result<String, String> {
+    Err("Screenshot capture not implemented for this platform".to_string())
 }
 
 // Get selected model from store, env var, or default
@@ -2674,7 +2887,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
@@ -2717,7 +2930,7 @@ fn main() {
             let start = MenuItem::with_id(app, "start", "Start recording", true, None::<&str>)?;
             let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings, &start, &stop, &quit])?;
+            let menu = Menu::with_items(app, &[&settings, &quit])?;
             
             // Load tray icon from file - need to decode PNG to RGBA
             fn load_png_as_image(path: &std::path::Path) -> Option<Image<'static>> {

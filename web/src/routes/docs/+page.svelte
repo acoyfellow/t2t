@@ -10,6 +10,7 @@
     Twitter,
   } from "@lucide/svelte/icons";
   import SEO from "$lib/components/SEO.svelte";
+  import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 
   const sections = [
     { id: "getting-started", label: "Getting Started", icon: Settings },
@@ -129,7 +130,7 @@
         class="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft class="w-4 h-4" />
-        <img src="/logo.svg" alt="t2t" class="h-8" />
+        <img src="/logo.svg" alt="t2t" class="dark:invert h-8" />
       </a>
     </div>
   </header>
@@ -720,4 +721,5 @@
       </div>
     </div>
   </div>
+  <ThemeToggle />
 </div>

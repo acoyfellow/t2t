@@ -27,8 +27,31 @@ export const handle: Handle = async ({ event, resolve }) => {
       event.locals.session = null;
     }
 
-    const response = await svelteKitHandler({ event, resolve, auth, building });
-    return response;
+    const theme = event.cookies.get('theme') || 'light';
+    event.locals.theme = theme as 'light' | 'dark';
+
+    return await svelteKitHandler({ 
+      event, 
+      resolve: async (event) => {
+        const response = await resolve(event, {
+          transformPageChunk: ({ html }) => {
+            if (theme === 'dark') {
+              if (html.includes('<html')) {
+                if (html.includes('<html class=')) {
+                  return html.replace(/<html class="([^"]*)"/, '<html class="$1 dark"');
+                } else {
+                  return html.replace('<html', '<html class="dark"');
+                }
+              }
+            }
+            return html;
+          }
+        });
+        return response;
+      }, 
+      auth, 
+      building 
+    });
 
   } catch (err) {
     console.error(err);

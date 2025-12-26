@@ -3,6 +3,7 @@
   import { Effect, Runtime } from "effect";
   import { runtime } from "../lib/effect/runtime";
   import { installUiBridge, interruptFiber } from "../lib/effect/uiBridge";
+  import { invoke } from "@tauri-apps/api/core";
 
   let recording = $state(false);
   let processing = $state(false);
@@ -29,8 +30,8 @@
   const borderClass = $derived.by(() => {
     const color =
       mode === "agent"
-        ? "bg-cyan-500/80 shadow-[0_0_var(--glow)_rgba(6,182,212,var(--alpha))]"
-        : "bg-red-500/80 shadow-[0_0_var(--glow)_rgba(239,68,68,var(--alpha))]";
+        ? "bg-[#c27aff]/80 shadow-[0_0_var(--glow)_rgba(194,122,255,var(--alpha))]"
+        : "bg-[#00ffa3]/80 shadow-[0_0_var(--glow)_rgba(0,255,163,var(--alpha))]";
 
     const state = recording
       ? color
@@ -72,6 +73,33 @@
       processing = v;
       console.log("[UI] setProcessing", v);
     };
+
+    // Handle escape key during processing to cancel
+    // Use $effect to reactively add/remove escape key listener based on processing state
+    $effect(() => {
+      if (!processing) {
+        return; // No listener needed when not processing
+      }
+
+      // Add escape key listener when processing starts
+      const escapeHandler = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log("[UI] Escape pressed during processing - cancelling");
+          invoke("cancel_processing").catch((err) => {
+            console.error("Failed to cancel processing:", err);
+          });
+        }
+      };
+
+      window.addEventListener("keydown", escapeHandler, true); // Use capture phase
+      
+      // Cleanup: remove listener when processing stops or component unmounts
+      return () => {
+        window.removeEventListener("keydown", escapeHandler, true);
+      };
+    });
     (window as any).__setLevel = (v: number) => {
       level = v;
     };

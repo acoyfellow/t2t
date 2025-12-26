@@ -14,11 +14,14 @@
     ChevronUp,
     ChevronsUpDown,
     Check,
+    Moon,
+    Sun,
   } from "@lucide/svelte";
   import { tick } from "svelte";
   import * as Command from "$lib/components/ui/command/index.js";
   import * as Popover from "$lib/components/ui/popover/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Toggle } from "$lib/components/ui/toggle/index.js";
   import { cn } from "$lib/utils.js";
   import { resolvedTheme, saveTheme as saveThemeStore } from "../../lib/theme";
 
@@ -75,10 +78,55 @@
     models.find((m) => m.id === selectedModel)?.name || selectedModel
   );
 
+  // Check if a model is an image generation model
+  function isImageGenerationModel(modelId: string): boolean {
+    const modelLower = modelId.toLowerCase();
+    return (
+      modelLower.includes("dall-e") ||
+      modelLower.includes("dalle") ||
+      modelLower.includes("stable-diffusion") ||
+      modelLower.includes("stablediffusion") ||
+      modelLower.includes("flux") ||
+      modelLower.includes("midjourney") ||
+      modelLower.includes("ideogram") ||
+      modelLower.includes("imagen") ||
+      modelLower.includes("cogview") ||
+      modelLower.includes("wuerstchen") ||
+      modelLower.includes("playground") ||
+      modelLower.includes("kandinsky") ||
+      modelLower.includes("realistic-vision") ||
+      modelLower.includes("dreamshaper") ||
+      modelLower.includes("sdxl") ||
+      modelLower.includes("black-forest-labs") ||
+      modelLower.includes("stability-ai")
+    );
+  }
+
+  // Get model capability label
+  function getModelCapability(modelId: string): string {
+    if (isImageGenerationModel(modelId)) {
+      return "Image Generation";
+    }
+    // Could add vision model detection here in the future
+    return "Text";
+  }
+
   function closeAndFocusTrigger() {
     modelComboboxOpen = false;
     tick().then(() => {
       modelTriggerRef?.focus();
+    });
+  }
+
+  // Transport selection state
+  let transportComboboxOpen = $state(false);
+  let transportTriggerRef = $state<HTMLButtonElement>(null!);
+  const transportOptions = ["stdio", "http", "sse"] as const;
+
+  function closeAndFocusTransportTrigger() {
+    transportComboboxOpen = false;
+    tick().then(() => {
+      transportTriggerRef?.focus();
     });
   }
 
@@ -501,11 +549,17 @@
   <header
     class="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10"
   >
-    <div class="container mx-auto max-w-6xl px-6">
-      <div class="flex items-center justify-between py-4">
-        <div class="flex items-center gap-6">
-          <div class="flex items-center gap-3">
-            <img src="/logo.svg" alt="t2t" class="h-8 w-8 dark:invert" />
+    <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
+      <div
+        class="flex items-center justify-between py-3 sm:py-4 gap-2 sm:gap-4"
+      >
+        <div class="flex items-center gap-3 sm:gap-6 min-w-0">
+          <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+            <img
+              src="/logo.svg"
+              alt="t2t"
+              class="h-6 w-6 sm:h-8 sm:w-8 dark:invert"
+            />
             <h1 class="sr-only">t2t</h1>
           </div>
 
@@ -513,23 +567,23 @@
           <nav class="flex gap-1">
             <button
               onclick={() => (activeTab = "analytics")}
-              class="flex items-center gap-2 px-4 py-2 rounded-md transition-colors {activeTab ===
+              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
               'analytics'
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
             >
-              <BarChart3 class="w-4 h-4" />
-              Analytics
+              <BarChart3 class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span class="hidden sm:inline">Analytics</span>
             </button>
             <button
               onclick={() => (activeTab = "servers")}
-              class="flex items-center gap-2 px-4 py-2 rounded-md transition-colors {activeTab ===
+              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
               'servers'
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
             >
-              <Server class="w-4 h-4" />
-              Settings
+              <Server class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span class="hidden sm:inline">Settings</span>
             </button>
           </nav>
         </div>
@@ -537,10 +591,15 @@
         <!-- Ready Status -->
         {#if activeTab === "analytics"}
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20"
+            class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-primary/10 border border-primary/20 shrink-0"
           >
-            <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-            <span class="text-sm font-medium text-primary">Ready</span>
+            <div
+              class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-primary animate-pulse"
+            ></div>
+            <span
+              class="text-xs sm:text-sm font-medium text-primary hidden sm:inline"
+              >Ready</span
+            >
           </div>
         {/if}
       </div>
@@ -548,10 +607,10 @@
   </header>
 
   <!-- Main Content -->
-  <div class="container mx-auto max-w-6xl flex-1 overflow-y-auto">
+  <div class="w-full flex-1 overflow-y-auto min-h-0">
     {#if activeTab === "analytics"}
       <!-- Analytics Dashboard -->
-      <div class="p-6 space-y-6">
+      <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
         <p class="text-sm text-muted-foreground">
           Voice transcription analytics
         </p>
@@ -567,10 +626,12 @@
           </div>
         {:else}
           <!-- Main Stats Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"
+          >
             <!-- Total Words -->
             <div
-              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg"
+              class="p-4 sm:p-6 space-y-3 sm:space-y-4 bg-card/50 border border-border rounded-lg"
             >
               <div
                 class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center"
@@ -583,7 +644,9 @@
                 >
                   Total Words
                 </p>
-                <p class="text-5xl font-bold text-foreground tabular-nums">
+                <p
+                  class="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tabular-nums"
+                >
                   {totalWords.toLocaleString()}
                 </p>
               </div>
@@ -591,7 +654,7 @@
 
             <!-- Lifetime Average -->
             <div
-              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg"
+              class="p-4 sm:p-6 space-y-3 sm:space-y-4 bg-card/50 border border-border rounded-lg"
             >
               <div
                 class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center"
@@ -605,17 +668,19 @@
                   Lifetime Avg
                 </p>
                 <div class="flex items-baseline gap-2">
-                  <p class="text-5xl font-bold text-foreground tabular-nums">
+                  <p
+                    class="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tabular-nums"
+                  >
                     {lifetimeWpm.toFixed(1)}
                   </p>
-                  <p class="text-lg text-muted-foreground">WPM</p>
+                  <p class="text-base sm:text-lg text-muted-foreground">WPM</p>
                 </div>
               </div>
             </div>
 
             <!-- Session Average -->
             <div
-              class="p-6 space-y-4 bg-card/50 border border-border rounded-lg relative"
+              class="p-4 sm:p-6 space-y-3 sm:space-y-4 bg-card/50 border border-border rounded-lg relative"
             >
               <div
                 class="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-primary/10 border border-primary/20"
@@ -634,48 +699,56 @@
                   Session Avg
                 </p>
                 <div class="flex items-baseline gap-2">
-                  <p class="text-5xl font-bold text-foreground tabular-nums">
+                  <p
+                    class="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tabular-nums"
+                  >
                     {sessionAvgWpm.toFixed(1)}
                   </p>
-                  <p class="text-lg text-muted-foreground">WPM</p>
+                  <p class="text-base sm:text-lg text-muted-foreground">WPM</p>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- Secondary Stats -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="p-6 bg-card/50 border border-border rounded-lg">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
               <p
                 class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
               >
                 Sessions
               </p>
-              <p class="text-4xl font-bold text-foreground tabular-nums">
+              <p
+                class="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground tabular-nums"
+              >
                 {sessions}
               </p>
             </div>
 
-            <div class="p-6 bg-card/50 border border-border rounded-lg">
+            <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
               <p
                 class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2"
               >
                 Hours Active
               </p>
-              <p class="text-4xl font-bold text-foreground tabular-nums">
+              <p
+                class="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground tabular-nums"
+              >
                 {hoursActive.toFixed(1)}h
               </p>
             </div>
           </div>
 
           <!-- Recent Activity Chart -->
-          <div class="p-6 bg-card/50 border border-border rounded-lg">
+          <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
             <p
-              class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-6"
+              class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4 sm:mb-6"
             >
               Recent Activity
             </p>
-            <div class="flex items-end justify-between gap-1 h-48">
+            <div
+              class="flex items-end justify-between gap-1 h-32 sm:h-40 lg:h-48 min-h-[120px]"
+            >
               {#each recent as value, index}
                 {@const maxValue = Math.max(...recent)}
                 {@const height = maxValue > 0 ? (value / maxValue) * 100 : 0}
@@ -692,36 +765,32 @@
       </div>
     {:else}
       <!-- Settings -->
-      <div class="p-6 space-y-6">
+      <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
         <!-- Theme Selection -->
-        <div class="flex items-center justify-between py-2">
-          <label class="text-sm font-medium text-foreground">Theme</label>
-          <label
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-all cursor-pointer {isDark
-              ? 'bg-primary'
-              : 'bg-muted'}"
+        <div class="flex items-center gap-3 sm:gap-4 py-2">
+          <span class="text-sm font-medium text-foreground dark:text-white"
+            >Theme</span
           >
-            <input
-              type="checkbox"
-              checked={isDark}
-              onchange={(e) => {
-                const newTheme = (e.currentTarget as HTMLInputElement).checked
-                  ? "dark"
-                  : "light";
-                saveThemeStore(newTheme);
-              }}
-              class="sr-only"
-            />
-            <span
-              class="pointer-events-none block h-4 w-4 rounded-full ring-0 transition-transform bg-background {isDark
-                ? 'translate-x-[calc(100%+2px)]'
-                : 'translate-x-0.5'}"
-            ></span>
-          </label>
+          <Toggle
+            aria-label="Toggle theme"
+            pressed={isDark}
+            onPressedChange={(pressed) => {
+              const newTheme = pressed ? "dark" : "light";
+              saveThemeStore(newTheme);
+            }}
+            variant="outline"
+            size="sm"
+          >
+            {#if isDark}
+              <Moon class="size-4" />
+            {:else}
+              <Sun class="size-4" />
+            {/if}
+          </Toggle>
         </div>
 
         <!-- OpenRouter API Key -->
-        <div class="p-4 bg-card/50 border border-border rounded-lg">
+        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
           <label
             for="openrouter-key"
             class="block text-sm font-medium text-foreground mb-2"
@@ -735,13 +804,12 @@
               placeholder={keyLoading ? "Loading..." : "sk-or-v1-..."}
               class="flex-1 px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
             />
-            <button
+            <Button
               onclick={saveOpenRouterKey}
               disabled={!openrouterKey || openrouterKey.length === 0}
-              class="px-4 py-2 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Save
-            </button>
+            </Button>
           </div>
           <p class="text-xs text-muted-foreground mt-2">
             Your API key is stored locally. Falls back to <code
@@ -751,7 +819,7 @@
         </div>
 
         <!-- Model Selection -->
-        <div class="p-4 bg-card/50 border border-border rounded-lg">
+        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
           <div class="flex items-center justify-between mb-3">
             <label class="text-sm font-medium text-foreground">AI Model</label>
             <button
@@ -773,8 +841,20 @@
                   role="combobox"
                   aria-expanded={modelComboboxOpen}
                 >
-                  {selectedModelLabel || "Select a model..."}
-                  <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
+                  <div class="flex items-center justify-between w-full min-w-0">
+                    <span class="truncate"
+                      >{selectedModelLabel || "Select a model..."}</span
+                    >
+                    {#if isImageGenerationModel(selectedModel)}
+                      <span
+                        class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
+                        title="Screenshots will be automatically included with prompts"
+                      >
+                        🖼️
+                      </span>
+                    {/if}
+                    <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
+                  </div>
                 </Button>
               {/snippet}
             </Popover.Trigger>
@@ -805,15 +885,29 @@
                             closeAndFocusTrigger();
                           }}
                         >
-                          <Check
-                            class={cn(
-                              "me-2 size-4",
-                              model.id === selectedModel
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          {model.name || model.id}
+                          <div class="flex items-center justify-between w-full">
+                            <div class="flex items-center flex-1 min-w-0">
+                              <Check
+                                class={cn(
+                                  "me-2 size-4 shrink-0",
+                                  model.id === selectedModel
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                )}
+                              />
+                              <span class="truncate"
+                                >{model.name || model.id}</span
+                              >
+                            </div>
+                            {#if isImageGenerationModel(model.id)}
+                              <span
+                                class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
+                                title="Screenshots will be automatically included with prompts"
+                              >
+                                🖼️ Image Gen
+                              </span>
+                            {/if}
+                          </div>
                         </Command.Item>
                       {/each}
                       <!-- Ensure selected model is always available even if not in fetched list -->
@@ -843,19 +937,30 @@
             <code class="px-1 py-0.5 bg-muted rounded">OPENROUTER_MODEL</code> env
             var.
           </p>
+          {#if isImageGenerationModel(selectedModel)}
+            <div
+              class="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-300"
+            >
+              <strong>🖼️ Image Generation Mode:</strong> Screenshots are automatically
+              captured and included with every agent input. The agent can "see" your
+              screen.
+            </div>
+          {/if}
         </div>
 
         <p class="text-sm text-muted-foreground">Manage your MCP servers</p>
 
         <div class="bg-card/50 border border-border rounded-lg overflow-hidden">
-          <div class="px-6 py-4 border-b border-border/30">
+          <div class="px-4 sm:px-6 py-3 sm:py-4 border-b border-border/30">
             <h2 class="text-lg font-medium text-foreground">
               Installed MCP Servers
             </h2>
           </div>
 
           {#if loading}
-            <div class="px-6 py-8 flex items-center justify-center">
+            <div
+              class="px-4 sm:px-6 py-6 sm:py-8 flex items-center justify-center min-h-[200px]"
+            >
               <div class="flex items-center gap-3 text-muted-foreground">
                 <div
                   class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
@@ -864,7 +969,9 @@
               </div>
             </div>
           {:else if servers.length === 0}
-            <div class="px-6 py-12 text-center">
+            <div
+              class="px-4 sm:px-6 py-8 sm:py-12 text-center min-h-[200px] flex items-center justify-center"
+            >
               <p class="text-muted-foreground text-sm">
                 No servers installed yet
               </p>
@@ -873,7 +980,9 @@
             <div class="divide-y divide-border/30">
               {#each servers as server (server.id)}
                 <div class="group">
-                  <div class="px-6 py-4 flex items-center gap-4">
+                  <div
+                    class="px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap"
+                  >
                     <!-- Avatar with status indicator -->
                     <div class="relative">
                       <div
@@ -889,16 +998,18 @@
                     </div>
 
                     <!-- Server info -->
-                    <div class="flex-1 min-w-0">
+                    <div class="flex-1 min-w-0 w-full sm:w-auto">
                       <div class="flex items-center gap-2 mb-1">
-                        <h3 class="text-base font-medium text-foreground">
+                        <h3
+                          class="text-sm sm:text-base font-medium text-foreground truncate"
+                        >
                           {server.name}
                         </h3>
                       </div>
 
                       <div
                         onclick={() => handleExpand(server.id)}
-                        class="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:text-foreground"
+                        class="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground cursor-pointer hover:text-foreground flex-wrap"
                       >
                         {#if server.status === "loading"}
                           <div class="flex items-center gap-2">
@@ -1012,7 +1123,7 @@
           <!-- Add New Server Button -->
           <button
             onclick={startAdd}
-            class="w-full px-6 py-4 flex items-center gap-4 hover:bg-muted/50 transition-colors border-t border-border/50"
+            class="w-full px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 hover:bg-muted/50 transition-colors border-t border-border/50"
           >
             <div
               class="w-12 h-12 rounded-full bg-muted flex items-center justify-center"
@@ -1079,21 +1190,52 @@
           </div>
 
           <div>
-            <label
-              for="form-transport"
-              class="block text-sm font-medium text-foreground mb-2"
-            >
+            <label class="block text-sm font-medium text-foreground mb-2">
               Transport
             </label>
-            <select
-              id="form-transport"
-              bind:value={formTransport}
-              class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="stdio">stdio</option>
-              <option value="http">http</option>
-              <option value="sse">sse</option>
-            </select>
+            <Popover.Root bind:open={transportComboboxOpen}>
+              <Popover.Trigger bind:ref={transportTriggerRef}>
+                {#snippet child({ props })}
+                  <Button
+                    {...props}
+                    variant="outline"
+                    class="w-full justify-between bg-muted border-border/50 text-foreground hover:bg-muted/80"
+                    role="combobox"
+                    aria-expanded={transportComboboxOpen}
+                  >
+                    {formTransport}
+                    <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
+                  </Button>
+                {/snippet}
+              </Popover.Trigger>
+              <Popover.Content class="w-full p-0" align="start">
+                <Command.Root>
+                  <Command.List>
+                    <Command.Group>
+                      {#each transportOptions as transport}
+                        <Command.Item
+                          value={transport}
+                          onSelect={() => {
+                            formTransport = transport;
+                            closeAndFocusTransportTrigger();
+                          }}
+                        >
+                          <Check
+                            class={cn(
+                              "me-2 size-4",
+                              formTransport === transport
+                                ? "opacity-100"
+                                : "opacity-0"
+                            )}
+                          />
+                          {transport}
+                        </Command.Item>
+                      {/each}
+                    </Command.Group>
+                  </Command.List>
+                </Command.Root>
+              </Popover.Content>
+            </Popover.Root>
           </div>
 
           {#if formTransport === "stdio"}

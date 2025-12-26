@@ -54,6 +54,47 @@ When MCP servers are configured in settings, agent mode uses MCP instead of Appl
 
 **To configure**: Menu bar icon → **View Settings** → MCP Servers tab. Requires an OpenRouter API key.
 
+## Image Generation Models & Automatic Screenshots
+
+When you select an **image generation model** (e.g., DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram), t2t automatically captures and includes a screenshot with every agent input. This enables the "agent can see" feature - the AI can see your screen context when generating images.
+
+### How It Works
+
+- **Automatic detection**: Models are automatically detected as image generation capable based on their ID patterns
+- **Screenshot capture**: When you use agent mode (Fn+Ctrl) with an image generation model, a screenshot is captured before sending your prompt
+- **Seamless integration**: Screenshots are included in the API request without any additional UI or user action
+- **Privacy**: Screenshots are only captured when using image generation models, and only sent to the API (not stored locally)
+
+### Supported Model Patterns
+
+The following model ID patterns trigger automatic screenshot capture:
+- `dall-e`, `dalle` (OpenAI DALL-E)
+- `stable-diffusion`, `stablediffusion` (Stability AI)
+- `flux` (Black Forest Labs)
+- `midjourney`
+- `ideogram`
+- `imagen` (Google)
+- `sdxl`, `realistic-vision`, `dreamshaper` (Stable Diffusion variants)
+- Models from `black-forest-labs` or `stability-ai` providers
+
+### UI Indicators
+
+In Settings → Model Selection:
+- Image generation models show a 🖼️ badge
+- A purple info box appears when an image generation model is selected, explaining the automatic screenshot behavior
+
+### Privacy & Permissions
+
+- **Screen Recording permission**: macOS may prompt for screen recording permission the first time you use an image generation model
+- **No local storage**: Screenshots are not saved to disk - they're only sent to the API
+- **Error handling**: If screenshot capture fails (e.g., permission denied), the agent falls back to text-only mode
+
+### Technical Details
+
+- Screenshots are captured using macOS `screencapture` command
+- Images are encoded as base64 PNG and included in the OpenAI-compatible message format
+- The screenshot is included in both initial requests and follow-up requests after tool execution
+
 ## First Run
 
 On first launch, the app automatically downloads the Whisper model (~150MB) to `~/.cache/whisper/ggml-base.en.bin`. This happens in the background.
