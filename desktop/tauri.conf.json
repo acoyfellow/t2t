@@ -5,7 +5,7 @@
   "identifier": "com.t2t.desktop",
   "build": {
     "beforeDevCommand": "bunx vite dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:5177",
     "beforeBuildCommand": "bunx vite build",
     "frontendDist": "./build"
   },

@@ -43,7 +43,7 @@
     prompts?: Array<{ name: string; description?: string; arguments?: any[] }>;
   };
 
-  type ActiveTab = "analytics" | "servers";
+  type ActiveTab = "analytics" | "servers" | "history";
 
   let activeTab = $state<ActiveTab>("analytics");
   let loading = $state(true);
@@ -136,6 +136,20 @@
 
   // Theme state
   let isDark = $state(false);
+
+  // History state
+  type HistoryEntry = {
+    id: string;
+    timestamp: string;
+    type: string;
+    data: any;
+  };
+
+  let historyEntries = $state<HistoryEntry[]>([]);
+  let historyLoading = $state(false);
+  let historySearch = $state("");
+  let expandedEntryId = $state<string | null>(null);
+  let mainContentRef = $state<HTMLDivElement>(null!);
 
   const HOUR_MS = 3600 * 1000;
 
@@ -540,6 +554,81 @@
 
     return unsubscribe;
   });
+
+  async function loadHistory() {
+    if (historyLoading) return; // Prevent duplicate calls
+    historyLoading = true;
+
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      if (historyLoading) {
+        console.error("History load timeout");
+        historyLoading = false;
+        historyEntries = [];
+      }
+    }, 5000);
+
+    try {
+      console.log("Loading history...");
+      const result = (await invoke("get_history")) as {
+        entries?: HistoryEntry[];
+        total?: number;
+      };
+      console.log("History loaded:", result);
+      historyEntries = result?.entries || [];
+    } catch (e) {
+      console.error("Failed to load history:", e);
+      historyEntries = [];
+    } finally {
+      clearTimeout(timeoutId);
+      // Always clear loading state
+      historyLoading = false;
+      console.log("History loading complete, entries:", historyEntries.length);
+    }
+  }
+
+  async function searchHistory() {
+    if (!historySearch.trim()) {
+      await loadHistory();
+      return;
+    }
+    historyLoading = true;
+    try {
+      const result = (await invoke("search_history", {
+        query: historySearch,
+      })) as {
+        entries: HistoryEntry[];
+        total: number;
+      };
+      historyEntries = result.entries;
+    } catch (e) {
+      console.error("Failed to search history:", e);
+      historyEntries = [];
+    } finally {
+      historyLoading = false;
+    }
+  }
+
+  // Load history when tab is activated
+  $effect(() => {
+    if (activeTab === "history") {
+      // Only load if we haven't loaded yet or entries are empty
+      if (historyEntries.length === 0 && !historyLoading) {
+        loadHistory();
+      }
+    }
+  });
+
+  // Reset scroll to top when tab changes
+  $effect(() => {
+    // Track activeTab to trigger scroll reset
+    activeTab;
+    tick().then(() => {
+      if (mainContentRef) {
+        mainContentRef.scrollTop = 0;
+      }
+    });
+  });
 </script>
 
 <div
@@ -547,7 +636,7 @@
 >
   <!-- Header with Tabs -->
   <header
-    class="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10"
+    class="border-b border-border bg-card/50 backdrop-blur-sm shrink-0 z-10"
   >
     <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
       <div
@@ -585,6 +674,20 @@
               <Server class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span class="hidden sm:inline">Settings</span>
             </button>
+            <button
+              onclick={() => {
+                activeTab = "history";
+                // Always try to load when clicking the tab
+                loadHistory();
+              }}
+              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
+              'history'
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
+            >
+              <Activity class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span class="hidden sm:inline">History</span>
+            </button>
           </nav>
         </div>
 
@@ -607,7 +710,7 @@
   </header>
 
   <!-- Main Content -->
-  <div class="w-full flex-1 overflow-y-auto min-h-0">
+  <div bind:this={mainContentRef} class="w-full flex-1 overflow-y-auto min-h-0">
     {#if activeTab === "analytics"}
       <!-- Analytics Dashboard -->
       <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
@@ -763,9 +866,20 @@
           </div>
         {/if}
       </div>
-    {:else}
+    {:else if activeTab === "servers"}
       <!-- Settings -->
       <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
+        <!-- Development Notice -->
+        <div class="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+          <p class="text-sm text-foreground">
+            <strong class="text-amber-400">Heads up:</strong> This is an unsigned
+            build while we polish things up. Each time you update to a new version,
+            you'll need to remove t2t from System Settings → Privacy & Security →
+            Accessibility (and Microphone if needed), then re-add it. We'll get it
+            properly signed soon!
+          </p>
+        </div>
+
         <!-- Theme Selection -->
         <div class="flex items-center gap-3 sm:gap-4 py-2">
           <span class="text-sm font-medium text-foreground dark:text-white"
@@ -1141,6 +1255,147 @@
           </button>
         </div>
       </div>
+    {:else if activeTab === "history"}
+      <!-- History Tab -->
+      <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
+        <div>
+          <h2 class="text-xl sm:text-2xl font-bold text-foreground">History</h2>
+          <p class="text-sm text-muted-foreground mt-1">
+            View all transcriptions and agent calls
+          </p>
+        </div>
+
+        <!-- Search -->
+        <div class="relative">
+          <input
+            type="text"
+            bind:value={historySearch}
+            oninput={() => searchHistory()}
+            placeholder="Search history..."
+            class="w-full px-4 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+
+        <!-- History List -->
+        {#if historyLoading}
+          <div class="flex items-center justify-center py-12">
+            <div class="flex items-center gap-3 text-muted-foreground">
+              <div
+                class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
+              ></div>
+              <span class="text-sm">Loading...</span>
+            </div>
+          </div>
+        {:else if historyEntries.length === 0}
+          <div class="flex items-center justify-center py-12">
+            <p class="text-muted-foreground">
+              {historySearch ? "No results found" : "No history yet"}
+            </p>
+          </div>
+        {:else}
+          <div class="space-y-2">
+            {#each historyEntries as entry (entry.id)}
+              <button
+                type="button"
+                class="w-full bg-card/50 border border-border rounded-lg p-4 text-left hover:bg-card transition-colors"
+                onclick={() => {
+                  expandedEntryId =
+                    expandedEntryId === entry.id ? null : entry.id;
+                }}
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span
+                        class="px-2 py-0.5 text-xs rounded {entry.type ===
+                        'transcription'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-purple-500/20 text-purple-400'}"
+                      >
+                        {entry.type === "transcription"
+                          ? "Transcription"
+                          : "Agent"}
+                      </span>
+                      <span class="text-xs text-muted-foreground">
+                        {new Date(entry.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <p class="text-sm text-foreground truncate">
+                      {entry.type === "transcription"
+                        ? entry.data.text || ""
+                        : entry.data.transcript || ""}
+                    </p>
+                    {#if entry.type === "agent" && entry.data.model}
+                      <p class="text-xs text-muted-foreground mt-1">
+                        Model: {entry.data.model}
+                      </p>
+                    {/if}
+                  </div>
+                  {#if entry.data.screenshotThumbnail}
+                    <img
+                      src={entry.data.screenshotThumbnail}
+                      alt="Screenshot thumbnail"
+                      class="w-16 h-16 rounded object-cover shrink-0"
+                    />
+                  {/if}
+                </div>
+
+                {#if expandedEntryId === entry.id}
+                  <div class="mt-4 pt-4 border-t border-border/50 space-y-3">
+                    {#if entry.type === "agent"}
+                      <div>
+                        <h4 class="text-sm font-medium mb-2">Request</h4>
+                        <pre
+                          class="text-xs bg-muted/50 p-3 rounded overflow-x-auto">{JSON.stringify(
+                            entry.data.request,
+                            null,
+                            2
+                          )}</pre>
+                      </div>
+                      <div>
+                        <h4 class="text-sm font-medium mb-2">Response</h4>
+                        <pre
+                          class="text-xs bg-muted/50 p-3 rounded overflow-x-auto">{JSON.stringify(
+                            entry.data.response,
+                            null,
+                            2
+                          )}</pre>
+                      </div>
+                      {#if entry.data.toolCalls && entry.data.toolCalls.length > 0}
+                        <div>
+                          <h4 class="text-sm font-medium mb-2">Tool Calls</h4>
+                          <pre
+                            class="text-xs bg-muted/50 p-3 rounded overflow-x-auto">{JSON.stringify(
+                              entry.data.toolCalls,
+                              null,
+                              2
+                            )}</pre>
+                        </div>
+                      {/if}
+                      {#if entry.data.error}
+                        <div>
+                          <h4 class="text-sm font-medium mb-2 text-destructive">
+                            Error
+                          </h4>
+                          <p class="text-sm text-destructive">
+                            {entry.data.error}
+                          </p>
+                        </div>
+                      {/if}
+                    {:else}
+                      <div>
+                        <p class="text-sm text-foreground">
+                          {entry.data.text || ""}
+                        </p>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
 
@@ -1316,6 +1571,12 @@
     <div
       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
       onclick={cancelDelete}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-server-dialog-title"
+      aria-describedby="delete-server-dialog-description"
+      tabindex="-1"
+      aria-hidden="true"
     >
       <div
         class="bg-[oklch(0.15_0.01_258.34)] border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"

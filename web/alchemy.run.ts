@@ -60,7 +60,7 @@ export const APP = await SvelteKit(`${projectName}-app`, {
   adopt: true,
   env: {
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET || "85000968f86b5d30510b5b73186b914c430f8e1573614a6d75ed4cc53383517a",
-    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || (process.env.NODE_ENV === "production" ? "https://t2t.now" : "http://localhost:5173"),
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || (process.env.NODE_ENV === "production" ? "https://t2t.now" : "http://localhost:5177"),
   }
 });
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { dev } from "$app/environment";
 
-  const baseUrl = dev ? "http://localhost:5173" : "https://t2t.now";
+  const baseUrl = dev ? "http://localhost:5177" : "https://t2t.now";
   const defaultOgImage = `${baseUrl}/meta.jpg`;
 
   // PNG converter URL - Configure this to point to your deployed SVG-to-PNG Cloudflare worker

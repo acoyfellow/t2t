@@ -49,7 +49,7 @@ export function initAuth(db: D1Database, env?: any) {
   if (!authInstance) {
     authInstance = betterAuth({
       trustedOrigins: [
-        "http://localhost:5173",
+        "http://localhost:5177",
         // TODO: Add your production domains here
         // "https://your-domain.com",
       ],
@@ -74,7 +74,7 @@ export function initAuth(db: D1Database, env?: any) {
       secret: env?.BETTER_AUTH_SECRET || (() => {
         throw new Error('BETTER_AUTH_SECRET environment variable is required');
       })(),
-      baseURL: env?.BETTER_AUTH_URL || 'http://localhost:5173',
+      baseURL: env?.BETTER_AUTH_URL || 'http://localhost:5177',
       plugins: [sveltekitCookies(getRequestEvent as any)],
     });
   }

@@ -34,7 +34,7 @@
     "dev": "bunx tauri dev",
     "build": "bunx tauri build",
     "preview": "vite preview",
-    "tauri": "lsof -ti tcp:5173 | xargs kill -9 && bunx tauri",
+    "tauri": "lsof -ti tcp:5177 | xargs kill -9 && bunx tauri",
     "macos:install": "bash ./scripts/macos-install.sh",
     "release": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",

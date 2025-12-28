@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [sveltekit(), tailwindcss()],
   server: {
-    port: 5173,
+    port: 5177,
     strictPort: true,
     watch: {
       ignored: ['**/app/**', '**/.alchemy/**', '**/node_modules/**']

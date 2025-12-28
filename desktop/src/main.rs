@@ -130,6 +130,21 @@ struct MCPTool {
     input_schema: serde_json::Value,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct HistoryEntry {
+    id: String,
+    timestamp: String,
+    #[serde(rename = "type")]
+    entry_type: String,
+    data: serde_json::Value,
+}
+
+#[derive(serde::Serialize)]
+struct HistoryResponse {
+    entries: Vec<HistoryEntry>,
+    total: usize,
+}
+
 /// Format user message with optional screenshot for image generation models
 /// 
 /// Creates an OpenAI-compatible message format that can include both text and images.
@@ -170,7 +185,7 @@ fn format_user_message(text: &str, screenshot_base64: Option<&str>) -> serde_jso
 }
 
 // Local AppleScript agent: Calls OpenRouter directly, no worker needed
-fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str) -> Result<AgentResponse, String> {
+fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str, app: Option<&AppHandle>) -> Result<AgentResponse, String> {
     // Check if model supports image generation and capture screenshot if so
     let screenshot = if is_image_generation_model(model) {
         match capture_screenshot() {
@@ -189,23 +204,26 @@ fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
     
+    // Build request JSON for logging (sanitize API key)
+    let request_json = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": APPLESCRIPT_SYSTEM_PROMPT
+            },
+            user_message.clone()
+        ],
+        "max_tokens": 500
+    });
+    
     let client = reqwest::blocking::Client::new();
     let response = client
         .post(OPENROUTER_API_URL)
         .header("Authorization", format!("Bearer {}", openrouter_key))
         .header("HTTP-Referer", "https://github.com/acoyfellow/t2t")
         .header("X-Title", "t2t")
-        .json(&serde_json::json!({
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": APPLESCRIPT_SYSTEM_PROMPT
-                },
-                user_message
-            ],
-            "max_tokens": 500
-        }))
+        .json(&request_json)
         .timeout(std::time::Duration::from_secs(60))
         .send()
         .map_err(|e| format!("OpenRouter request failed: {e}"))?;
@@ -213,6 +231,32 @@ fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &
     if !response.status().is_success() {
         let status = response.status();
         let error_body = response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+        
+        // Log error to history
+        if let Some(app_handle) = app {
+            let screenshot_thumbnail = screenshot.as_ref()
+                .and_then(|s| create_thumbnail(s).ok().flatten());
+            if let Err(e) = save_history_entry(
+                app_handle.clone(),
+                "agent".to_string(),
+                serde_json::json!({
+                    "transcript": transcript,
+                    "model": model,
+                    "request": request_json,
+                    "response": serde_json::json!({
+                        "error": format!("{}: {}", status, error_body)
+                    }),
+                    "screenshotThumbnail": screenshot_thumbnail,
+                    "success": false,
+                    "error": format!("{}: {}", status, error_body)
+                })
+            ) {
+                log_line(&format!("Failed to save AppleScript agent history entry (error): {}", e));
+            }
+        } else {
+            log_line("Warning: No app handle available to save AppleScript agent history (error)");
+        }
+        
         return Err(format!("OpenRouter returned {}: {}", status, error_body));
     }
     
@@ -220,7 +264,7 @@ fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &
         .map_err(|e| format!("Failed to parse OpenRouter response: {e}"))?;
     
     // Parse response - OpenAI format
-    if let Some(choices) = openrouter_resp.get("choices").and_then(|c| c.as_array()) {
+    let result = if let Some(choices) = openrouter_resp.get("choices").and_then(|c| c.as_array()) {
         if let Some(choice) = choices.first() {
             if let Some(message) = choice.get("message") {
                 if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
@@ -231,18 +275,76 @@ fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &
                         .trim()
                         .to_string();
                     
-                    return Ok(AgentResponse {
+                    // Log success to history
+                    if let Some(app_handle) = app {
+                        let screenshot_thumbnail = screenshot.as_ref()
+                            .and_then(|s| create_thumbnail(s).ok().flatten());
+                        if let Err(e) = save_history_entry(
+                            app_handle.clone(),
+                            "agent".to_string(),
+                            serde_json::json!({
+                                "transcript": transcript,
+                                "model": model,
+                                "request": request_json,
+                                "response": openrouter_resp.clone(),
+                                "screenshotThumbnail": screenshot_thumbnail,
+                                "success": true
+                            })
+                        ) {
+                            log_line(&format!("Failed to save agent history entry: {}", e));
+                        } else {
+                            log_line("Successfully saved agent history entry");
+                        }
+                    } else {
+                        log_line("Warning: No app handle available to save agent history");
+                    }
+                    
+                    Ok(AgentResponse {
                         success: true,
                         script: Some(script),
                         blocked: Some(false),
                         error: None,
-                    });
+                    })
+                } else {
+                    Err("No content in OpenRouter response".to_string())
                 }
+            } else {
+                Err("No message in OpenRouter response".to_string())
             }
+        } else {
+            Err("No choices in OpenRouter response".to_string())
+        }
+    } else {
+        Err("No content in OpenRouter response".to_string())
+    };
+    
+    // Log error if result is error
+    if result.is_err() {
+        if let Some(app_handle) = app {
+            let screenshot_thumbnail = screenshot.as_ref()
+                .and_then(|s| create_thumbnail(s).ok().flatten());
+            let error_msg = result.as_ref().err().map(|e| e.clone()).unwrap_or_else(|| "Unknown error".to_string());
+            if let Err(e) = save_history_entry(
+                app_handle.clone(),
+                "agent".to_string(),
+                serde_json::json!({
+                    "transcript": transcript,
+                    "model": model,
+                    "request": request_json,
+                    "response": openrouter_resp,
+                    "screenshotThumbnail": screenshot_thumbnail,
+                    "success": false,
+                    "error": error_msg
+                })
+            ) {
+                log_line(&format!("Failed to save agent history entry (parse error): {}", e));
+            }
+        } else {
+            log_line("Warning: No app handle available to save agent history (parse error)");
         }
     }
     
-    Err("No content in OpenRouter response".to_string())
+    result
 }
 
 // Convert MCP tool to OpenAI format
@@ -402,7 +504,7 @@ async fn execute_mcp_tool_http(
 }
 
 // Local MCP Agent: Calls OpenRouter directly, executes tools locally
-fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openrouter_key: String, model: &str) -> Result<MCPAgentResponse, String> {
+fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openrouter_key: String, model: &str, app: Option<&AppHandle>) -> Result<MCPAgentResponse, String> {
     
     // Fetch tools from all enabled servers
     let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Failed to create runtime: {e}"))?;
@@ -434,6 +536,28 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
     }
     
     if all_tools.is_empty() {
+        // Log early return to history
+        if let Some(app_handle) = app {
+            if let Err(e) = save_history_entry(
+                app_handle.clone(),
+                "agent".to_string(),
+                serde_json::json!({
+                    "transcript": transcript,
+                    "model": model,
+                    "request": serde_json::json!({
+                        "model": model,
+                        "messages": [{"role": "user", "content": transcript}]
+                    }),
+                    "response": serde_json::json!({
+                        "error": "No tools available from MCP servers"
+                    }),
+                    "success": false,
+                    "error": "No tools available from MCP servers"
+                })
+            ) {
+                log_line(&format!("Failed to save MCP agent history entry (no tools): {}", e));
+            }
+        }
         return Ok(MCPAgentResponse {
             success: false,
             text: None,
@@ -465,6 +589,20 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
     
+    // Build request JSON for logging
+    let request_json = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant with access to tools. Use them when needed."
+            },
+            user_message.clone()
+        ],
+        "tools": openai_tools.clone(),
+        "tool_choice": "auto"
+    });
+    
     // Call OpenRouter
     let client = reqwest::blocking::Client::new();
     let response = client
@@ -472,18 +610,7 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         .header("Authorization", format!("Bearer {}", openrouter_key))
         .header("HTTP-Referer", "https://github.com/yourusername/t2t")
         .header("X-Title", "t2t")
-        .json(&serde_json::json!({
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant with access to tools. Use them when needed."
-                },
-                user_message
-            ],
-            "tools": openai_tools,
-            "tool_choice": "auto"
-        }))
+        .json(&request_json)
         .timeout(std::time::Duration::from_secs(60))
         .send()
         .map_err(|e| format!("OpenRouter request failed: {e}"))?;
@@ -491,6 +618,32 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
     if !response.status().is_success() {
         let status = response.status();
         let error_body = response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+        
+        // Log error to history
+        if let Some(app_handle) = app {
+            let screenshot_thumbnail = screenshot.as_ref()
+                .and_then(|s| create_thumbnail(s).ok().flatten());
+            if let Err(e) = save_history_entry(
+                app_handle.clone(),
+                "agent".to_string(),
+                serde_json::json!({
+                    "transcript": transcript,
+                    "model": model,
+                    "request": request_json,
+                    "response": serde_json::json!({
+                        "error": format!("{}: {}", status, error_body)
+                    }),
+                    "screenshotThumbnail": screenshot_thumbnail,
+                    "success": false,
+                    "error": format!("{}: {}", status, error_body)
+                })
+            ) {
+                log_line(&format!("Failed to save MCP agent history entry (error): {}", e));
+            }
+        } else {
+            log_line("Warning: No app handle available to save MCP agent history (error)");
+        }
+        
         return Err(format!("OpenRouter returned {}: {}", status, error_body));
     }
     
@@ -607,17 +760,44 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         }
     }
     
-    Ok(MCPAgentResponse {
+    let result = MCPAgentResponse {
         success: true,
-        text: final_text,
-        tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+        text: final_text.clone(),
+        tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
         error: None,
-    })
+    };
+    
+    // Log to history
+    if let Some(app_handle) = app {
+        let screenshot_thumbnail = screenshot.as_ref()
+            .and_then(|s| create_thumbnail(s).ok().flatten());
+        if let Err(e) = save_history_entry(
+            app_handle.clone(),
+            "agent".to_string(),
+            serde_json::json!({
+                "transcript": transcript,
+                "model": model,
+                "request": request_json,
+                "response": openrouter_resp,
+                "toolCalls": result.tool_calls,
+                "screenshotThumbnail": screenshot_thumbnail,
+                "success": true
+            })
+        ) {
+            log_line(&format!("Failed to save MCP agent history entry: {}", e));
+        } else {
+            log_line("Successfully saved MCP agent history entry");
+        }
+    } else {
+        log_line("Warning: No app handle available to save MCP agent history");
+    }
+    
+    Ok(result)
 }
 
 // Wrapper for compatibility
-fn call_mcp_agent_api(transcript: &str, mcp_servers: Vec<MCPServer>, openrouter_key: String, model: &str) -> Result<MCPAgentResponse, String> {
-    call_mcp_agent_local(transcript, mcp_servers, openrouter_key, model)
+fn call_mcp_agent_api(transcript: &str, mcp_servers: Vec<MCPServer>, openrouter_key: String, model: &str, app: Option<&AppHandle>) -> Result<MCPAgentResponse, String> {
+    call_mcp_agent_local(transcript, mcp_servers, openrouter_key, model, app)
 }
 
 fn get_mcp_config(app: &AppHandle) -> Option<(Vec<MCPServer>, String)> {
@@ -1566,6 +1746,16 @@ mod macos_fn_key {
                             }
                             log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
                             update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
+                            
+                            // Log transcription to history
+                            let _ = save_history_entry(
+                                app_unwrapped.clone(),
+                                "transcription".to_string(),
+                                serde_json::json!({
+                                    "text": text,
+                                    "mode": "typing"
+                                })
+                            );
                         } else {
                             // Agent mode: check for MCP servers first
                             log_line(&format!("Agent mode: calling API with '{}'", text));
@@ -1579,7 +1769,7 @@ mod macos_fn_key {
                             let selected_model = get_selected_model(&app_unwrapped);
                             let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
                                 log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
-                                Some(call_mcp_agent_api(&text, servers, key, &selected_model))
+                                Some(call_mcp_agent_api(&text, servers, key, &selected_model, Some(&app_unwrapped)))
                             } else {
                                 log_line("No MCP servers configured, falling back to AppleScript agent");
                                 None
@@ -1688,7 +1878,7 @@ mod macos_fn_key {
                                     let selected_model = get_selected_model(&app_unwrapped);
                                     match openrouter_key {
                                         Some(key) => {
-                                            match call_applescript_agent_local(&text, &key, &selected_model) {
+                                            match call_applescript_agent_local(&text, &key, &selected_model, Some(&app_unwrapped)) {
                                                 Ok(response) => {
                                                     // Check if cancelled after AppleScript agent call
                                                     if IS_CANCELLING.load(Ordering::SeqCst) {
@@ -2285,6 +2475,135 @@ fn cancel_processing() {
     log_line("Processing cancellation requested (Escape key pressed)");
 }
 
+// Save a history entry
+#[tauri::command]
+fn save_history_entry(app: AppHandle, entry_type: String, data: serde_json::Value) -> Result<(), String> {
+    let store = app.store("history.json")
+        .map_err(|e| format!("Failed to open history store: {e}"))?;
+    
+    // Get existing entries
+    let mut entries: Vec<HistoryEntry> = if let Some(entries_val) = store.get("entries") {
+        serde_json::from_value(entries_val.clone())
+            .unwrap_or_else(|_| Vec::new())
+    } else {
+        Vec::new()
+    };
+    
+    // Create new entry
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let id = now.as_millis().to_string();
+    // Format timestamp as ISO 8601
+    let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(now.as_secs() as i64, now.subsec_nanos())
+        .unwrap_or_else(|| chrono::Utc::now())
+        .to_rfc3339();
+    
+    let entry = HistoryEntry {
+        id: id.clone(),
+        timestamp,
+        entry_type: entry_type.clone(),
+        data,
+    };
+    
+    entries.push(entry);
+    
+    // Get limit from env var (default 1000)
+    let limit: usize = std::env::var("T2T_HISTORY_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1000);
+    
+    // Prune oldest entries if over limit
+    if entries.len() > limit {
+        entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        entries.drain(0..(entries.len() - limit));
+    }
+    
+    // Sort by timestamp (newest first) for display
+    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    
+    // Save back to store
+    store.set("entries", serde_json::to_value(&entries)
+        .map_err(|e| format!("Failed to serialize entries: {e}"))?);
+    store.save()
+        .map_err(|e| format!("Failed to save history: {e}"))?;
+    
+    Ok(())
+}
+
+// Get all history entries
+#[tauri::command]
+fn get_history(app: AppHandle) -> Result<HistoryResponse, String> {
+    let store = app.store("history.json")
+        .map_err(|e| format!("Failed to open history store: {e}"))?;
+    
+    let entries: Vec<HistoryEntry> = if let Some(entries_val) = store.get("entries") {
+        serde_json::from_value(entries_val.clone())
+            .unwrap_or_else(|_| Vec::new())
+    } else {
+        Vec::new()
+    };
+    
+    // Sort by timestamp (newest first)
+    let mut sorted_entries = entries;
+    sorted_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    
+    Ok(HistoryResponse {
+        total: sorted_entries.len(),
+        entries: sorted_entries,
+    })
+}
+
+// Search history entries
+#[tauri::command]
+fn search_history(app: AppHandle, query: String) -> Result<HistoryResponse, String> {
+    let store = app.store("history.json")
+        .map_err(|e| format!("Failed to open history store: {e}"))?;
+    
+    let entries: Vec<HistoryEntry> = if let Some(entries_val) = store.get("entries") {
+        serde_json::from_value(entries_val.clone())
+            .unwrap_or_else(|_| Vec::new())
+    } else {
+        Vec::new()
+    };
+    
+    let query_lower = query.to_lowercase();
+    
+    // Filter entries by search query
+    let filtered: Vec<HistoryEntry> = entries.into_iter()
+        .filter(|entry| {
+            // Search in transcript/text fields
+            if let Some(text) = entry.data.get("text").and_then(|v| v.as_str()) {
+                if text.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+            }
+            if let Some(transcript) = entry.data.get("transcript").and_then(|v| v.as_str()) {
+                if transcript.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+            }
+            // Search in model name
+            if let Some(model) = entry.data.get("model").and_then(|v| v.as_str()) {
+                if model.to_lowercase().contains(&query_lower) {
+                    return true;
+                }
+            }
+            false
+        })
+        .collect();
+    
+    // Sort by timestamp (newest first)
+    let mut sorted_entries = filtered;
+    sorted_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    
+    Ok(HistoryResponse {
+        total: sorted_entries.len(),
+        entries: sorted_entries,
+    })
+}
+
 // Get system theme preference (macOS)
 #[tauri::command]
 fn get_system_theme() -> String {
@@ -2407,6 +2726,54 @@ fn capture_screenshot() -> Result<String, String> {
 #[cfg(not(target_os = "macos"))]
 fn capture_screenshot() -> Result<String, String> {
     Err("Screenshot capture not implemented for this platform".to_string())
+}
+
+/// Create a thumbnail from a base64-encoded PNG image
+/// 
+/// Resizes the image to a maximum of 150x150 pixels while maintaining aspect ratio.
+/// Returns a base64-encoded data URI suitable for storage in history.
+/// 
+/// # Arguments
+/// * `base64_data_uri` - Base64-encoded PNG data URI (format: "data:image/png;base64,...")
+/// 
+/// # Returns
+/// `Ok(Some(String))` containing thumbnail as base64 data URI, or `Ok(None)` if processing fails
+fn create_thumbnail(base64_data_uri: &str) -> Result<Option<String>, String> {
+    // Extract base64 data from data URI
+    let base64_data = if base64_data_uri.starts_with("data:image/png;base64,") {
+        &base64_data_uri[22..]
+    } else {
+        base64_data_uri
+    };
+    
+    // Decode base64
+    use base64::{Engine as _, engine::general_purpose};
+    let image_bytes = general_purpose::STANDARD.decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {e}"))?;
+    
+    // Decode PNG
+    let img = image::load_from_memory(&image_bytes)
+        .map_err(|e| format!("Failed to decode image: {e}"))?;
+    
+    // Resize to max 150x150 maintaining aspect ratio
+    let thumbnail = img.thumbnail(150, 150);
+    
+    // Encode back to PNG
+    let mut thumbnail_bytes = Vec::new();
+    {
+        let encoder = image::codecs::png::PngEncoder::new(&mut thumbnail_bytes);
+        #[allow(deprecated)]
+        encoder.encode(
+            thumbnail.as_bytes(),
+            thumbnail.width(),
+            thumbnail.height(),
+            thumbnail.color(),
+        ).map_err(|e| format!("Failed to encode thumbnail: {e}"))?;
+    }
+    
+    // Encode to base64 data URI
+    let thumbnail_base64 = general_purpose::STANDARD.encode(&thumbnail_bytes);
+    Ok(Some(format!("data:image/png;base64,{}", thumbnail_base64)))
 }
 
 // Get selected model from store, env var, or default
@@ -2887,7 +3254,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
@@ -2925,10 +3292,7 @@ fn main() {
                 }
             }
 
-            // Debug controls so we can validate mic/recording even if Fn capture fails.
             let settings = MenuItem::with_id(app, "settings", "View Settings", true, None::<&str>)?;
-            let start = MenuItem::with_id(app, "start", "Start recording", true, None::<&str>)?;
-            let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&settings, &quit])?;
             
@@ -2992,7 +3356,7 @@ fn main() {
                     match event.id.as_ref() {
                         "settings" => {
                             // Change activation policy to Regular so it appears in Command+Tab
-                            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                            let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
                             
                             // Show the settings window and bring to front
                             let w = app.get_webview_window("settings").or_else(|| {
@@ -3016,22 +3380,6 @@ fn main() {
                                 let _ = w.set_always_on_top(false);
                                 let _ = w.set_focus();
                                 log_line("tray: view settings");
-                            }
-                        }
-                        "start" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.eval("window.__startRecording && window.__startRecording()");
-                                log_line("tray: start recording");
-                            } else {
-                                log_line("tray: start recording but main window not found");
-                            }
-                        }
-                        "stop" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.eval("window.__stopRecording && window.__stopRecording()");
-                                log_line("tray: stop recording");
-                            } else {
-                                log_line("tray: stop recording but main window not found");
                             }
                         }
                         "quit" => app.exit(0),

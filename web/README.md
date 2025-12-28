@@ -108,7 +108,7 @@ Required:
 - `BETTER_AUTH_SECRET` - Auto-generated secure secret for auth
 
 Optional:
-- `BETTER_AUTH_URL` - Your app URL (defaults to localhost:5173)
+- `BETTER_AUTH_URL` - Your app URL (defaults to localhost:5177)
 
 ## Scripts
 

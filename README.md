@@ -43,6 +43,38 @@ The app will prompt you if permissions are missing.
    - Add your OpenRouter API key in settings
    - Optionally configure MCP servers for extended automation
 
+## Settings & Analytics
+
+The settings window (Menu bar icon → **View Settings**) includes three tabs:
+
+### Analytics Tab
+
+View your transcription usage statistics:
+- **Total Words**: Lifetime count of all transcribed words
+- **Lifetime Average**: Average words per minute across all sessions
+- **Session Average**: Average words per minute for current session
+- **Sessions**: Total number of transcription sessions
+- **Hours Active**: Total time spent transcribing
+- **Recent Activity**: 48-hour hourly activity chart
+
+### Settings Tab
+
+Configure your t2t installation:
+- **Theme**: Toggle between light and dark mode
+- **OpenRouter API Key**: Set your API key for agent mode
+- **AI Model Selection**: Choose which model to use for agent mode
+  - Supports all OpenRouter models
+  - Image generation models show a 🖼️ badge
+  - Auto-refresh available to fetch latest models
+- **MCP Servers**: Add, configure, and manage MCP servers
+  - Test connections and view available tools
+  - Enable/disable servers individually
+  - Supports stdio, HTTP, and SSE transports
+
+### History Tab
+
+See [History & Logging](#history--logging) section below.
+
 ## MCP (Model Context Protocol) Support
 
 When MCP servers are configured in settings, agent mode uses MCP instead of AppleScript. This enables:
@@ -52,7 +84,7 @@ When MCP servers are configured in settings, agent mode uses MCP instead of Appl
 - **Multiple servers**: Connect to multiple MCP servers simultaneously
 - **Transport options**: Supports stdio, HTTP, and SSE transports
 
-**To configure**: Menu bar icon → **View Settings** → MCP Servers tab. Requires an OpenRouter API key.
+**To configure**: Menu bar icon → **View Settings** → Settings tab → MCP Servers section. Requires an OpenRouter API key.
 
 ## Image Generation Models & Automatic Screenshots
 
@@ -94,6 +126,44 @@ In Settings → Model Selection:
 - Screenshots are captured using macOS `screencapture` command
 - Images are encoded as base64 PNG and included in the OpenAI-compatible message format
 - The screenshot is included in both initial requests and follow-up requests after tool execution
+
+## History & Logging
+
+t2t automatically logs all transcriptions and agent calls for review and debugging.
+
+### Features
+
+- **Transcription history**: All voice transcriptions are saved with timestamps
+- **Agent call logging**: Complete request/response logs for all OpenRouter API calls
+- **Screenshot thumbnails**: Tiny thumbnails (150x150px) of screenshots sent with agent calls
+- **Search**: Fast local search across all history entries
+- **Expandable details**: Click any entry to view full request/response JSON and tool calls
+
+### Accessing History
+
+Menu bar icon → **View Settings** → **History** tab
+
+### Configuration
+
+- **History limit**: Set `T2T_HISTORY_LIMIT` environment variable (default: 1000 entries)
+- **Storage**: History is stored locally in `history.json` via Tauri's store plugin
+- **Privacy**: All data stays on your machine - nothing is sent to external services
+
+### What's Logged
+
+**Transcriptions:**
+- Timestamp
+- Transcribed text
+
+**Agent Calls:**
+- Timestamp
+- Transcript (your voice input)
+- Model used
+- Full request JSON (messages, parameters)
+- Full response JSON (AI output, tool calls)
+- Tool calls executed (if any)
+- Screenshot thumbnail (if screenshot was included)
+- Success/error status
 
 ## First Run
 
@@ -137,6 +207,7 @@ cd desktop && bun tauri build
 
 - **Logs**: `~/Library/Logs/t2t.log`
 - **Model location**: `~/.cache/whisper/ggml-base.en.bin`
+- **History storage**: `history.json` (via Tauri store, location depends on Tauri config)
 
 ## License
 

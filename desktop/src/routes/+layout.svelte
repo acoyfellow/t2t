@@ -33,11 +33,9 @@
   });
 
   const bodyClass = $derived(
-    page.url.pathname === "/stats"
+    page.url.pathname === "/settings"
       ? "bg-background text-foreground font-sans antialiased"
-      : page.url.pathname === "/settings"
-        ? "bg-background text-foreground font-sans antialiased"
-        : "bg-transparent overflow-hidden"
+      : "bg-transparent overflow-hidden"
   );
 
   $effect(() => {
