@@ -1,6 +1,39 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+
+  let appWindow = $state<Awaited<ReturnType<typeof getCurrentWindow>> | null>(
+    null
+  );
+
+  onMount(async () => {
+    appWindow = await getCurrentWindow();
+  });
+
+  async function closeWindow() {
+    if (appWindow) {
+      await appWindow.close();
+    }
+  }
+
+  async function minimizeWindow() {
+    if (appWindow) {
+      await appWindow.minimize();
+    }
+  }
+
+  async function toggleMaximize() {
+    if (appWindow) {
+      const isMaximized = await appWindow.isMaximized();
+      if (isMaximized) {
+        await appWindow.unmaximize();
+      } else {
+        await appWindow.maximize();
+      }
+    }
+  }
   import {
     Plus,
     X,
@@ -16,6 +49,7 @@
     Check,
     Moon,
     Sun,
+    Pencil,
   } from "@lucide/svelte";
   import { tick } from "svelte";
   import * as Command from "$lib/components/ui/command/index.js";
@@ -24,6 +58,8 @@
   import { Toggle } from "$lib/components/ui/toggle/index.js";
   import { cn } from "$lib/utils.js";
   import { resolvedTheme, saveTheme as saveThemeStore } from "../../lib/theme";
+  import { Schema } from "effect";
+  import Nav from "$lib/components/Nav.svelte";
 
   type MCPServer = {
     id: string;
@@ -67,6 +103,11 @@
   let formArgs = $state("");
   let formUrl = $state("");
 
+  // Paste JSON state
+  let pasteMode = $state(false);
+  let pasteJson = $state("");
+  let pasteError = $state<string | null>(null);
+
   // Model selection state
   let models = $state<Array<{ id: string; name?: string }>>([]);
   let selectedModel = $state("openai/gpt-5-nano");
@@ -77,6 +118,20 @@
   const selectedModelLabel = $derived(
     models.find((m) => m.id === selectedModel)?.name || selectedModel
   );
+
+  // MCP Server Config Schema for validation
+  const MCPServerConfigSchema = Schema.Struct({
+    name: Schema.String,
+    transport: Schema.Union(
+      Schema.Literal("stdio"),
+      Schema.Literal("http"),
+      Schema.Literal("sse")
+    ),
+    command: Schema.optional(Schema.String),
+    args: Schema.optional(Schema.Array(Schema.String)),
+    url: Schema.optional(Schema.String),
+    enabled: Schema.optional(Schema.Boolean),
+  });
 
   // Check if a model is an image generation model
   function isImageGenerationModel(modelId: string): boolean {
@@ -347,6 +402,9 @@
     formUrl = "";
     editingId = null;
     showAddDialog = false;
+    pasteMode = false;
+    pasteJson = "";
+    pasteError = null;
   }
 
   function startAdd() {
@@ -361,7 +419,80 @@
     formCommand = server.command ?? "";
     formArgs = server.args?.join(" ") ?? "";
     formUrl = server.url ?? "";
+    pasteMode = false;
+    pasteJson = "";
+    pasteError = null;
     showAddDialog = true;
+
+    // Auto-fix known servers with incorrect configs
+    if (server.name === "Svelte MCP" && server.transport === "http") {
+      // Suggest correct stdio config
+      formTransport = "stdio";
+      formCommand = "npx";
+      formArgs = "-y @sveltejs/mcp";
+      formUrl = "";
+    }
+  }
+
+  function validateAndParseJson(jsonString: string): boolean {
+    pasteError = null;
+
+    if (!jsonString.trim()) {
+      pasteError = "Please paste JSON configuration";
+      return false;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonString);
+      const result = Schema.decodeUnknownSync(MCPServerConfigSchema)(parsed);
+
+      // Additional validation: stdio needs command, http/sse needs url
+      if (result.transport === "stdio" && !result.command) {
+        pasteError = "stdio transport requires 'command' field";
+        return false;
+      }
+      if (
+        (result.transport === "http" || result.transport === "sse") &&
+        !result.url
+      ) {
+        pasteError = `${result.transport} transport requires 'url' field`;
+        return false;
+      }
+
+      // Auto-fill form
+      formName = result.name;
+      formTransport = result.transport;
+      formCommand = result.command ?? "";
+      formArgs = result.args?.join(" ") ?? "";
+      formUrl = result.url ?? "";
+
+      // Switch to form mode
+      pasteMode = false;
+      pasteJson = "";
+      pasteError = null;
+      return true;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        pasteError = `Invalid JSON: ${error.message}`;
+      } else if (error instanceof Error) {
+        pasteError = `Validation failed: ${error.message}`;
+      } else {
+        pasteError = "Invalid configuration";
+      }
+      return false;
+    }
+  }
+
+  function handlePasteModeSwitch() {
+    pasteMode = !pasteMode;
+    if (pasteMode) {
+      // Clear form when switching to paste mode
+      pasteError = null;
+    } else {
+      // Clear paste when switching to form mode
+      pasteJson = "";
+      pasteError = null;
+    }
   }
 
   async function handleSave() {
@@ -525,7 +656,7 @@
       case "loading":
         return "bg-yellow-500";
       case "error":
-        return "bg-destructive";
+        return "bg-red-500 dark:bg-red-400";
       default:
         return "bg-muted";
     }
@@ -552,7 +683,16 @@
         });
     });
 
-    return unsubscribe;
+    // Setup history realtime if history tab is active
+    if (activeTab === "history") {
+      loadHistory();
+      setupHistoryRealtime();
+    }
+
+    return () => {
+      unsubscribe();
+      cleanupHistoryRealtime();
+    };
   });
 
   async function loadHistory() {
@@ -609,26 +749,89 @@
     }
   }
 
-  // Load history when tab is activated
-  $effect(() => {
-    if (activeTab === "history") {
-      // Only load if we haven't loaded yet or entries are empty
-      if (historyEntries.length === 0 && !historyLoading) {
+  let historyPollInterval: ReturnType<typeof setInterval> | null = null;
+  let historyUnlisten: (() => void) | null = null;
+
+  function setupHistoryRealtime() {
+    // Cleanup existing
+    if (historyPollInterval) {
+      clearInterval(historyPollInterval);
+      historyPollInterval = null;
+    }
+    if (historyUnlisten) {
+      historyUnlisten();
+      historyUnlisten = null;
+    }
+
+    if (activeTab !== "history") return;
+
+    // Listen for events
+    listen("history-updated", () => {
+      if (activeTab === "history" && !historyLoading && !historySearch.trim()) {
         loadHistory();
       }
-    }
-  });
+    })
+      .then((unlistenFn) => {
+        historyUnlisten = unlistenFn;
+      })
+      .catch((e) => {
+        console.error("Failed to listen to history-updated:", e);
+      });
 
-  // Reset scroll to top when tab changes
-  $effect(() => {
-    // Track activeTab to trigger scroll reset
-    activeTab;
+    // Poll fallback
+    historyPollInterval = setInterval(() => {
+      if (activeTab === "history" && !historyLoading && !historySearch.trim()) {
+        loadHistory();
+      }
+    }, 5000);
+  }
+
+  function cleanupHistoryRealtime() {
+    if (historyPollInterval) {
+      clearInterval(historyPollInterval);
+      historyPollInterval = null;
+    }
+    if (historyUnlisten) {
+      historyUnlisten();
+      historyUnlisten = null;
+    }
+  }
+
+  // Reset scroll to top when tab changes (manual, no $effect)
+  function handleTabChangeWithScroll(tab: ActiveTab) {
+    cleanupHistoryRealtime();
+    activeTab = tab;
+    if (tab === "history") {
+      loadHistory();
+      setupHistoryRealtime();
+    }
     tick().then(() => {
       if (mainContentRef) {
         mainContentRef.scrollTop = 0;
       }
     });
-  });
+  }
+
+  const tabs = [
+    {
+      id: "analytics" as const,
+      label: "Analytics",
+      icon: BarChart3,
+    },
+    {
+      id: "servers" as const,
+      label: "Settings",
+      icon: Server,
+    },
+    {
+      id: "history" as const,
+      label: "History",
+      icon: Activity,
+      onClick: () => {
+        loadHistory();
+      },
+    },
+  ];
 </script>
 
 <div
@@ -637,8 +840,42 @@
   <!-- Header with Tabs -->
   <header
     class="border-b border-border bg-card/50 backdrop-blur-sm shrink-0 z-10"
+    data-tauri-drag-region
   >
     <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
+      <!-- macOS Window Controls -->
+      <div class="flex items-center gap-2 mb-2" data-tauri-drag-region>
+        <button
+          onclick={closeWindow}
+          class="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center group"
+          title="Close"
+        >
+          <span
+            class="opacity-0 group-hover:opacity-100 text-[8px] text-red-900"
+            >×</span
+          >
+        </button>
+        <button
+          onclick={minimizeWindow}
+          class="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-colors flex items-center justify-center group"
+          title="Minimize"
+        >
+          <span
+            class="opacity-0 group-hover:opacity-100 text-[8px] text-yellow-900"
+            >−</span
+          >
+        </button>
+        <button
+          onclick={toggleMaximize}
+          class="w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center group"
+          title="Maximize"
+        >
+          <span
+            class="opacity-0 group-hover:opacity-100 text-[8px] text-green-900"
+            >+</span
+          >
+        </button>
+      </div>
       <div
         class="flex items-center justify-between py-3 sm:py-4 gap-2 sm:gap-4"
       >
@@ -653,42 +890,7 @@
           </div>
 
           <!-- Tab Navigation -->
-          <nav class="flex gap-1">
-            <button
-              onclick={() => (activeTab = "analytics")}
-              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
-              'analytics'
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
-            >
-              <BarChart3 class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span class="hidden sm:inline">Analytics</span>
-            </button>
-            <button
-              onclick={() => (activeTab = "servers")}
-              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
-              'servers'
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
-            >
-              <Server class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span class="hidden sm:inline">Settings</span>
-            </button>
-            <button
-              onclick={() => {
-                activeTab = "history";
-                // Always try to load when clicking the tab
-                loadHistory();
-              }}
-              class="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-md transition-colors text-xs sm:text-sm {activeTab ===
-              'history'
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
-            >
-              <Activity class="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span class="hidden sm:inline">History</span>
-            </button>
-          </nav>
+          <Nav {activeTab} {tabs} onTabChange={handleTabChangeWithScroll} />
         </div>
 
         <!-- Ready Status -->
@@ -869,17 +1071,6 @@
     {:else if activeTab === "servers"}
       <!-- Settings -->
       <div class="p-4 sm:p-6 lg:p-8 xl:p-12 space-y-4 sm:space-y-6 min-h-full">
-        <!-- Development Notice -->
-        <div class="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <p class="text-sm text-foreground">
-            <strong class="text-amber-400">Heads up:</strong> This is an unsigned
-            build while we polish things up. Each time you update to a new version,
-            you'll need to remove t2t from System Settings → Privacy & Security →
-            Accessibility (and Microphone if needed), then re-add it. We'll get it
-            properly signed soon!
-          </p>
-        </div>
-
         <!-- Theme Selection -->
         <div class="flex items-center gap-3 sm:gap-4 py-2">
           <span class="text-sm font-medium text-foreground dark:text-white"
@@ -1134,8 +1325,10 @@
                           </div>
                         {:else if server.status === "error"}
                           <div class="flex items-center gap-2">
-                            <span class="text-primary-foreground"
-                              >{server.statusMessage || "Error"}</span
+                            <span
+                              class="text-red-500 dark:text-red-400 font-medium"
+                              >{server.statusMessage ||
+                                "Connection failed"}</span
                             >
                           </div>
                         {:else if server.toolsCount !== undefined || server.promptsCount !== undefined || server.resourcesCount !== undefined}
@@ -1221,10 +1414,20 @@
                       </button>
                     {/if}
 
+                    <!-- Edit button -->
+                    <button
+                      onclick={() => startEdit(server)}
+                      class="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-primary rounded transition-colors"
+                      title="Edit server"
+                    >
+                      <Pencil class="w-4 h-4" />
+                    </button>
+
                     <!-- Delete button -->
                     <button
                       onclick={() => handleDelete(server.id)}
                       class="h-8 w-8 flex items-center justify-center text-muted-foreground hover:text-destructive rounded transition-colors"
+                      title="Delete server"
                     >
                       <X class="w-4 h-4" />
                     </button>
@@ -1418,149 +1621,219 @@
           <p class="text-sm text-muted-foreground mt-1">
             Configure your MCP server connection
           </p>
-        </div>
 
-        <form
-          onsubmit={(e) => {
-            e.preventDefault();
-            handleSave();
-          }}
-          class="p-6 space-y-4"
-        >
-          <div>
-            <label
-              for="form-name"
-              class="block text-sm font-medium text-foreground mb-2"
-            >
-              Server Name
-            </label>
-            <input
-              id="form-name"
-              type="text"
-              bind:value={formName}
-              placeholder="e.g., my-custom-server"
-              required
-              class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-foreground mb-2">
-              Transport
-            </label>
-            <Popover.Root bind:open={transportComboboxOpen}>
-              <Popover.Trigger bind:ref={transportTriggerRef}>
-                {#snippet child({ props })}
-                  <Button
-                    {...props}
-                    variant="outline"
-                    class="w-full justify-between bg-muted border-border/50 text-foreground hover:bg-muted/80"
-                    role="combobox"
-                    aria-expanded={transportComboboxOpen}
-                  >
-                    {formTransport}
-                    <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
-                  </Button>
-                {/snippet}
-              </Popover.Trigger>
-              <Popover.Content class="w-full p-0" align="start">
-                <Command.Root>
-                  <Command.List>
-                    <Command.Group>
-                      {#each transportOptions as transport}
-                        <Command.Item
-                          value={transport}
-                          onSelect={() => {
-                            formTransport = transport;
-                            closeAndFocusTransportTrigger();
-                          }}
-                        >
-                          <Check
-                            class={cn(
-                              "me-2 size-4",
-                              formTransport === transport
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          {transport}
-                        </Command.Item>
-                      {/each}
-                    </Command.Group>
-                  </Command.List>
-                </Command.Root>
-              </Popover.Content>
-            </Popover.Root>
-          </div>
-
-          {#if formTransport === "stdio"}
-            <div>
-              <label
-                for="form-command"
-                class="block text-sm font-medium text-foreground mb-2"
+          {#if !editingId}
+            <div class="flex gap-2 mt-4">
+              <button
+                type="button"
+                onclick={() => {
+                  pasteMode = false;
+                  pasteJson = "";
+                  pasteError = null;
+                }}
+                class="px-3 py-1.5 text-sm rounded-md transition-colors {pasteMode
+                  ? 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                  : 'bg-primary/20 text-primary border border-primary/30'}"
               >
-                Command
-              </label>
-              <input
-                id="form-command"
-                type="text"
-                bind:value={formCommand}
-                placeholder="/usr/local/bin/mcp-server"
-                required
-                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
-              />
-            </div>
-            <div>
-              <label
-                for="form-args"
-                class="block text-sm font-medium text-foreground mb-2"
+                Form
+              </button>
+              <button
+                type="button"
+                onclick={() => {
+                  pasteMode = true;
+                  pasteError = null;
+                }}
+                class="px-3 py-1.5 text-sm rounded-md transition-colors {pasteMode
+                  ? 'bg-primary/20 text-primary border border-primary/30'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'}"
               >
-                Args (space-separated)
-              </label>
-              <input
-                id="form-args"
-                type="text"
-                bind:value={formArgs}
-                placeholder="--port 8080"
-                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
-              />
-            </div>
-          {:else}
-            <div>
-              <label
-                for="form-url"
-                class="block text-sm font-medium text-foreground mb-2"
-              >
-                URL
-              </label>
-              <input
-                id="form-url"
-                type="text"
-                bind:value={formUrl}
-                placeholder="https://mcp.example.com"
-                required
-                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
-              />
+                Paste JSON
+              </button>
             </div>
           {/if}
+        </div>
 
-          <div class="flex gap-3 pt-4">
-            <button
-              type="button"
-              onclick={resetForm}
-              class="flex-1 px-4 py-2 rounded-md border border-border/50 bg-background text-foreground hover:bg-muted transition-colors font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!formName.trim()}
-              class="flex-1 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingId ? "Save" : "Add"} Server
-            </button>
+        {#if pasteMode && !editingId}
+          <div class="p-6 space-y-4">
+            <div>
+              <label
+                for="paste-json"
+                class="block text-sm font-medium text-foreground mb-2"
+              >
+                Paste MCP Server JSON Config
+              </label>
+              <textarea
+                id="paste-json"
+                bind:value={pasteJson}
+                placeholder={`{"name": "Svelte MCP", "transport": "http", "url": "https://mcp.svelte.dev/mcp", "enabled": true}`}
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm min-h-[200px] resize-y"
+              ></textarea>
+              {#if pasteError}
+                <p class="text-sm text-destructive mt-2">{pasteError}</p>
+              {/if}
+            </div>
+
+            <div class="flex gap-3 pt-4">
+              <button
+                type="button"
+                onclick={resetForm}
+                class="flex-1 px-4 py-2 rounded-md border border-border/50 bg-background text-foreground hover:bg-muted transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onclick={() => validateAndParseJson(pasteJson)}
+                disabled={!pasteJson.trim()}
+                class="flex-1 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Parse & Fill Form
+              </button>
+            </div>
           </div>
-        </form>
+        {:else}
+          <form
+            onsubmit={(e) => {
+              e.preventDefault();
+              handleSave();
+            }}
+            class="p-6 space-y-4"
+          >
+            <div>
+              <label
+                for="form-name"
+                class="block text-sm font-medium text-foreground mb-2"
+              >
+                Server Name
+              </label>
+              <input
+                id="form-name"
+                type="text"
+                bind:value={formName}
+                placeholder="e.g., my-custom-server"
+                required
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-foreground mb-2">
+                Transport
+              </label>
+              <Popover.Root bind:open={transportComboboxOpen}>
+                <Popover.Trigger bind:ref={transportTriggerRef}>
+                  {#snippet child({ props })}
+                    <Button
+                      {...props}
+                      variant="outline"
+                      class="w-full justify-between bg-muted border-border/50 text-foreground hover:bg-muted/80"
+                      role="combobox"
+                      aria-expanded={transportComboboxOpen}
+                    >
+                      {formTransport}
+                      <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
+                    </Button>
+                  {/snippet}
+                </Popover.Trigger>
+                <Popover.Content class="w-full p-0" align="start">
+                  <Command.Root>
+                    <Command.List>
+                      <Command.Group>
+                        {#each transportOptions as transport}
+                          <Command.Item
+                            value={transport}
+                            onSelect={() => {
+                              formTransport = transport;
+                              closeAndFocusTransportTrigger();
+                            }}
+                          >
+                            <Check
+                              class={cn(
+                                "me-2 size-4",
+                                formTransport === transport
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            {transport}
+                          </Command.Item>
+                        {/each}
+                      </Command.Group>
+                    </Command.List>
+                  </Command.Root>
+                </Popover.Content>
+              </Popover.Root>
+            </div>
+
+            {#if formTransport === "stdio"}
+              <div>
+                <label
+                  for="form-command"
+                  class="block text-sm font-medium text-foreground mb-2"
+                >
+                  Command
+                </label>
+                <input
+                  id="form-command"
+                  type="text"
+                  bind:value={formCommand}
+                  placeholder="npx"
+                  required
+                  class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
+                />
+              </div>
+              <div>
+                <label
+                  for="form-args"
+                  class="block text-sm font-medium text-foreground mb-2"
+                >
+                  Args (space-separated)
+                </label>
+                <input
+                  id="form-args"
+                  type="text"
+                  bind:value={formArgs}
+                  placeholder="-y @sveltejs/mcp"
+                  class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
+                />
+              </div>
+            {:else}
+              <div>
+                <label
+                  for="form-url"
+                  class="block text-sm font-medium text-foreground mb-2"
+                >
+                  URL
+                </label>
+                <input
+                  id="form-url"
+                  type="text"
+                  bind:value={formUrl}
+                  placeholder="https://mcp.example.com"
+                  required
+                  class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
+                />
+              </div>
+            {/if}
+
+            <div class="flex gap-3 pt-4">
+              <button
+                type="button"
+                onclick={resetForm}
+                class="flex-1 px-4 py-2 rounded-md border border-border/50 bg-background text-foreground hover:bg-muted transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!formName.trim()}
+                class="flex-1 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {editingId ? "Save" : "Add"} Server
+              </button>
+            </div>
+          </form>
+        {/if}
       </div>
     </div>
   {/if}

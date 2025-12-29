@@ -13,6 +13,8 @@
 > **Note:** The app is not code-signed yet. On first launch, macOS may show a security warning. To open it:
 > - Right-click the app → **Open**, then click **Open** in the dialog
 > - Or run: `xattr -cr /Applications/t2t.app` in Terminal
+>
+> **Heads up:** This is an unsigned build while we polish things up. Each time you update to a new version, you'll need to remove t2t from System Settings → Privacy & Security → Accessibility (and Microphone if needed), then re-add it. We'll get it properly signed soon!
 
 ## How It Works
 

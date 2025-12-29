@@ -38,20 +38,26 @@
   <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
     <a
       href="/"
-      class="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors bg-foreground px-4 py-2 rounded-md"
+      class="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors bg-foreground px-4 py-2 rounded-md dark:invert"
     >
-      <img src="/logo.svg" alt="t2t" class=" h-10 invert" />
+      <img src="/logo.svg" alt="t2t" class=" h-10 invert dark:invert-0" />
     </a>
     <div class="flex items-center gap-4">
       <a
+        href="/mcp"
+        class="text-background hover:text-muted-foreground transition-colors bg-foreground px-4 py-2 rounded-md dark:invert"
+      >
+        MCP Directory
+      </a>
+      <a
         href="/docs"
-        class="text-background hover:text-muted-foreground transition-colors bg-foreground px-4 py-2 rounded-md"
+        class="text-background hover:text-muted-foreground transition-colors bg-foreground px-4 py-2 rounded-md dark:invert"
       >
         Docs
       </a>
       <a
         href="https://github.com/acoyfellow/t2t"
-        class="text-background hover:text-muted-foreground transition-colors bg-foreground px-4 py-2 rounded-md"
+        class="text-background hover:text-muted-foreground transition-colors bg-foreground px-4 py-2 rounded-md dark:invert"
       >
         <Github class="w-6 h-6" />
       </a>
@@ -60,7 +66,7 @@
 </nav>
 
 <img
-  src="/cluster.jpg"
+  src="/cluster-2.jpg"
   alt="cluster illustration"
   class="w-full z-0 -mb-20 pointer-events-none"
 />
@@ -120,7 +126,7 @@
 
       <!-- CTA -->
       <div
-        class="flex flex-col md:flex-row gap-4 items-center justify-center pt-8 px-6 md:px-0 max-w-7xl mx-auto"
+        class="flex flex-col lg:flex-row gap-4 items-center justify-center pt-8 px-6 max-w-7xl mx-auto"
       >
         <a
           href={GITHUB_RELEASES_URL}

@@ -84,10 +84,30 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     }
     console.error('MCP Tools API error:', error);
+    
+    // Provide more descriptive error messages
+    let errorMessage = 'Failed to connect to MCP server';
+    if (error instanceof Error) {
+      const msg = error.message.toLowerCase();
+      if (msg.includes('enoent') || msg.includes('not found')) {
+        errorMessage = `Command not found: ${server.command || 'unknown'}. Make sure the MCP server package is installed.`;
+      } else if (msg.includes('timeout') || msg.includes('timed out')) {
+        errorMessage = `Connection timeout: The MCP server took too long to respond. Check if the server is running.`;
+      } else if (msg.includes('econnrefused') || msg.includes('connection refused')) {
+        errorMessage = `Connection refused: Unable to connect to ${server.url || 'server'}. Check if the URL is correct and the server is running.`;
+      } else if (msg.includes('fetch') || msg.includes('network')) {
+        errorMessage = `Network error: Unable to reach ${server.url || 'server'}. Check your internet connection and server URL.`;
+      } else if (msg.includes('spawn') || msg.includes('exec')) {
+        errorMessage = `Failed to start process: ${error.message}`;
+      } else {
+        errorMessage = `Connection error: ${error.message}`;
+      }
+    }
+    
     return json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to connect to MCP server',
+        error: errorMessage,
         tools: [],
         count: 0,
       },

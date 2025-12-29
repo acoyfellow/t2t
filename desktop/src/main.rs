@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicI32;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -2022,15 +2022,35 @@ fn init_audio_thread() -> Result<(), String> {
 
     std::thread::spawn(move || {
         let host = cpal::default_host();
-        let device = match host.default_input_device() {
+        
+        // Helper to find an available input device
+        let find_input_device = || -> Option<cpal::Device> {
+            // Try default first
+            if let Some(dev) = host.default_input_device() {
+                if dev.default_input_config().is_ok() {
+                    return Some(dev);
+                }
+            }
+            // Fallback: enumerate all input devices
+            if let Ok(devices) = host.input_devices() {
+                for device in devices {
+                    if device.default_input_config().is_ok() {
+                        return Some(device);
+                    }
+                }
+            }
+            None
+        };
+
+        let mut device = match find_input_device() {
             Some(d) => d,
             None => {
-                log_line("ERROR: No default input device (cpal)");
+                log_line("ERROR: No available input device (cpal)");
                 return;
             }
         };
 
-        let input_cfg = match device.default_input_config() {
+        let mut input_cfg = match device.default_input_config() {
             Ok(c) => c,
             Err(e) => {
                 log_line(&format!("ERROR: default_input_config: {e}"));
@@ -2038,9 +2058,9 @@ fn init_audio_thread() -> Result<(), String> {
             }
         };
 
-        let channels = input_cfg.channels();
+        let mut channels = input_cfg.channels();
         let mut sample_rate = input_cfg.sample_rate().0;
-        let sample_format = input_cfg.sample_format();
+        let mut sample_format = input_cfg.sample_format();
 
         log_line(&format!(
             "Audio thread ready: device='{}' rate={} channels={} fmt={:?}",
@@ -2071,12 +2091,29 @@ fn init_audio_thread() -> Result<(), String> {
                         vol_buf.clear();
                     }
 
-                    // (Re)read config to reflect system changes.
+                    // Try to refresh device if current one fails
+                    let mut device_updated = false;
                     match device.default_input_config() {
                         Ok(c) => {
                             sample_rate = c.sample_rate().0;
                         }
-                        Err(_) => {}
+                        Err(_) => {
+                            // Current device is invalid, try to find a new one
+                            if let Some(new_device) = find_input_device() {
+                                if let Ok(new_cfg) = new_device.default_input_config() {
+                                    device = new_device;
+                                    input_cfg = new_cfg;
+                                    channels = input_cfg.channels();
+                                    sample_rate = input_cfg.sample_rate().0;
+                                    sample_format = input_cfg.sample_format();
+                                    device_updated = true;
+                                    log_line(&format!(
+                                        "Switched to new audio device: '{}'",
+                                        device.name().unwrap_or_else(|_| "<unknown>".into())
+                                    ));
+                                }
+                            }
+                        }
                     }
 
                     let cfg: cpal::StreamConfig = input_cfg.clone().into();
@@ -2187,7 +2224,123 @@ fn init_audio_thread() -> Result<(), String> {
                             }
                             stream = Some(s);
                         }
-                        Err(e) => log_line(&format!("ERROR: build_input_stream: {e}")),
+                        Err(e) => {
+                            log_line(&format!("ERROR: build_input_stream: {e}"));
+                            // Device disconnected, try to find a new one and retry
+                            if !device_updated {
+                                if let Some(new_device) = find_input_device() {
+                                    if let Ok(new_cfg) = new_device.default_input_config() {
+                                        device = new_device;
+                                        input_cfg = new_cfg;
+                                        channels = input_cfg.channels();
+                                        sample_rate = input_cfg.sample_rate().0;
+                                        sample_format = input_cfg.sample_format();
+                                        log_line(&format!(
+                                            "Reconnected to audio device: '{}', retrying...",
+                                            device.name().unwrap_or_else(|_| "<unknown>".into())
+                                        ));
+                                        
+                                        // Retry building stream with new device
+                                        let retry_cfg: cpal::StreamConfig = input_cfg.clone().into();
+                                        let retry_samples_cb = samples_mono.clone();
+                                        let retry_vol_buf_cb = volume_buffer.clone();
+                                        let retry_vol_tx_cb = VOLUME_LEVEL_TX.get().cloned().expect("VOLUME_LEVEL_TX not initialized");
+                                        let retry_window_samples = (sample_rate as f64 * 0.1).ceil() as usize;
+                                        
+                                        let retry_built = match sample_format {
+                                            cpal::SampleFormat::I16 => device.build_input_stream(
+                                                &retry_cfg,
+                                                move |data: &[i16], _| {
+                                                    let mut out = retry_samples_cb.lock().unwrap();
+                                                    let mut vol_buf = retry_vol_buf_cb.lock().unwrap();
+                                                    let mut mono_samples = Vec::with_capacity(data.len() / channels as usize);
+                                                    if channels == 1 {
+                                                        for &s in data {
+                                                            let sample = (s as f32) / 32768.0;
+                                                            out.push(sample);
+                                                            mono_samples.push(sample);
+                                                        }
+                                                    } else {
+                                                        for frame in data.chunks_exact(channels as usize) {
+                                                            let sum: i32 = frame.iter().map(|&v| v as i32).sum();
+                                                            let avg = (sum as f32) / (channels as f32);
+                                                            let sample = avg / 32768.0;
+                                                            out.push(sample);
+                                                            mono_samples.push(sample);
+                                                        }
+                                                    }
+                                                    vol_buf.extend(mono_samples);
+                                                    if vol_buf.len() > retry_window_samples {
+                                                        let excess = vol_buf.len() - retry_window_samples;
+                                                        vol_buf.drain(0..excess);
+                                                    }
+                                                    if !vol_buf.is_empty() {
+                                                        let sum_sq: f64 = vol_buf.iter().map(|&s| (s as f64) * (s as f64)).sum();
+                                                        let rms = (sum_sq / vol_buf.len() as f64).sqrt() as f32;
+                                                        let normalized = ((rms * 10.0).min(1.0)).sqrt();
+                                                        let _ = retry_vol_tx_cb.send(normalized);
+                                                    }
+                                                },
+                                                err_fn,
+                                                None,
+                                            ),
+                                            cpal::SampleFormat::F32 => device.build_input_stream(
+                                                &retry_cfg,
+                                                move |data: &[f32], _| {
+                                                    let mut out = retry_samples_cb.lock().unwrap();
+                                                    let mut vol_buf = retry_vol_buf_cb.lock().unwrap();
+                                                    let mut mono_samples = Vec::with_capacity(data.len() / channels as usize);
+                                                    if channels == 1 {
+                                                        out.extend_from_slice(data);
+                                                        mono_samples.extend_from_slice(data);
+                                                    } else {
+                                                        for frame in data.chunks_exact(channels as usize) {
+                                                            let sum: f32 = frame.iter().copied().sum();
+                                                            let sample = sum / (channels as f32);
+                                                            out.push(sample);
+                                                            mono_samples.push(sample);
+                                                        }
+                                                    }
+                                                    vol_buf.extend(mono_samples);
+                                                    if vol_buf.len() > retry_window_samples {
+                                                        let excess = vol_buf.len() - retry_window_samples;
+                                                        vol_buf.drain(0..excess);
+                                                    }
+                                                    if !vol_buf.is_empty() {
+                                                        let sum_sq: f64 = vol_buf.iter().map(|&s| (s as f64) * (s as f64)).sum();
+                                                        let rms = (sum_sq / vol_buf.len() as f64).sqrt() as f32;
+                                                        let normalized = ((rms * 10.0).min(1.0)).sqrt();
+                                                        let _ = retry_vol_tx_cb.send(normalized);
+                                                    }
+                                                },
+                                                err_fn,
+                                                None,
+                                            ),
+                                            _ => {
+                                                log_line(&format!("ERROR: Unsupported sample format for retry: {sample_format:?}"));
+                                                continue;
+                                            }
+                                        };
+                                        
+                                        match retry_built {
+                                            Ok(s) => {
+                                                if let Err(e) = s.play() {
+                                                    log_line(&format!("ERROR: retry stream.play: {e}"));
+                                                } else {
+                                                    log_line("Native mic recording started (after reconnection)");
+                                                }
+                                                stream = Some(s);
+                                            }
+                                            Err(e) => {
+                                                log_line(&format!("ERROR: retry build_input_stream failed: {e}"));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    log_line("ERROR: No available input devices found");
+                                }
+                            }
+                        }
                     }
                 }
                 AudioCmd::Stop { reply } => {
@@ -2528,6 +2681,9 @@ fn save_history_entry(app: AppHandle, entry_type: String, data: serde_json::Valu
         .map_err(|e| format!("Failed to serialize entries: {e}"))?);
     store.save()
         .map_err(|e| format!("Failed to save history: {e}"))?;
+    
+    // Emit event to notify frontend of new history entry
+    let _ = app.emit("history-updated", ());
     
     Ok(())
 }

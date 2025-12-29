@@ -36,7 +36,7 @@
         "height": 700,
         "visible": false,
         "resizable": true,
-        "decorations": true,
+        "decorations": false,
         "transparent": false,
         "center": true,
         "skipTaskbar": false

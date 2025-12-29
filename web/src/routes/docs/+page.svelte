@@ -451,6 +451,12 @@
             <h3 class="text-xl font-semibold text-foreground mb-2">
               How to Configure
             </h3>
+            <p class="mb-2 text-muted-foreground">
+              Browse popular MCP servers in our <a
+                href="/mcp"
+                class="text-primary hover:underline">MCP Directory</a
+              > and copy configurations directly.
+            </p>
             <ol class="list-decimal list-inside space-y-2 ml-4">
               <li>Open t2t settings (menu bar icon → View Settings)</li>
               <li>Go to the "Settings" tab</li>
