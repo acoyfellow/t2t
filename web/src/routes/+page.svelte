@@ -121,7 +121,7 @@
       <p
         class="text-xl md:text-3xl text-zinc-400 max-w-3xl mx-auto font-light tracking-wide text-balance"
       >
-        Voice becomes text. Talk to any MCP server. Cross-platform.
+        Voice becomes text. Talk to any MCP server. macOS native.
       </p>
 
       <!-- CTA -->
@@ -211,8 +211,8 @@
             >
               fn+ctrl
             </kbd>{" "}
-            to speak commands. Your OpenRouter key. Any model. Local agent, zero
-            servers.
+            to speak commands. Your OpenRouter key. Any model. The agent can see
+            your screen. Local agent, zero servers.
           </p>
         </div>
       </div>
@@ -239,7 +239,7 @@
         <div class="grid md:grid-cols-2 gap-12 items-center relative z-10">
           <p class="text-2xl text-zinc-400 leading-relaxed">
             Connect to databases, APIs, filesystems. The agent uses tools from
-            your MCP servers. Unlimited extensibility.
+            your MCP servers. Full history and logging. Unlimited extensibility.
           </p>
           <div class="flex justify-center">
             <img
