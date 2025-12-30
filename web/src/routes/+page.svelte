@@ -65,12 +65,12 @@
   </div>
 </nav>
 
-<img
-  src="/cluster-2.jpg"
-  alt="cluster illustration"
-  class="w-full z-0 -mb-20 pointer-events-none"
-/>
 <div class=" bg-black text-white overflow-hidden w-full">
+  <img
+    src="/cluster-2.jpg"
+    alt="cluster illustration"
+    class="w-full z-0 -mb-20 pointer-events-none bg-black"
+  />
   <!-- Hero Section -->
   <div
     bind:this={heroRef}

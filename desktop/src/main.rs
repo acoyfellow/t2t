@@ -186,20 +186,16 @@ fn format_user_message(text: &str, screenshot_base64: Option<&str>) -> serde_jso
 
 // Local AppleScript agent: Calls OpenRouter directly, no worker needed
 fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str, app: Option<&AppHandle>) -> Result<AgentResponse, String> {
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -571,20 +567,16 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         .map(mcp_tool_to_openai)
         .collect();
     
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -2783,42 +2775,6 @@ fn get_system_theme() -> String {
         }
     }
     "light".to_string()
-}
-
-/// Check if a model is an image generation model (supports image input for generation)
-/// 
-/// This function detects image generation models based on common OpenRouter model ID patterns.
-/// When an image generation model is selected, screenshots are automatically included with
-/// every agent input to enable the "agent can see" feature.
-/// 
-/// Supported patterns include: DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram, and others.
-/// 
-/// # Arguments
-/// * `model_id` - The OpenRouter model ID (e.g., "openai/dall-e-3", "black-forest-labs/flux")
-/// 
-/// # Returns
-/// `true` if the model is an image generation model, `false` otherwise
-fn is_image_generation_model(model_id: &str) -> bool {
-    let model_lower = model_id.to_lowercase();
-    
-    // Common image generation model patterns
-    model_lower.contains("dall-e") ||
-    model_lower.contains("dalle") ||
-    model_lower.contains("stable-diffusion") ||
-    model_lower.contains("stablediffusion") ||
-    model_lower.contains("flux") ||
-    model_lower.contains("midjourney") ||
-    model_lower.contains("ideogram") ||
-    model_lower.contains("imagen") ||
-    model_lower.contains("cogview") ||
-    model_lower.contains("wuerstchen") ||
-    model_lower.contains("playground") ||
-    model_lower.contains("kandinsky") ||
-    model_lower.contains("realistic-vision") ||
-    model_lower.contains("dreamshaper") ||
-    model_lower.contains("sdxl") ||
-    model_lower.contains("black-forest-labs") ||
-    model_lower.contains("stability-ai")
 }
 
 /// Capture screenshot on macOS using screencapture command
