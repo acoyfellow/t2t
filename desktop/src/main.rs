@@ -2519,8 +2519,9 @@ fn paste_text() {
 #[cfg(target_os = "macos")]
 #[derive(Clone)]
 struct ClipboardSnapshot {
-    /// Each item is (UTI type string, raw data bytes)
-    items: Vec<(String, Vec<u8>)>,
+    /// Each pasteboard item contains multiple types (UTI type string, raw data bytes)
+    /// The outer Vec represents pasteboard items, inner Vec represents types within each item
+    items: Vec<Vec<(String, Vec<u8>)>>,
     /// The change count at the time of snapshot, used to detect if clipboard changed
     change_count: i64,
 }
@@ -2532,7 +2533,8 @@ impl ClipboardSnapshot {
     }
 }
 
-/// Saves the entire clipboard state, including all data types (text, images, files, etc.)
+/// Saves the entire clipboard state, including all data types and all pasteboard items.
+/// This preserves multi-item clipboards (e.g., multiple files or images).
 /// Returns None if clipboard is empty or on error.
 #[cfg(target_os = "macos")]
 fn save_clipboard_snapshot() -> Option<ClipboardSnapshot> {
@@ -2555,62 +2557,91 @@ fn save_clipboard_snapshot() -> Option<ClipboardSnapshot> {
             // Get change count for later verification
             let change_count: i64 = msg_send![pasteboard, changeCount];
 
-            // Get all types available on the pasteboard
-            let types: *mut Object = msg_send![pasteboard, types];
-            if types.is_null() {
-                log_line("clipboard: no types on pasteboard");
+            // Get all pasteboard items (not just types from the first item)
+            let pasteboard_items: *mut Object = msg_send![pasteboard, pasteboardItems];
+            if pasteboard_items.is_null() {
+                log_line("clipboard: no items on pasteboard");
                 return Some(ClipboardSnapshot { items: vec![], change_count });
             }
 
-            let count: usize = msg_send![types, count];
-            if count == 0 {
+            let item_count: usize = msg_send![pasteboard_items, count];
+            if item_count == 0 {
                 return Some(ClipboardSnapshot { items: vec![], change_count });
             }
 
-            let mut items = Vec::with_capacity(count);
+            let mut all_items = Vec::with_capacity(item_count);
+            let mut total_types = 0;
 
-            for i in 0..count {
-                let uti: *mut Object = msg_send![types, objectAtIndex: i];
-                if uti.is_null() {
+            // Iterate through each pasteboard item
+            for item_idx in 0..item_count {
+                let pasteboard_item: *mut Object = msg_send![pasteboard_items, objectAtIndex: item_idx];
+                if pasteboard_item.is_null() {
                     continue;
                 }
 
-                // Get UTF8 string for the UTI type
-                let uti_cstr: *const i8 = msg_send![uti, UTF8String];
-                if uti_cstr.is_null() {
-                    continue;
-                }
-                let uti_str = CStr::from_ptr(uti_cstr).to_string_lossy().into_owned();
-
-                // Get data for this type
-                let data: *mut Object = msg_send![pasteboard, dataForType: uti];
-                if data.is_null() {
+                // Get all types for this pasteboard item
+                let types: *mut Object = msg_send![pasteboard_item, types];
+                if types.is_null() {
                     continue;
                 }
 
-                let length: usize = msg_send![data, length];
-                if length == 0 {
-                    // Still record empty data for this type (some types can be empty)
-                    items.push((uti_str, vec![]));
+                let type_count: usize = msg_send![types, count];
+                if type_count == 0 {
                     continue;
                 }
 
-                let bytes_ptr: *const u8 = msg_send![data, bytes];
-                if bytes_ptr.is_null() {
-                    continue;
+                let mut item_types = Vec::with_capacity(type_count);
+
+                // Iterate through each type in this pasteboard item
+                for type_idx in 0..type_count {
+                    let uti: *mut Object = msg_send![types, objectAtIndex: type_idx];
+                    if uti.is_null() {
+                        continue;
+                    }
+
+                    // Get UTF8 string for the UTI type
+                    let uti_cstr: *const i8 = msg_send![uti, UTF8String];
+                    if uti_cstr.is_null() {
+                        continue;
+                    }
+                    let uti_str = CStr::from_ptr(uti_cstr).to_string_lossy().into_owned();
+
+                    // Get data for this type from this pasteboard item
+                    let data: *mut Object = msg_send![pasteboard_item, dataForType: uti];
+                    if data.is_null() {
+                        continue;
+                    }
+
+                    let length: usize = msg_send![data, length];
+                    if length == 0 {
+                        // Still record empty data for this type (some types can be empty)
+                        item_types.push((uti_str, vec![]));
+                        continue;
+                    }
+
+                    let bytes_ptr: *const u8 = msg_send![data, bytes];
+                    if bytes_ptr.is_null() {
+                        continue;
+                    }
+
+                    let bytes = slice::from_raw_parts(bytes_ptr, length).to_vec();
+                    item_types.push((uti_str, bytes));
                 }
 
-                let bytes = slice::from_raw_parts(bytes_ptr, length).to_vec();
-                items.push((uti_str, bytes));
+                if !item_types.is_empty() {
+                    total_types += item_types.len();
+                    all_items.push(item_types);
+                }
             }
 
-            log_line(&format!("clipboard: saved snapshot with {} types", items.len()));
-            Some(ClipboardSnapshot { items, change_count })
+            log_line(&format!("clipboard: saved snapshot with {} items and {} total types", all_items.len(), total_types));
+            Some(ClipboardSnapshot { items: all_items, change_count })
         }
     })
 }
 
-/// Restores the clipboard to a previously saved snapshot, preserving all data types.
+/// Restores the clipboard to a previously saved snapshot, preserving all data types and all items.
+/// This correctly restores multi-item clipboards (e.g., multiple files or images).
 #[cfg(target_os = "macos")]
 fn restore_clipboard_snapshot(snapshot: &ClipboardSnapshot) {
     use objc::rc::autoreleasepool;
@@ -2654,7 +2685,7 @@ fn restore_clipboard_snapshot(snapshot: &ClipboardSnapshot) {
             // Clear current contents and prepare for new data
             let _: i64 = msg_send![pasteboard, clearContents];
 
-            // Get NSData and NSString classes
+            // Get NSData, NSString, and NSPasteboardItem classes
             let nsdata_class = match Class::get("NSData") {
                 Some(c) => c,
                 None => {
@@ -2669,35 +2700,91 @@ fn restore_clipboard_snapshot(snapshot: &ClipboardSnapshot) {
                     return;
                 }
             };
-
-            let mut restored_count = 0;
-            for (uti_str, data_bytes) in &snapshot.items {
-                // Create NSString for the UTI
-                let uti_cstring = match CString::new(uti_str.as_str()) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                let uti_nsstring: *mut Object = msg_send![nsstring_class, stringWithUTF8String: uti_cstring.as_ptr()];
-                if uti_nsstring.is_null() {
-                    continue;
+            let nspasteboarditem_class = match Class::get("NSPasteboardItem") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSPasteboardItem class");
+                    return;
                 }
-
-                // Create NSData from bytes
-                let nsdata: *mut Object = msg_send![nsdata_class, dataWithBytes: data_bytes.as_ptr() length: data_bytes.len()];
-                if nsdata.is_null() {
-                    continue;
+            };
+            let nsmutablearray_class = match Class::get("NSMutableArray") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSMutableArray class");
+                    return;
                 }
+            };
 
-                // Set data for this type on the pasteboard
-                let success: BOOL = msg_send![pasteboard, setData: nsdata forType: uti_nsstring];
-                if success == YES {
-                    restored_count += 1;
-                }
+            // Create an array to hold all pasteboard items
+            let items_array: *mut Object = msg_send![nsmutablearray_class, arrayWithCapacity: snapshot.items.len()];
+            if items_array.is_null() {
+                log_line("clipboard: failed to create items array");
+                return;
             }
 
-            log_line(&format!("clipboard: restored {}/{} types", restored_count, snapshot.items.len()));
+            let mut restored_items_count = 0;
+            let mut restored_types_count = 0;
+
+            // Restore each pasteboard item
+            for item_types in &snapshot.items {
+                // Create a new NSPasteboardItem
+                let pasteboard_item: *mut Object = msg_send![nspasteboarditem_class, new];
+                if pasteboard_item.is_null() {
+                    continue;
+                }
+
+                let mut item_types_set = 0;
+
+                // Set all types for this pasteboard item
+                for (uti_str, data_bytes) in item_types {
+                    // Create NSString for the UTI
+                    let uti_cstring = match CString::new(uti_str.as_str()) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let uti_nsstring: *mut Object = msg_send![nsstring_class, stringWithUTF8String: uti_cstring.as_ptr()];
+                    if uti_nsstring.is_null() {
+                        continue;
+                    }
+
+                    // Create NSData from bytes
+                    let nsdata: *mut Object = msg_send![nsdata_class, dataWithBytes: data_bytes.as_ptr() length: data_bytes.len()];
+                    if nsdata.is_null() {
+                        continue;
+                    }
+
+                    // Set data for this type on the pasteboard item
+                    let success: BOOL = msg_send![pasteboard_item, setData: nsdata forType: uti_nsstring];
+                    if success == YES {
+                        item_types_set += 1;
+                    }
+                }
+
+                // Only add the item if at least one type was set successfully
+                if item_types_set > 0 {
+                    let _: () = msg_send![items_array, addObject: pasteboard_item];
+                    restored_items_count += 1;
+                    restored_types_count += item_types_set;
+                }
+
+                // Release the pasteboard item (we're done with it)
+                let _: () = msg_send![pasteboard_item, release];
+            }
+
+            // Write all items to the pasteboard at once
+            if restored_items_count > 0 {
+                let success: BOOL = msg_send![pasteboard, writeObjects: items_array];
+                if success == YES {
+                    log_line(&format!("clipboard: restored {} items with {} total types", restored_items_count, restored_types_count));
+                } else {
+                    log_line("clipboard: failed to write items to pasteboard");
+                }
+            } else {
+                log_line("clipboard: no items to restore");
+            }
         }
     })
+}
 }
 
 /// Sets the clipboard to plain text (used for pasting transcribed text)
@@ -3758,33 +3845,38 @@ mod tests {
         assert!(empty_snapshot.is_empty());
 
         let non_empty_snapshot = ClipboardSnapshot {
-            items: vec![("public.utf8-plain-text".to_string(), b"hello".to_vec())],
+            items: vec![
+                vec![("public.utf8-plain-text".to_string(), b"hello".to_vec())]
+            ],
             change_count: 1,
         };
         assert!(!non_empty_snapshot.is_empty());
     }
 
-    /// Test that ClipboardSnapshot can store multiple types
+    /// Test that ClipboardSnapshot can store multiple types in a single item
     #[test]
     #[cfg(target_os = "macos")]
     fn test_clipboard_snapshot_multiple_types() {
         let snapshot = ClipboardSnapshot {
             items: vec![
-                ("public.utf8-plain-text".to_string(), b"Hello".to_vec()),
-                ("public.rtf".to_string(), b"{\\rtf1 Hello}".to_vec()),
-                ("public.html".to_string(), b"<html>Hello</html>".to_vec()),
+                vec![
+                    ("public.utf8-plain-text".to_string(), b"Hello".to_vec()),
+                    ("public.rtf".to_string(), b"{\\rtf1 Hello}".to_vec()),
+                    ("public.html".to_string(), b"<html>Hello</html>".to_vec()),
+                ]
             ],
             change_count: 42,
         };
 
         assert!(!snapshot.is_empty());
-        assert_eq!(snapshot.items.len(), 3);
+        assert_eq!(snapshot.items.len(), 1); // One pasteboard item
+        assert_eq!(snapshot.items[0].len(), 3); // With three types
         assert_eq!(snapshot.change_count, 42);
 
         // Verify each type is stored correctly
-        assert!(snapshot.items.iter().any(|(t, _)| t == "public.utf8-plain-text"));
-        assert!(snapshot.items.iter().any(|(t, _)| t == "public.rtf"));
-        assert!(snapshot.items.iter().any(|(t, _)| t == "public.html"));
+        assert!(snapshot.items[0].iter().any(|(t, _)| t == "public.utf8-plain-text"));
+        assert!(snapshot.items[0].iter().any(|(t, _)| t == "public.rtf"));
+        assert!(snapshot.items[0].iter().any(|(t, _)| t == "public.html"));
     }
 
     /// Test that ClipboardSnapshot can store binary data (for images)
@@ -3796,13 +3888,13 @@ mod tests {
 
         let snapshot = ClipboardSnapshot {
             items: vec![
-                ("public.png".to_string(), png_header.clone()),
+                vec![("public.png".to_string(), png_header.clone())]
             ],
             change_count: 1,
         };
 
         assert!(!snapshot.is_empty());
-        assert_eq!(snapshot.items[0].1, png_header);
+        assert_eq!(snapshot.items[0][0].1, png_header);
     }
 
     /// Test that ClipboardSnapshot clone works correctly
@@ -3811,7 +3903,7 @@ mod tests {
     fn test_clipboard_snapshot_clone() {
         let original = ClipboardSnapshot {
             items: vec![
-                ("public.utf8-plain-text".to_string(), b"test".to_vec()),
+                vec![("public.utf8-plain-text".to_string(), b"test".to_vec())]
             ],
             change_count: 123,
         };
@@ -3820,8 +3912,8 @@ mod tests {
 
         assert_eq!(original.items.len(), cloned.items.len());
         assert_eq!(original.change_count, cloned.change_count);
-        assert_eq!(original.items[0].0, cloned.items[0].0);
-        assert_eq!(original.items[0].1, cloned.items[0].1);
+        assert_eq!(original.items[0][0].0, cloned.items[0][0].0);
+        assert_eq!(original.items[0][0].1, cloned.items[0][0].1);
     }
 
     /// Integration test: save and restore clipboard preserves text
@@ -3939,14 +4031,19 @@ mod tests {
         assert!(image_snapshot.is_some());
 
         if let Some(ref snap) = image_snapshot {
-            // Should have image-related types
-            let has_image_type = snap.items.iter().any(|(t, _)| {
-                t.contains("png") || t.contains("tiff") || t.contains("image")
+            // Should have image-related types in at least one item
+            let has_image_type = snap.items.iter().any(|item| {
+                item.iter().any(|(t, _)| {
+                    t.contains("png") || t.contains("tiff") || t.contains("image")
+                })
             });
             assert!(has_image_type, "Expected image types in clipboard snapshot");
 
             // Image data should be non-trivial size
-            let total_size: usize = snap.items.iter().map(|(_, d)| d.len()).sum();
+            let total_size: usize = snap.items.iter()
+                .flat_map(|item| item.iter())
+                .map(|(_, d)| d.len())
+                .sum();
             assert!(total_size > 100, "Expected substantial image data");
         }
 
@@ -3961,8 +4058,10 @@ mod tests {
         // Verify image is restored (check for image types)
         let restored = save_clipboard_snapshot();
         if let Some(snap) = restored {
-            let has_image_type = snap.items.iter().any(|(t, _)| {
-                t.contains("png") || t.contains("tiff") || t.contains("image")
+            let has_image_type = snap.items.iter().any(|item| {
+                item.iter().any(|(t, _)| {
+                    t.contains("png") || t.contains("tiff") || t.contains("image")
+                })
             });
             assert!(has_image_type, "Expected image types after restoration");
         }
@@ -3971,6 +4070,49 @@ mod tests {
         if let Some(orig) = original {
             restore_clipboard_snapshot(&orig);
         }
+    }
+
+    /// Test that multiple pasteboard items are preserved correctly
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_clipboard_snapshot_multiple_items() {
+        // Create a snapshot with multiple pasteboard items
+        let snapshot = ClipboardSnapshot {
+            items: vec![
+                // First pasteboard item (e.g., a text item)
+                vec![
+                    ("public.utf8-plain-text".to_string(), b"First item".to_vec()),
+                    ("public.html".to_string(), b"<html>First item</html>".to_vec()),
+                ],
+                // Second pasteboard item (e.g., another text item)
+                vec![
+                    ("public.utf8-plain-text".to_string(), b"Second item".to_vec()),
+                ],
+                // Third pasteboard item (e.g., an image)
+                vec![
+                    ("public.png".to_string(), vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+                ],
+            ],
+            change_count: 1,
+        };
+
+        // Verify structure
+        assert!(!snapshot.is_empty());
+        assert_eq!(snapshot.items.len(), 3, "Should have 3 pasteboard items");
+        
+        // Check first item
+        assert_eq!(snapshot.items[0].len(), 2, "First item should have 2 types");
+        assert!(snapshot.items[0].iter().any(|(t, _)| t == "public.utf8-plain-text"));
+        assert!(snapshot.items[0].iter().any(|(t, _)| t == "public.html"));
+        
+        // Check second item
+        assert_eq!(snapshot.items[1].len(), 1, "Second item should have 1 type");
+        assert_eq!(snapshot.items[1][0].0, "public.utf8-plain-text");
+        assert_eq!(snapshot.items[1][0].1, b"Second item");
+        
+        // Check third item
+        assert_eq!(snapshot.items[2].len(), 1, "Third item should have 1 type");
+        assert_eq!(snapshot.items[2][0].0, "public.png");
     }
 
     /// Test audio resampling (existing functionality)
