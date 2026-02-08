@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
 
-  type ActiveTab = "analytics" | "servers" | "history";
+  type ActiveTab = "analytics" | "servers" | "history" | "chat";
 
   type Tab = {
     id: ActiveTab;

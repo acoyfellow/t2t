@@ -18,6 +18,7 @@
     Moon,
     Sun,
     Pencil,
+    MessageCircle,
   } from "@lucide/svelte";
   import { tick } from "svelte";
   import * as Command from "$lib/components/ui/command/index.js";
@@ -47,7 +48,7 @@
     prompts?: Array<{ name: string; description?: string; arguments?: any[] }>;
   };
 
-  type ActiveTab = "analytics" | "servers" | "history";
+  type ActiveTab = "analytics" | "servers" | "history" | "chat";
 
   let activeTab = $state<ActiveTab>("analytics");
   let loading = $state(true);
@@ -603,6 +604,12 @@
       isDark = t === "dark";
     });
 
+    // Allow Rust backend to switch to Chat tab via window.__switchToChat()
+    (window as any).__switchToChat = () => {
+      handleTabChangeWithScroll("chat");
+      loadShelleyStatus();
+    };
+
     // Load data and models asynchronously
     loadData().then(() => {
       // Auto-fetch models if we have an OpenRouter key
@@ -747,6 +754,34 @@
     });
   }
 
+  // Shelley state
+  let shelleyUrl = $state<string | null>(null);
+  let shelleyLoading = $state(false);
+  let shelleyError = $state<string | null>(null);
+
+  async function loadShelleyStatus() {
+    shelleyLoading = true;
+    shelleyError = null;
+    try {
+      const result = (await invoke("get_shelley_status")) as {
+        running: boolean;
+        port: number | null;
+        error?: string;
+      };
+      if (result.running && result.port) {
+        shelleyUrl = `http://localhost:${result.port}`;
+      } else if (result.error) {
+        shelleyError = result.error;
+      } else {
+        shelleyError = "Shelley is not running";
+      }
+    } catch (e) {
+      shelleyError = e instanceof Error ? e.message : "Failed to connect to Shelley";
+    } finally {
+      shelleyLoading = false;
+    }
+  }
+
   const tabs = [
     {
       id: "analytics" as const,
@@ -764,6 +799,14 @@
       icon: Activity,
       onClick: () => {
         loadHistory();
+      },
+    },
+    {
+      id: "chat" as const,
+      label: "Chat",
+      icon: MessageCircle,
+      onClick: () => {
+        loadShelleyStatus();
       },
     },
   ];
@@ -1471,6 +1514,60 @@
                 {/if}
               </button>
             {/each}
+          </div>
+        {/if}
+      </div>
+    {:else if activeTab === "chat"}
+      <!-- Chat Tab - Shelley Coding Agent -->
+      <div class="flex flex-col h-full min-h-0">
+        {#if shelleyLoading}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="flex items-center gap-3 text-muted-foreground">
+              <div
+                class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
+              ></div>
+              <span class="text-sm">Connecting to Shelley...</span>
+            </div>
+          </div>
+        {:else if shelleyError}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center space-y-4 p-8">
+              <div class="w-16 h-16 mx-auto rounded-full bg-destructive/10 flex items-center justify-center">
+                <MessageCircle class="w-8 h-8 text-destructive" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-foreground">Shelley not available</p>
+                <p class="text-xs text-muted-foreground mt-1">{shelleyError}</p>
+              </div>
+              <Button onclick={loadShelleyStatus} variant="outline" size="sm">
+                Retry
+              </Button>
+            </div>
+          </div>
+        {:else if shelleyUrl}
+          <iframe
+            src={shelleyUrl}
+            title="Shelley Coding Agent"
+            class="flex-1 w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          ></iframe>
+        {:else}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center space-y-4 p-8">
+              <div class="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+                <MessageCircle class="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-foreground">Shelley Coding Agent</p>
+                <p class="text-xs text-muted-foreground mt-1">
+                  Multi-model coding agent powered by your API key.
+                  <br />Use <code class="px-1 py-0.5 bg-muted rounded text-[10px]">fn+ctrl</code> to talk to Shelley from anywhere.
+                </p>
+              </div>
+              <Button onclick={loadShelleyStatus} size="sm">
+                Connect
+              </Button>
+            </div>
           </div>
         {/if}
       </div>

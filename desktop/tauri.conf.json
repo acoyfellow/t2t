@@ -46,6 +46,9 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": [
+      "binaries/shelley"
+    ],
     "resources": [
       "icons/tray-icon.png",
       "icons/tray-icon@2x.png"
