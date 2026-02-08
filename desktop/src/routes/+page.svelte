@@ -10,17 +10,28 @@
   let level = $state(0);
   let mode = $state<"typing" | "agent">("typing");
 
+  // Persists after processing ends - Shelley is working in the background.
+  // Cleared when the user clicks the bar to open Chat.
+  let shelleyActive = $state(false);
+
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+  // Visible when recording, processing, OR Shelley is active in background
+  const barVisible = $derived(recording || processing || shelleyActive);
+
+  // Clickable when Shelley is active (processing or background)
+  const isClickable = $derived(shelleyActive || (processing && mode === "agent"));
 
   const indicatorClass = $derived.by(() => {
     const state = recording
       ? "opacity-100 h-[var(--h)]"
-      : processing
+      : processing || shelleyActive
         ? "opacity-100 h-[6px]"
         : "opacity-0 h-[3px]";
 
     return [
-      "fixed bottom-0 left-0 w-screen pointer-events-none z-[9999]",
+      "fixed bottom-0 left-0 w-screen z-[9999]",
+      isClickable ? "cursor-pointer" : "pointer-events-none",
       "transition-[opacity,height] duration-300 ease-out",
       "[--h:6px] [--glow:16px] [--alpha:0.55]",
       state,
@@ -33,11 +44,16 @@
         ? "bg-[#c27aff]/80 shadow-[0_0_var(--glow)_rgba(194,122,255,var(--alpha))]"
         : "bg-[#00ffa3]/80 shadow-[0_0_var(--glow)_rgba(0,255,163,var(--alpha))]";
 
+    const shelleyColor =
+      "bg-[#f97316]/80 shadow-[0_0_15px_rgba(249,115,22,0.8)]";
+
     const state = recording
       ? color
-      : processing
-        ? "bg-amber-500/80 shadow-[0_0_15px_rgba(245,158,11,0.8)]"
-        : "bg-transparent";
+      : shelleyActive
+        ? shelleyColor
+        : processing
+          ? "bg-amber-500/80 shadow-[0_0_15px_rgba(245,158,11,0.8)]"
+          : "bg-transparent";
 
     return [
       "absolute bottom-0 left-0 w-full h-full",
@@ -46,20 +62,31 @@
     ].join(" ");
   });
 
+  function openChat() {
+    if (!isClickable) return;
+    // Dismiss the indicator — user is going to look at Shelley's output
+    shelleyActive = false;
+    invoke("open_chat_window").catch((err) => {
+      console.error("Failed to open chat:", err);
+    });
+  }
+
   onMount(() => {
-    // Initialize mode to typing (red bar)
     mode = "typing";
 
-    // Expose hooks to Rust - set up synchronously so they're available immediately
     (window as any).__setMode = (m: "typing" | "agent") => {
       mode = m;
     };
     (window as any).__agentInput = (text: string) => {
       console.log("Agent mode:", text);
-      // Future: show UI, trigger agent workflow
     };
 
-    // Set up UI bridge callbacks synchronously first (fallback)
+    // Rust calls this when a voice command is dispatched to Shelley
+    (window as any).__setShelleyActive = (v: boolean) => {
+      shelleyActive = v;
+      console.log("[UI] setShelleyActive", v);
+    };
+
     (window as any).__startRecording = () => {
       recording = true;
       console.log("[UI] startRecording");
@@ -74,18 +101,19 @@
       console.log("[UI] setProcessing", v);
     };
 
-    // Handle escape key during processing to cancel
-    // Use $effect to reactively add/remove escape key listener based on processing state
     $effect(() => {
-      if (!processing) {
-        return; // No listener needed when not processing
+      if (!processing && !shelleyActive) {
+        return;
       }
 
-      // Add escape key listener when processing starts
       const escapeHandler = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
+          if (shelleyActive) {
+            shelleyActive = false;
+            console.log("[UI] Escape dismissed Shelley indicator");
+          }
           console.log("[UI] Escape pressed during processing - cancelling");
           invoke("cancel_processing").catch((err) => {
             console.error("Failed to cancel processing:", err);
@@ -93,18 +121,16 @@
         }
       };
 
-      window.addEventListener("keydown", escapeHandler, true); // Use capture phase
-      
-      // Cleanup: remove listener when processing stops or component unmounts
+      window.addEventListener("keydown", escapeHandler, true);
       return () => {
         window.removeEventListener("keydown", escapeHandler, true);
       };
     });
+
     (window as any).__setLevel = (v: number) => {
       level = v;
     };
 
-    // Then install the Effect-based UI bridge (which will replace the above)
     const fiber = Runtime.runFork(
       runtime,
       Effect.scoped(
@@ -132,19 +158,52 @@
       delete (window as any).__setLevel;
       delete (window as any).__setMode;
       delete (window as any).__agentInput;
+      delete (window as any).__setShelleyActive;
     };
   });
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class={indicatorClass}
+  onclick={openChat}
   style={(() => {
     const l = clamp01(level);
-    const h = 6 + l * 30; // px (more)
-    const glow = 18 + l * 90; // px (more)
-    const a = 0.35 + l * 0.45; // 0..1
+    const h = 6 + l * 30;
+    const glow = 18 + l * 90;
+    const a = 0.35 + l * 0.45;
     return `--h:${h}px;--glow:${glow}px;--alpha:${a};`;
   })()}
 >
   <div class={borderClass}></div>
+
+  <!-- Sweeping light — visible while Shelley is active -->
+  {#if shelleyActive && !recording}
+    <div class="absolute bottom-0 left-0 w-full h-[6px] overflow-hidden">
+      <div class="shelley-pulse"></div>
+    </div>
+  {/if}
 </div>
+
+<style>
+  .shelley-pulse {
+    position: absolute;
+    bottom: 0;
+    width: 80px;
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+    animation: shelley-sweep 2s ease-in-out infinite;
+    box-shadow: 0 0 12px rgba(249, 115, 22, 0.6);
+  }
+
+  @keyframes shelley-sweep {
+    0% {
+      left: -80px;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+</style>

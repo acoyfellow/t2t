@@ -1766,11 +1766,11 @@ mod macos_fn_key {
                             // Try Shelley first if running
                             if SHELLEY_RUNNING.load(Ordering::SeqCst) && SHELLEY_PORT.load(Ordering::SeqCst) > 0 {
                                 log_line("Shelley is running, routing through Shelley");
+
                                 match send_to_shelley_sync(&text) {
                                     Ok(conv_id) => {
                                         log_line(&format!("Sent to Shelley conversation: {}", conv_id));
                                         let port = SHELLEY_PORT.load(Ordering::SeqCst);
-                                        show_notification("t2t", "Sent to Shelley - check Chat tab");
                                         update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
 
                                         // Log to history
@@ -1787,11 +1787,15 @@ mod macos_fn_key {
                                             })
                                         );
 
-                                        // Open settings window to Chat tab
-                                        if let Some(w) = app_unwrapped.get_webview_window("settings") {
-                                            let _ = w.show();
-                                            let _ = w.set_focus();
-                                            let _ = w.eval("window.__switchToChat && window.__switchToChat()");
+                                        // Set the orange Shelley bar with sweep animation.
+                                        // It persists until the user clicks it to open Chat.
+                                        if let Some(app_h) = APP_HANDLE.get().cloned() {
+                                            let app_c = app_h.clone();
+                                            let _ = app_h.run_on_main_thread(move || {
+                                                if let Some(w) = app_c.get_webview_window("main") {
+                                                    let _ = w.eval("window.__setShelleyActive && window.__setShelleyActive(true)");
+                                                }
+                                            });
                                         }
                                         return;
                                     }
@@ -3527,6 +3531,34 @@ fn get_shelley_status() -> ShelleyStatus {
     }
 }
 
+/// Open the settings window and switch to Chat tab
+#[tauri::command]
+fn open_chat_window(app: AppHandle) {
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    let w = app.get_webview_window("settings").or_else(|| {
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "settings",
+            tauri::WebviewUrl::App("/settings".into())
+        )
+        .title("Settings")
+        .inner_size(900.0, 700.0)
+        .center()
+        .skip_taskbar(false)
+        .build()
+        .ok()
+    });
+    if let Some(w) = w {
+        let _ = w.set_skip_taskbar(false);
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_always_on_top(true);
+        let _ = w.set_always_on_top(false);
+        let _ = w.set_focus();
+        let _ = w.eval("window.__switchToChat && window.__switchToChat()");
+    }
+}
+
 /// Send a chat message to Shelley via its HTTP API (async, for Tauri commands)
 #[tauri::command]
 async fn send_to_shelley(transcript: String) -> Result<serde_json::Value, String> {
@@ -3650,7 +3682,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history, get_shelley_status, send_to_shelley])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history, get_shelley_status, send_to_shelley, open_chat_window])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 

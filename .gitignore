@@ -4,6 +4,8 @@ desktop/node_modules/
 desktop/.svelte-kit/
 desktop/build/
 desktop/gen/
+desktop/binaries/shelley
+desktop/binaries/shelley-*
 
 # Web app
 web/node_modules/
