@@ -3534,6 +3534,7 @@ fn get_shelley_status() -> ShelleyStatus {
 /// Open the settings window and switch to Chat tab
 #[tauri::command]
 fn open_chat_window(app: AppHandle) {
+    #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     let w = app.get_webview_window("settings").or_else(|| {
         tauri::WebviewWindowBuilder::new(
@@ -3787,6 +3788,7 @@ fn main() {
                     match event.id.as_ref() {
                         "settings" => {
                             // Change activation policy to Regular so it appears in Command+Tab
+                            #[cfg(target_os = "macos")]
                             let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
                             
                             // Show the settings window and bring to front
