@@ -528,9 +528,14 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                 _ => continue,
             };
             
-            if let Ok(tools_resp) = tools_result {
-                server_tool_map.insert(server.id.clone(), (server.clone(), tools_resp.tools.clone()));
-                all_tools.extend(tools_resp.tools.clone());
+            match tools_result {
+                Ok(tools_resp) => {
+                    server_tool_map.insert(server.id.clone(), (server.clone(), tools_resp.tools.clone()));
+                    all_tools.extend(tools_resp.tools.clone());
+                }
+                Err(e) => {
+                    log_line(&format!("MCP Agent: skipped server '{}' during discovery: {}", server.name, e));
+                }
             }
         }
     }
