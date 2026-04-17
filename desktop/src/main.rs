@@ -989,6 +989,39 @@ fn show_notification(title: &str, message: &str) {
     let _ = execute_applescript(&script);
 }
 
+/// Speak agent-mode response aloud using macOS `say`.
+/// No-op if TTS is disabled in settings or text is empty. Fire-and-forget.
+/// Reads `tts` store: `enabled` (bool), `voice` (optional string like "Samantha").
+fn speak_tts(app: &AppHandle, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (enabled, voice) = match app.store("tts") {
+        Ok(store) => {
+            let enabled = store.get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let voice = store.get("voice")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .filter(|s| !s.is_empty());
+            (enabled, voice)
+        }
+        Err(_) => return,
+    };
+    if !enabled {
+        return;
+    }
+    let mut cmd = std::process::Command::new("say");
+    if let Some(v) = voice {
+        cmd.arg("-v").arg(v);
+    }
+    cmd.arg(text);
+    // Fire and forget — detach the child so we don't block or zombify.
+    if let Err(e) = cmd.spawn() {
+        log_line(&format!("speak_tts: failed to spawn say: {}", e));
+    }
+}
+
 fn log_line(msg: &str) {
     // Best-effort persistent log to help debug Finder vs Terminal launch differences.
     let ts = SystemTime::now()
@@ -1900,7 +1933,10 @@ mod macos_fn_key {
                                             if let Some(orig) = original {
                                                 set_clipboard_macos(&orig);
                                             }
-                                            
+
+                                            // Speak the response if TTS is enabled (agent mode only).
+                                            speak_tts(&app_unwrapped, &response_text);
+
                                             // Show notification with tool info
                                             if msg.is_empty() {
                                                 show_notification("t2t", "Result pasted");
@@ -1968,10 +2004,12 @@ mod macos_fn_key {
                                                                 return;
                                                             }
                                                             log_line(&format!("Agent: executing script: {}", script));
-                                                            match execute_applescript(&script) {
+                                                             match execute_applescript(&script) {
                                                                 Ok(output) => {
                                                                     log_line(&format!("Agent: script succeeded: {}", output));
                                                                     show_notification("t2t", "Done");
+                                                                    // Speak confirmation if TTS is enabled (agent mode only).
+                                                                    speak_tts(&app_unwrapped, "Done");
                                                                 }
                                                                 Err(e) => {
                                                                     log_line(&format!("Agent: script failed: {}", e));

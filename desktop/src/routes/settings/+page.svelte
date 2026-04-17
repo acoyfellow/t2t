@@ -189,6 +189,10 @@
   let openrouterKey = $state("");
   let keyLoading = $state(false);
 
+  // TTS (agent mode speaks responses via macOS `say`)
+  let ttsEnabled = $state(false);
+  let ttsVoice = $state("");
+
   // Theme state
   let isDark = $state(false);
 
@@ -337,6 +341,31 @@
     }
   }
 
+  async function loadTts() {
+    try {
+      if (!window.__TAURI__?.store) return;
+      const { load } = window.__TAURI__.store;
+      const store = await load("tts", { autoSave: true });
+      ttsEnabled = ((await store.get("enabled")) ?? false) as boolean;
+      ttsVoice = ((await store.get("voice")) ?? "") as string;
+    } catch (e) {
+      console.error("Failed to load TTS settings:", e);
+    }
+  }
+
+  async function saveTts() {
+    try {
+      if (!window.__TAURI__?.store) return;
+      const { load } = window.__TAURI__.store;
+      const store = await load("tts", { autoSave: true });
+      await store.set("enabled", ttsEnabled);
+      await store.set("voice", ttsVoice);
+      await store.save();
+    } catch (e) {
+      console.error("Failed to save TTS settings:", e);
+    }
+  }
+
   async function fetchModels() {
     try {
       modelsLoading = true;
@@ -382,6 +411,7 @@
       loadServers(),
       loadModel(),
       loadOpenRouterKey(),
+      loadTts(),
     ]);
     loading = false;
   }
@@ -1121,6 +1151,48 @@
               class="px-1 py-0.5 bg-muted rounded">OPENROUTER_API_KEY</code
             > env var if not set.
           </p>
+        </div>
+
+        <!-- Agent TTS (macOS `say`) -->
+        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              bind:checked={ttsEnabled}
+              onchange={saveTts}
+              class="h-4 w-4 rounded border-border/50 bg-background text-primary focus:ring-2 focus:ring-primary"
+            />
+            <span class="text-sm font-medium text-foreground">
+              Speak agent responses aloud
+            </span>
+          </label>
+          <p class="text-xs text-muted-foreground mt-2 ml-7">
+            Uses macOS <code class="px-1 py-0.5 bg-muted rounded">say</code> to
+            read agent-mode replies. Only triggers for Fn+Ctrl commands, never
+            for plain dictation.
+          </p>
+          {#if ttsEnabled}
+            <div class="mt-4 ml-7">
+              <label
+                for="tts-voice"
+                class="block text-xs font-medium text-foreground mb-2"
+              >
+                Voice (optional)
+              </label>
+              <input
+                id="tts-voice"
+                type="text"
+                bind:value={ttsVoice}
+                onchange={saveTts}
+                placeholder="e.g. Samantha, Alex (blank = system default)"
+                class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+              <p class="text-xs text-muted-foreground mt-2">
+                Run <code class="px-1 py-0.5 bg-muted rounded">say -v ?</code>
+                in Terminal to list available voices.
+              </p>
+            </div>
+          {/if}
         </div>
 
         <!-- Model Selection -->
