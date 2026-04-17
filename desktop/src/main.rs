@@ -679,117 +679,159 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         return Err(format!("OpenRouter returned {}: {}", status, error_body));
     }
     
-    let openrouter_resp: serde_json::Value = response.json()
+    let mut openrouter_resp: serde_json::Value = response.json()
         .map_err(|e| format!("Failed to parse OpenRouter response: {e}"))?;
-    
+
+    const MAX_TOOL_ROUNDS: usize = 5;
     let mut tool_calls = Vec::new();
     let mut final_text = None;
-    
-    // Parse response
-    if let Some(choices) = openrouter_resp.get("choices").and_then(|c| c.as_array()) {
-        if let Some(choice) = choices.first() {
-            if let Some(message) = choice.get("message") {
-                // Check for tool calls
-                if let Some(tool_calls_array) = message.get("tool_calls").and_then(|tc| tc.as_array()) {
-                    // Execute tool calls
-                    for tool_call in tool_calls_array {
-                        if let (Some(tool_id), Some(function)) = (
-                            tool_call.get("id").and_then(|v| v.as_str()),
-                            tool_call.get("function")
-                        ) {
-                            if let (Some(tool_name), Some(arguments_str)) = (
-                                function.get("name").and_then(|v| v.as_str()),
-                                function.get("arguments").and_then(|v| v.as_str())
-                            ) {
-                                let arguments: serde_json::Value = serde_json::from_str(arguments_str)
-                                    .map_err(|e| format!("Invalid tool arguments: {e}"))?;
-                                
-                                // Find which server has this tool
-                                let mut tool_result = Err("Tool not found".to_string());
-                                for (_server_id, (server, tools)) in &server_tool_map {
-                                    if tools.iter().any(|t| t.name == tool_name) {
-                                        tool_result = match server.transport.as_str() {
-                                            "stdio" => {
-                                                rt.block_on(execute_mcp_tool_stdio(server, tool_name, &arguments))
-                                            }
-                                            "http" | "https" | "sse" => {
-                                                let url = server.url.as_ref().unwrap();
-                                                rt.block_on(execute_mcp_tool_http(url, tool_name, &arguments))
-                                            }
-                                            _ => continue,
-                                        };
-                                        break;
-                                    }
+    let mut rounds: usize = 0;
+
+    // Running message list for multi-round tool use. Seeded with system + user;
+    // each round appends the assistant's tool-requesting message plus tool results.
+    let mut messages: Vec<serde_json::Value> = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "You are a helpful assistant with access to tools. Use them when needed."
+        }),
+        user_message.clone(),
+    ];
+
+    loop {
+        if IS_CANCELLING.load(Ordering::SeqCst) {
+            log_line("MCP Agent: cancelled during tool loop");
+            break;
+        }
+
+        // Extract the assistant message from the current response.
+        let message = openrouter_resp
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .cloned();
+
+        let message = match message {
+            Some(m) => m,
+            None => break,
+        };
+
+        // If the assistant returned no tool calls, capture final text and stop.
+        let tool_calls_array_opt = message
+            .get("tool_calls")
+            .and_then(|tc| tc.as_array())
+            .filter(|arr| !arr.is_empty())
+            .cloned();
+
+        let tool_calls_array = match tool_calls_array_opt {
+            Some(arr) => arr,
+            None => {
+                final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+                break;
+            }
+        };
+
+        if rounds >= MAX_TOOL_ROUNDS {
+            log_line(&format!("MCP Agent: hit max tool rounds ({}); returning current response", MAX_TOOL_ROUNDS));
+            // Best-effort: surface any text the assistant included alongside tool calls.
+            final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+            break;
+        }
+        rounds += 1;
+        log_line(&format!("MCP Agent: tool round {} of max {}", rounds, MAX_TOOL_ROUNDS));
+
+        // Append the assistant message (with its tool_calls) so subsequent tool
+        // role messages can reference the tool_call_ids.
+        messages.push(message.clone());
+
+        // Execute each tool call in this round and record results.
+        let mut round_tool_calls: Vec<serde_json::Value> = Vec::new();
+        for tool_call in &tool_calls_array {
+            if let (Some(tool_id), Some(function)) = (
+                tool_call.get("id").and_then(|v| v.as_str()),
+                tool_call.get("function")
+            ) {
+                if let (Some(tool_name), Some(arguments_str)) = (
+                    function.get("name").and_then(|v| v.as_str()),
+                    function.get("arguments").and_then(|v| v.as_str())
+                ) {
+                    let arguments: serde_json::Value = serde_json::from_str(arguments_str)
+                        .map_err(|e| format!("Invalid tool arguments: {e}"))?;
+
+                    // Find which server has this tool
+                    let mut tool_result = Err("Tool not found".to_string());
+                    for (_server_id, (server, tools)) in &server_tool_map {
+                        if tools.iter().any(|t| t.name == tool_name) {
+                            tool_result = match server.transport.as_str() {
+                                "stdio" => {
+                                    rt.block_on(execute_mcp_tool_stdio(server, tool_name, &arguments))
                                 }
-                                
-                                let tool_result_value = match tool_result {
-                                    Ok(v) => v,
-                                    Err(e) => serde_json::json!({ "error": e })
-                                };
-                                
-                                tool_calls.push(serde_json::json!({
-                                    "id": tool_id,
-                                    "toolName": tool_name,
-                                    "arguments": arguments,
-                                    "result": tool_result_value
-                                }));
-                            }
+                                "http" | "https" | "sse" => {
+                                    let url = server.url.as_ref().unwrap();
+                                    rt.block_on(execute_mcp_tool_http(url, tool_name, &arguments))
+                                }
+                                _ => continue,
+                            };
+                            break;
                         }
                     }
-                    
-                    // If we executed tools, make another call with results
-                    if !tool_calls.is_empty() {
-                        let mut messages = vec![
-                            serde_json::json!({
-                                "role": "system",
-                                "content": "You are a helpful assistant with access to tools."
-                            }),
-                            user_message.clone(), // Include original user message with screenshot if applicable
-                            message.clone(),
-                        ];
-                        
-                        // Add tool results
-                        for tool_call in &tool_calls {
-                            messages.push(serde_json::json!({
-                                "role": "tool",
-                                "tool_call_id": tool_call.get("id"),
-                                "content": tool_call.get("result").map(|r| r.to_string()).unwrap_or_default()
-                            }));
-                        }
-                        
-                        // Final call
-                        let final_response = client
-                            .post(OPENROUTER_API_URL)
-                            .header("Authorization", format!("Bearer {}", openrouter_key))
-                            .header("HTTP-Referer", "https://github.com/yourusername/t2t")
-                            .header("X-Title", "t2t")
-                            .json(&serde_json::json!({
-                                "model": model,
-                                "messages": messages,
-                                "tools": openai_tools,
-                            }))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .send()
-                            .map_err(|e| format!("Final OpenRouter request failed: {e}"))?;
-                        
-                        if final_response.status().is_success() {
-                            if let Ok(final_resp) = final_response.json::<serde_json::Value>() {
-                                if let Some(choices) = final_resp.get("choices").and_then(|c| c.as_array()) {
-                                    if let Some(choice) = choices.first() {
-                                        if let Some(msg) = choice.get("message") {
-                                            final_text = msg.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // No tool calls, just text response
-                    final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                    let tool_result_value = match tool_result {
+                        Ok(v) => v,
+                        Err(e) => serde_json::json!({ "error": e })
+                    };
+
+                    let entry = serde_json::json!({
+                        "id": tool_id,
+                        "toolName": tool_name,
+                        "arguments": arguments,
+                        "result": tool_result_value
+                    });
+                    round_tool_calls.push(entry.clone());
+                    tool_calls.push(entry);
                 }
             }
         }
+
+        // Push tool results into the conversation for the next LLM call.
+        for tc in &round_tool_calls {
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tc.get("id"),
+                "content": tc.get("result").map(|r| r.to_string()).unwrap_or_default()
+            }));
+        }
+
+        if IS_CANCELLING.load(Ordering::SeqCst) {
+            log_line("MCP Agent: cancelled during tool loop");
+            break;
+        }
+
+        // Next LLM call with updated messages.
+        let next_response = client
+            .post(OPENROUTER_API_URL)
+            .header("Authorization", format!("Bearer {}", openrouter_key))
+            .header("HTTP-Referer", "https://github.com/yourusername/t2t")
+            .header("X-Title", "t2t")
+            .json(&serde_json::json!({
+                "model": model,
+                "messages": messages,
+                "tools": openai_tools,
+                "tool_choice": "auto"
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .map_err(|e| format!("Follow-up OpenRouter request failed: {e}"))?;
+
+        if !next_response.status().is_success() {
+            let status = next_response.status();
+            let error_body = next_response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+            log_line(&format!("MCP Agent: follow-up call failed {}: {}", status, error_body));
+            break;
+        }
+
+        openrouter_resp = next_response.json::<serde_json::Value>()
+            .map_err(|e| format!("Failed to parse follow-up OpenRouter response: {e}"))?;
     }
     
     let result = MCPAgentResponse {
