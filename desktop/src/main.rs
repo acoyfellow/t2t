@@ -372,11 +372,38 @@ async fn execute_mcp_tool_stdio(
     let empty_args: Vec<String> = vec![];
     let args = server.args.as_ref().unwrap_or(&empty_args);
 
+    // macOS apps launched from Finder/Dock inherit a minimal PATH.
+    // Inject common user binary dirs so `npx`, `bunx`, `uvx`, `node`, etc. resolve.
+    let augmented_path = {
+        let mut paths = vec![
+            "/opt/homebrew/bin".to_string(),       // Apple Silicon Homebrew
+            "/opt/homebrew/sbin".to_string(),
+            "/usr/local/bin".to_string(),           // Intel Homebrew + /usr/local installs
+            "/usr/local/sbin".to_string(),
+        ];
+        // Append existing PATH (if any)
+        if let Ok(existing) = std::env::var("PATH") {
+            for p in existing.split(':') {
+                if !p.is_empty() && !paths.contains(&p.to_string()) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+        // /usr/bin:/bin:/usr/sbin:/sbin as ultimate fallback
+        for fallback in &["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+            if !paths.iter().any(|p| p == fallback) {
+                paths.push(fallback.to_string());
+            }
+        }
+        paths.join(":")
+    };
+
     let mut child = TokioCommand::new(command)
         .args(args)
+        .env("PATH", &augmented_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to spawn process: {e}"))?;
 
@@ -2972,11 +2999,38 @@ async fn fetch_mcp_tools_stdio(
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::process::Command as TokioCommand;
 
+    // macOS apps launched from Finder/Dock inherit a minimal PATH.
+    // Inject common user binary dirs so `npx`, `bunx`, `uvx`, `node`, etc. resolve.
+    let augmented_path = {
+        let mut paths = vec![
+            "/opt/homebrew/bin".to_string(),       // Apple Silicon Homebrew
+            "/opt/homebrew/sbin".to_string(),
+            "/usr/local/bin".to_string(),           // Intel Homebrew + /usr/local installs
+            "/usr/local/sbin".to_string(),
+        ];
+        // Append existing PATH (if any)
+        if let Ok(existing) = std::env::var("PATH") {
+            for p in existing.split(':') {
+                if !p.is_empty() && !paths.contains(&p.to_string()) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+        // /usr/bin:/bin:/usr/sbin:/sbin as ultimate fallback
+        for fallback in &["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+            if !paths.iter().any(|p| p == fallback) {
+                paths.push(fallback.to_string());
+            }
+        }
+        paths.join(":")
+    };
+
     let mut child = TokioCommand::new(command)
         .args(args)
+        .env("PATH", &augmented_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to spawn process: {e}"))?;
 
