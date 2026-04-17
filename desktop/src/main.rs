@@ -521,7 +521,7 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                     let args = server.args.as_ref().unwrap_or(&empty_args);
                     rt.block_on(fetch_mcp_tools_stdio(cmd, args))
                 }
-                "http" | "https" => {
+                "http" | "https" | "sse" => {
                     let url = server.url.as_ref().ok_or("No URL")?;
                     rt.block_on(fetch_mcp_tools_http(url))
                 }
@@ -680,7 +680,7 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                                             "stdio" => {
                                                 rt.block_on(execute_mcp_tool_stdio(server, tool_name, &arguments))
                                             }
-                                            "http" | "https" => {
+                                            "http" | "https" | "sse" => {
                                                 let url = server.url.as_ref().unwrap();
                                                 rt.block_on(execute_mcp_tool_http(url, tool_name, &arguments))
                                             }
