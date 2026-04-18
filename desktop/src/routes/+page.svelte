@@ -7,15 +7,18 @@
 
   let recording = $state(false);
   let processing = $state(false);
+  let speaking = $state(false);
   let level = $state(0);
   let mode = $state<"typing" | "agent">("typing");
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
+  // Bar is visible during recording, processing (thinking), or speaking.
   const indicatorClass = $derived.by(() => {
+    const visible = recording || processing || speaking;
     const state = recording
       ? "opacity-100 h-[var(--h)]"
-      : processing
+      : visible
         ? "opacity-100 h-[6px]"
         : "opacity-0 h-[3px]";
 
@@ -27,17 +30,30 @@
     ].join(" ");
   });
 
+  // Colors:
+  //   recording + typing  -> bright green
+  //   recording + agent   -> bright purple (#c27aff)
+  //   processing + typing -> amber (typing mode is paste-only; no audible output)
+  //   processing + agent  -> thinking: bright purple pulsing
+  //   speaking            -> deep purple (#a855f7) steady
   const borderClass = $derived.by(() => {
-    const color =
+    const recordColor =
       mode === "agent"
         ? "bg-[#c27aff]/80 shadow-[0_0_var(--glow)_rgba(194,122,255,var(--alpha))]"
         : "bg-[#00ffa3]/80 shadow-[0_0_var(--glow)_rgba(0,255,163,var(--alpha))]";
 
-    const state = recording
-      ? color
-      : processing
-        ? "bg-amber-500/80 shadow-[0_0_15px_rgba(245,158,11,0.8)]"
-        : "bg-transparent";
+    let state: string;
+    if (recording) {
+      state = recordColor;
+    } else if (speaking) {
+      state = "bg-[#a855f7]/90 shadow-[0_0_20px_rgba(168,85,247,0.8)]";
+    } else if (processing && mode === "agent") {
+      state = "bg-[#c27aff]/80 shadow-[0_0_18px_rgba(194,122,255,0.6)] animate-pulse";
+    } else if (processing) {
+      state = "bg-amber-500/80 shadow-[0_0_15px_rgba(245,158,11,0.8)]";
+    } else {
+      state = "bg-transparent";
+    }
 
     return [
       "absolute bottom-0 left-0 w-full h-full",
@@ -72,6 +88,10 @@
     (window as any).__setProcessing = (v: boolean) => {
       processing = v;
       console.log("[UI] setProcessing", v);
+    };
+    (window as any).__setSpeaking = (v: boolean) => {
+      speaking = v;
+      console.log("[UI] setSpeaking", v);
     };
 
     // Handle escape key during processing to cancel
@@ -129,6 +149,7 @@
       delete (window as any).__startRecording;
       delete (window as any).__stopRecording;
       delete (window as any).__setProcessing;
+      delete (window as any).__setSpeaking;
       delete (window as any).__setLevel;
       delete (window as any).__setMode;
       delete (window as any).__agentInput;

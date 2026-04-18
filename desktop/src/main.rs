@@ -990,7 +990,7 @@ fn show_notification(title: &str, message: &str) {
 }
 
 /// Speak text aloud using macOS `say`. Honors the TTS enabled toggle.
-/// Used for successful agent responses. Fire-and-forget.
+/// Used for successful agent responses. Drives the UI speaking indicator.
 fn speak_tts(app: &AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
@@ -999,18 +999,18 @@ fn speak_tts(app: &AppHandle, text: &str) {
     if !enabled {
         return;
     }
-    speak_say(text, voice);
+    speak_say(app, text, voice);
 }
 
 /// Always-on TTS for agent-mode errors. Bypasses the enabled toggle because
 /// agent mode has no UI — if something fails the user needs to know. Still
-/// respects the user's voice preference. Fire-and-forget.
+/// respects the user's voice preference. Drives the UI speaking indicator.
 fn speak_error(app: &AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
     }
     let (_enabled, voice) = read_tts_settings(app);
-    speak_say(text, voice);
+    speak_say(app, text, voice);
 }
 
 fn read_tts_settings(app: &AppHandle) -> (bool, Option<String>) {
@@ -1028,14 +1028,47 @@ fn read_tts_settings(app: &AppHandle) -> (bool, Option<String>) {
     }
 }
 
-fn speak_say(text: &str, voice: Option<String>) {
+/// Set the "speaking" indicator in the UI (deep purple solid bar).
+fn set_speaking_ui(app: &AppHandle, speaking: bool) {
+    let app_clone = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(w) = app_clone.get_webview_window("main") {
+            let js = format!("window.__setSpeaking && window.__setSpeaking({})", speaking);
+            let _ = w.eval(&js);
+        }
+    });
+}
+
+fn speak_say(app: &AppHandle, text: &str, voice: Option<String>) {
     let mut cmd = std::process::Command::new("say");
     if let Some(v) = voice {
         cmd.arg("-v").arg(v);
     }
     cmd.arg(text);
-    if let Err(e) = cmd.spawn() {
-        log_line(&format!("speak_say: failed to spawn say: {}", e));
+    match cmd.spawn() {
+        Ok(mut child) => {
+            set_speaking_ui(app, true);
+            // Poll for exit on a background thread so we don't block agent flow.
+            let app_for_thread = app.clone();
+            std::thread::spawn(move || {
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_status)) => break,
+                        Ok(None) => {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Err(e) => {
+                            log_line(&format!("speak_say: try_wait error: {}", e));
+                            break;
+                        }
+                    }
+                }
+                set_speaking_ui(&app_for_thread, false);
+            });
+        }
+        Err(e) => {
+            log_line(&format!("speak_say: failed to spawn say: {}", e));
+        }
     }
 }
 
