@@ -26,6 +26,7 @@
       "fixed bottom-0 left-0 w-screen pointer-events-none z-[9999]",
       "transition-[opacity,height] duration-300 ease-out",
       "[--h:6px] [--glow:16px] [--alpha:0.55]",
+      "border-0 outline-none",
       state,
     ].join(" ");
   });
@@ -58,6 +59,7 @@
     return [
       "absolute bottom-0 left-0 w-full h-full",
       "transition-[background-color,box-shadow,height] duration-300 ease-out",
+      "border-0 outline-none",
       state,
     ].join(" ");
   });
