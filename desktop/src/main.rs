@@ -1717,17 +1717,30 @@ mod macos_fn_key {
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
                     let control_down = (flags & control_flag) != 0;
                     
-                    // Switch to agent mode while Ctrl is held
-                    if control_down && IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
+                    // Live mode follows Ctrl state. Decision is made at Fn-release,
+                    // so you can change your mind by pressing/releasing Ctrl mid-recording.
+                    //   Ctrl down + was typing  -> switch to agent (purple bar)
+                    //   Ctrl up   + was agent   -> switch back to typing (red bar)
+                    let is_typing = IS_TEXT_INPUT_MODE.load(Ordering::SeqCst);
+                    if control_down && is_typing {
                         IS_TEXT_INPUT_MODE.store(false, Ordering::SeqCst);
                         log_line("Control pressed -> agent mode");
-                        
-                        // Update frontend
                         if let Some(app) = APP_HANDLE.get().cloned() {
                             let app_clone = app.clone();
                             let _ = app.run_on_main_thread(move || {
                                 if let Some(w) = app_clone.get_webview_window("main") {
                                     let _ = w.eval("window.__setMode && window.__setMode('agent')");
+                                }
+                            });
+                        }
+                    } else if !control_down && !is_typing {
+                        IS_TEXT_INPUT_MODE.store(true, Ordering::SeqCst);
+                        log_line("Control released -> typing mode");
+                        if let Some(app) = APP_HANDLE.get().cloned() {
+                            let app_clone = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if let Some(w) = app_clone.get_webview_window("main") {
+                                    let _ = w.eval("window.__setMode && window.__setMode('typing')");
                                 }
                             });
                         }
