@@ -989,14 +989,32 @@ fn show_notification(title: &str, message: &str) {
     let _ = execute_applescript(&script);
 }
 
-/// Speak agent-mode response aloud using macOS `say`.
-/// No-op if TTS is disabled in settings or text is empty. Fire-and-forget.
-/// Reads `tts` store: `enabled` (bool), `voice` (optional string like "Samantha").
+/// Speak text aloud using macOS `say`. Honors the TTS enabled toggle.
+/// Used for successful agent responses. Fire-and-forget.
 fn speak_tts(app: &AppHandle, text: &str) {
     if text.trim().is_empty() {
         return;
     }
-    let (enabled, voice) = match app.store("tts") {
+    let (enabled, voice) = read_tts_settings(app);
+    if !enabled {
+        return;
+    }
+    speak_say(text, voice);
+}
+
+/// Always-on TTS for agent-mode errors. Bypasses the enabled toggle because
+/// agent mode has no UI — if something fails the user needs to know. Still
+/// respects the user's voice preference. Fire-and-forget.
+fn speak_error(app: &AppHandle, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (_enabled, voice) = read_tts_settings(app);
+    speak_say(text, voice);
+}
+
+fn read_tts_settings(app: &AppHandle) -> (bool, Option<String>) {
+    match app.store("tts") {
         Ok(store) => {
             let enabled = store.get("enabled")
                 .and_then(|v| v.as_bool())
@@ -1006,19 +1024,18 @@ fn speak_tts(app: &AppHandle, text: &str) {
                 .filter(|s| !s.is_empty());
             (enabled, voice)
         }
-        Err(_) => return,
-    };
-    if !enabled {
-        return;
+        Err(_) => (false, None),
     }
+}
+
+fn speak_say(text: &str, voice: Option<String>) {
     let mut cmd = std::process::Command::new("say");
     if let Some(v) = voice {
         cmd.arg("-v").arg(v);
     }
     cmd.arg(text);
-    // Fire and forget — detach the child so we don't block or zombify.
     if let Err(e) = cmd.spawn() {
-        log_line(&format!("speak_tts: failed to spawn say: {}", e));
+        log_line(&format!("speak_say: failed to spawn say: {}", e));
     }
 }
 
@@ -1717,30 +1734,19 @@ mod macos_fn_key {
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
                     let control_down = (flags & control_flag) != 0;
                     
-                    // Live mode follows Ctrl state. Decision is made at Fn-release,
-                    // so you can change your mind by pressing/releasing Ctrl mid-recording.
-                    //   Ctrl down + was typing  -> switch to agent (purple bar)
-                    //   Ctrl up   + was agent   -> switch back to typing (red bar)
-                    let is_typing = IS_TEXT_INPUT_MODE.load(Ordering::SeqCst);
-                    if control_down && is_typing {
+                    // Sticky agent mode: once Ctrl is pressed during the Fn hold, we
+                    // commit to agent through Fn release. Releasing Ctrl does NOT revert.
+                    // To escape agent: fully release Fn, then start a new Fn-press.
+                    // Rationale: natural finger release order (Fn first, Ctrl second) was
+                    // dropping the agent intent. Sticky survives any release order.
+                    if control_down && IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
                         IS_TEXT_INPUT_MODE.store(false, Ordering::SeqCst);
-                        log_line("Control pressed -> agent mode");
+                        log_line("Control pressed -> agent mode (sticky until Fn release)");
                         if let Some(app) = APP_HANDLE.get().cloned() {
                             let app_clone = app.clone();
                             let _ = app.run_on_main_thread(move || {
                                 if let Some(w) = app_clone.get_webview_window("main") {
                                     let _ = w.eval("window.__setMode && window.__setMode('agent')");
-                                }
-                            });
-                        }
-                    } else if !control_down && !is_typing {
-                        IS_TEXT_INPUT_MODE.store(true, Ordering::SeqCst);
-                        log_line("Control released -> typing mode");
-                        if let Some(app) = APP_HANDLE.get().cloned() {
-                            let app_clone = app.clone();
-                            let _ = app.run_on_main_thread(move || {
-                                if let Some(w) = app_clone.get_webview_window("main") {
-                                    let _ = w.eval("window.__setMode && window.__setMode('typing')");
                                 }
                             });
                         }
@@ -1969,11 +1975,13 @@ mod macos_fn_key {
                                         let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
                                         log_line(&format!("MCP Agent: API error: {}", err));
                                         show_notification("t2t", &format!("Error: {}", err));
+                                        speak_error(&app_unwrapped, &format!("Agent error. {}", err));
                                     }
                                 }
                                 Some(Err(e)) => {
                                     log_line(&format!("MCP Agent: API call failed: {}", e));
                                     show_notification("t2t", &format!("API error: {}", e));
+                                    speak_error(&app_unwrapped, "API call failed. See the log for details.");
                                 }
                                 None => {
                                     // Fallback to local AppleScript agent
@@ -2027,6 +2035,7 @@ mod macos_fn_key {
                                                                 Err(e) => {
                                                                     log_line(&format!("Agent: script failed: {}", e));
                                                                     show_notification("t2t", &format!("Script error: {}", e));
+                                                                    speak_error(&app_unwrapped, "Script failed.");
                                                                 }
                                                             }
                                                         }
@@ -2034,21 +2043,25 @@ mod macos_fn_key {
                                                     } else if response.blocked == Some(true) {
                                                         log_line("Agent: script blocked by safety filter");
                                                         show_notification("t2t", "Action blocked for safety");
+                                                        speak_error(&app_unwrapped, "Action blocked for safety.");
                                                     } else {
                                                         let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
                                                         log_line(&format!("Agent: error: {}", err));
                                                         show_notification("t2t", &format!("Error: {}", err));
+                                                        speak_error(&app_unwrapped, &format!("Agent error. {}", err));
                                                     }
                                                 }
                                                 Err(e) => {
                                                     log_line(&format!("Agent: AppleScript generation failed: {}", e));
                                                     show_notification("t2t", &format!("Error: {}", e));
+                                                    speak_error(&app_unwrapped, "AppleScript generation failed. See the log.");
                                                 }
                                             }
                                         }
                                         None => {
                                             log_line("Agent: No OpenRouter API key found");
                                             show_notification("t2t", "OpenRouter API key required for agent mode");
+                                            speak_error(&app_unwrapped, "OpenRouter API key required. Set it in settings.");
                                         }
                                     }
                                 }
