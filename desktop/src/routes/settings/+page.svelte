@@ -265,8 +265,11 @@
       const { load } = window.__TAURI__.store;
       const serversStore = await load("mcp-servers.json", { autoSave: true });
 
-      const serversData = ((await serversStore.get("servers")) ??
-        []) as MCPServer[];
+      // Defensive: store file could be corrupt/wrong shape ({} instead of
+      // {servers: []}). Without this guard, .map below throws and the whole
+      // Settings window renders white. Seen 2026-04-17.
+      const raw = await serversStore.get("servers");
+      const serversData = (Array.isArray(raw) ? raw : []) as MCPServer[];
 
       servers = serversData.map((s) => ({
         ...s,
