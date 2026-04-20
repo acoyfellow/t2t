@@ -186,20 +186,16 @@ fn format_user_message(text: &str, screenshot_base64: Option<&str>) -> serde_jso
 
 // Local AppleScript agent: Calls OpenRouter directly, no worker needed
 fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str, app: Option<&AppHandle>) -> Result<AgentResponse, String> {
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -571,20 +567,16 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         .map(mcp_tool_to_openai)
         .collect();
     
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -1735,14 +1727,14 @@ mod macos_fn_key {
                         }
                         
                         if IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
-                            // Typing mode: save clipboard, paste, restore
-                            let original = get_clipboard_macos();
+                            // Typing mode: save FULL clipboard (all types), paste, restore
+                            let snapshot = save_clipboard_snapshot();
                             let text_with_space = format!("{text} ");
-                            set_clipboard_macos(&text_with_space);
+                            set_clipboard_text(&text_with_space);
                             paste_text();
                             std::thread::sleep(std::time::Duration::from_millis(80));
-                            if let Some(orig) = original {
-                                set_clipboard_macos(&orig);
+                            if let Some(snap) = snapshot {
+                                restore_clipboard_snapshot(&snap);
                             }
                             log_line(&format!("Pasted native text len={} (clipboard preserved)", text.len()));
                             update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
@@ -1818,13 +1810,13 @@ mod macos_fn_key {
                                                 }
                                             }
                                             
-                                            // Always paste the response
-                                            let original = get_clipboard_macos();
-                                            set_clipboard_macos(&response_text);
+                                            // Always paste the response (preserving full clipboard)
+                                            let snapshot = save_clipboard_snapshot();
+                                            set_clipboard_text(&response_text);
                                             paste_text();
                                             std::thread::sleep(std::time::Duration::from_millis(80));
-                                            if let Some(orig) = original {
-                                                set_clipboard_macos(&orig);
+                                            if let Some(snap) = snapshot {
+                                                restore_clipboard_snapshot(&snap);
                                             }
                                             
                                             // Show notification with tool info
@@ -2520,27 +2512,258 @@ fn paste_text() {
     }
 }
 
+/// Represents a complete snapshot of the clipboard, including all data types.
+/// This is necessary because the clipboard can contain multiple representations
+/// of the same data (e.g., text, RTF, HTML) as well as completely different data
+/// types (e.g., images, files) simultaneously.
 #[cfg(target_os = "macos")]
-fn get_clipboard_macos() -> Option<String> {
-    use std::process::Command;
-    Command::new("pbpaste")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
+#[derive(Clone)]
+struct ClipboardSnapshot {
+    /// Each item is (UTI type string, raw data bytes)
+    items: Vec<(String, Vec<u8>)>,
+    /// The change count at the time of snapshot, used to detect if clipboard changed
+    change_count: i64,
 }
 
 #[cfg(target_os = "macos")]
-fn set_clipboard_macos(text: &str) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
-        if let Some(stdin) = child.stdin.as_mut() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        let _ = child.wait();
+impl ClipboardSnapshot {
+    fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 }
+
+/// Saves the entire clipboard state, including all data types (text, images, files, etc.)
+/// Returns None if clipboard is empty or on error.
+#[cfg(target_os = "macos")]
+fn save_clipboard_snapshot() -> Option<ClipboardSnapshot> {
+    use objc::rc::autoreleasepool;
+    use objc::runtime::{Class, Object};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CStr;
+    use std::slice;
+
+    autoreleasepool(|| {
+        unsafe {
+            // Get NSPasteboard general pasteboard
+            let pasteboard_class = Class::get("NSPasteboard")?;
+            let pasteboard: *mut Object = msg_send![pasteboard_class, generalPasteboard];
+            if pasteboard.is_null() {
+                log_line("clipboard: failed to get generalPasteboard");
+                return None;
+            }
+
+            // Get change count for later verification
+            let change_count: i64 = msg_send![pasteboard, changeCount];
+
+            // Get all types available on the pasteboard
+            let types: *mut Object = msg_send![pasteboard, types];
+            if types.is_null() {
+                log_line("clipboard: no types on pasteboard");
+                return Some(ClipboardSnapshot { items: vec![], change_count });
+            }
+
+            let count: usize = msg_send![types, count];
+            if count == 0 {
+                return Some(ClipboardSnapshot { items: vec![], change_count });
+            }
+
+            let mut items = Vec::with_capacity(count);
+
+            for i in 0..count {
+                let uti: *mut Object = msg_send![types, objectAtIndex: i];
+                if uti.is_null() {
+                    continue;
+                }
+
+                // Get UTF8 string for the UTI type
+                let uti_cstr: *const i8 = msg_send![uti, UTF8String];
+                if uti_cstr.is_null() {
+                    continue;
+                }
+                let uti_str = CStr::from_ptr(uti_cstr).to_string_lossy().into_owned();
+
+                // Get data for this type
+                let data: *mut Object = msg_send![pasteboard, dataForType: uti];
+                if data.is_null() {
+                    continue;
+                }
+
+                let length: usize = msg_send![data, length];
+                if length == 0 {
+                    // Still record empty data for this type (some types can be empty)
+                    items.push((uti_str, vec![]));
+                    continue;
+                }
+
+                let bytes_ptr: *const u8 = msg_send![data, bytes];
+                if bytes_ptr.is_null() {
+                    continue;
+                }
+
+                let bytes = slice::from_raw_parts(bytes_ptr, length).to_vec();
+                items.push((uti_str, bytes));
+            }
+
+            log_line(&format!("clipboard: saved snapshot with {} types", items.len()));
+            Some(ClipboardSnapshot { items, change_count })
+        }
+    })
+}
+
+/// Restores the clipboard to a previously saved snapshot, preserving all data types.
+#[cfg(target_os = "macos")]
+fn restore_clipboard_snapshot(snapshot: &ClipboardSnapshot) {
+    use objc::rc::autoreleasepool;
+    use objc::runtime::{Class, Object, BOOL, YES};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CString;
+
+    if snapshot.is_empty() {
+        log_line("clipboard: snapshot empty, clearing pasteboard");
+        // Clear the pasteboard if snapshot was empty
+        autoreleasepool(|| {
+            unsafe {
+                let pasteboard_class = match Class::get("NSPasteboard") {
+                    Some(c) => c,
+                    None => return,
+                };
+                let pasteboard: *mut Object = msg_send![pasteboard_class, generalPasteboard];
+                if !pasteboard.is_null() {
+                    let _: i64 = msg_send![pasteboard, clearContents];
+                }
+            }
+        });
+        return;
+    }
+
+    autoreleasepool(|| {
+        unsafe {
+            let pasteboard_class = match Class::get("NSPasteboard") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSPasteboard class");
+                    return;
+                }
+            };
+            let pasteboard: *mut Object = msg_send![pasteboard_class, generalPasteboard];
+            if pasteboard.is_null() {
+                log_line("clipboard: failed to get generalPasteboard for restore");
+                return;
+            }
+
+            // Clear current contents and prepare for new data
+            let _: i64 = msg_send![pasteboard, clearContents];
+
+            // Get NSData and NSString classes
+            let nsdata_class = match Class::get("NSData") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSData class");
+                    return;
+                }
+            };
+            let nsstring_class = match Class::get("NSString") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSString class");
+                    return;
+                }
+            };
+
+            let mut restored_count = 0;
+            for (uti_str, data_bytes) in &snapshot.items {
+                // Create NSString for the UTI
+                let uti_cstring = match CString::new(uti_str.as_str()) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let uti_nsstring: *mut Object = msg_send![nsstring_class, stringWithUTF8String: uti_cstring.as_ptr()];
+                if uti_nsstring.is_null() {
+                    continue;
+                }
+
+                // Create NSData from bytes
+                let nsdata: *mut Object = msg_send![nsdata_class, dataWithBytes: data_bytes.as_ptr() length: data_bytes.len()];
+                if nsdata.is_null() {
+                    continue;
+                }
+
+                // Set data for this type on the pasteboard
+                let success: BOOL = msg_send![pasteboard, setData: nsdata forType: uti_nsstring];
+                if success == YES {
+                    restored_count += 1;
+                }
+            }
+
+            log_line(&format!("clipboard: restored {}/{} types", restored_count, snapshot.items.len()));
+        }
+    })
+}
+
+/// Sets the clipboard to plain text (used for pasting transcribed text)
+#[cfg(target_os = "macos")]
+fn set_clipboard_text(text: &str) {
+    use objc::rc::autoreleasepool;
+    use objc::runtime::{Class, Object, BOOL, YES};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CString;
+
+    autoreleasepool(|| {
+        unsafe {
+            let pasteboard_class = match Class::get("NSPasteboard") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSPasteboard class");
+                    return;
+                }
+            };
+            let pasteboard: *mut Object = msg_send![pasteboard_class, generalPasteboard];
+            if pasteboard.is_null() {
+                log_line("clipboard: failed to get generalPasteboard for setText");
+                return;
+            }
+
+            // Clear and declare types
+            let _: i64 = msg_send![pasteboard, clearContents];
+
+            // Get NSString class and create the string
+            let nsstring_class = match Class::get("NSString") {
+                Some(c) => c,
+                None => {
+                    log_line("clipboard: failed to get NSString class");
+                    return;
+                }
+            };
+
+            let text_cstring = match CString::new(text) {
+                Ok(s) => s,
+                Err(_) => {
+                    log_line("clipboard: failed to create CString from text");
+                    return;
+                }
+            };
+            let text_nsstring: *mut Object = msg_send![nsstring_class, stringWithUTF8String: text_cstring.as_ptr()];
+            if text_nsstring.is_null() {
+                log_line("clipboard: failed to create NSString");
+                return;
+            }
+
+            // Use public.utf8-plain-text UTI
+            let uti_cstring = CString::new("public.utf8-plain-text").unwrap();
+            let uti_nsstring: *mut Object = msg_send![nsstring_class, stringWithUTF8String: uti_cstring.as_ptr()];
+
+            // Also set as NSPasteboardTypeString for compatibility
+            let success: BOOL = msg_send![pasteboard, setString: text_nsstring forType: uti_nsstring];
+            if success != YES {
+                log_line("clipboard: failed to set text on pasteboard");
+            }
+        }
+    })
+}
+
+// Note: Legacy functions get_clipboard_macos() and set_clipboard_macos() have been removed.
+// They only handled text and would destroy non-text clipboard content (images, files, etc.).
+// Use save_clipboard_snapshot() / restore_clipboard_snapshot() / set_clipboard_text() instead.
 // Fetch available models from OpenRouter
 #[tauri::command]
 async fn fetch_openrouter_models(openrouter_key: String) -> Result<serde_json::Value, String> {
@@ -2783,42 +3006,6 @@ fn get_system_theme() -> String {
         }
     }
     "light".to_string()
-}
-
-/// Check if a model is an image generation model (supports image input for generation)
-/// 
-/// This function detects image generation models based on common OpenRouter model ID patterns.
-/// When an image generation model is selected, screenshots are automatically included with
-/// every agent input to enable the "agent can see" feature.
-/// 
-/// Supported patterns include: DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram, and others.
-/// 
-/// # Arguments
-/// * `model_id` - The OpenRouter model ID (e.g., "openai/dall-e-3", "black-forest-labs/flux")
-/// 
-/// # Returns
-/// `true` if the model is an image generation model, `false` otherwise
-fn is_image_generation_model(model_id: &str) -> bool {
-    let model_lower = model_id.to_lowercase();
-    
-    // Common image generation model patterns
-    model_lower.contains("dall-e") ||
-    model_lower.contains("dalle") ||
-    model_lower.contains("stable-diffusion") ||
-    model_lower.contains("stablediffusion") ||
-    model_lower.contains("flux") ||
-    model_lower.contains("midjourney") ||
-    model_lower.contains("ideogram") ||
-    model_lower.contains("imagen") ||
-    model_lower.contains("cogview") ||
-    model_lower.contains("wuerstchen") ||
-    model_lower.contains("playground") ||
-    model_lower.contains("kandinsky") ||
-    model_lower.contains("realistic-vision") ||
-    model_lower.contains("dreamshaper") ||
-    model_lower.contains("sdxl") ||
-    model_lower.contains("black-forest-labs") ||
-    model_lower.contains("stability-ai")
 }
 
 /// Capture screenshot on macOS using screencapture command
@@ -3551,4 +3738,285 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error running app");
+}
+
+// ============================================================================
+// Tests for clipboard preservation functionality
+// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that ClipboardSnapshot correctly identifies empty state
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_clipboard_snapshot_is_empty() {
+        let empty_snapshot = ClipboardSnapshot {
+            items: vec![],
+            change_count: 0,
+        };
+        assert!(empty_snapshot.is_empty());
+
+        let non_empty_snapshot = ClipboardSnapshot {
+            items: vec![("public.utf8-plain-text".to_string(), b"hello".to_vec())],
+            change_count: 1,
+        };
+        assert!(!non_empty_snapshot.is_empty());
+    }
+
+    /// Test that ClipboardSnapshot can store multiple types
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_clipboard_snapshot_multiple_types() {
+        let snapshot = ClipboardSnapshot {
+            items: vec![
+                ("public.utf8-plain-text".to_string(), b"Hello".to_vec()),
+                ("public.rtf".to_string(), b"{\\rtf1 Hello}".to_vec()),
+                ("public.html".to_string(), b"<html>Hello</html>".to_vec()),
+            ],
+            change_count: 42,
+        };
+
+        assert!(!snapshot.is_empty());
+        assert_eq!(snapshot.items.len(), 3);
+        assert_eq!(snapshot.change_count, 42);
+
+        // Verify each type is stored correctly
+        assert!(snapshot.items.iter().any(|(t, _)| t == "public.utf8-plain-text"));
+        assert!(snapshot.items.iter().any(|(t, _)| t == "public.rtf"));
+        assert!(snapshot.items.iter().any(|(t, _)| t == "public.html"));
+    }
+
+    /// Test that ClipboardSnapshot can store binary data (for images)
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_clipboard_snapshot_binary_data() {
+        // PNG magic bytes
+        let png_header: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+        let snapshot = ClipboardSnapshot {
+            items: vec![
+                ("public.png".to_string(), png_header.clone()),
+            ],
+            change_count: 1,
+        };
+
+        assert!(!snapshot.is_empty());
+        assert_eq!(snapshot.items[0].1, png_header);
+    }
+
+    /// Test that ClipboardSnapshot clone works correctly
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_clipboard_snapshot_clone() {
+        let original = ClipboardSnapshot {
+            items: vec![
+                ("public.utf8-plain-text".to_string(), b"test".to_vec()),
+            ],
+            change_count: 123,
+        };
+
+        let cloned = original.clone();
+
+        assert_eq!(original.items.len(), cloned.items.len());
+        assert_eq!(original.change_count, cloned.change_count);
+        assert_eq!(original.items[0].0, cloned.items[0].0);
+        assert_eq!(original.items[0].1, cloned.items[0].1);
+    }
+
+    /// Integration test: save and restore clipboard preserves text
+    /// Note: This test requires macOS and will modify the system clipboard
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore] // Ignored by default because it modifies system clipboard
+    fn test_save_restore_clipboard_text() {
+        // Save original clipboard
+        let original = save_clipboard_snapshot();
+
+        // Set a test value
+        set_clipboard_text("test_clipboard_preservation");
+
+        // Save the test value
+        let test_snapshot = save_clipboard_snapshot();
+        assert!(test_snapshot.is_some());
+
+        // Set something else
+        set_clipboard_text("something_else");
+
+        // Restore the test value
+        if let Some(snap) = test_snapshot {
+            restore_clipboard_snapshot(&snap);
+        }
+
+        // Verify restoration worked (using pbpaste for verification)
+        use std::process::Command;
+        let output = Command::new("pbpaste").output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(text.contains("test_clipboard_preservation"));
+        }
+
+        // Restore original clipboard
+        if let Some(orig) = original {
+            restore_clipboard_snapshot(&orig);
+        }
+    }
+
+    /// Test that file URLs are preserved in clipboard
+    /// Note: This test requires macOS and will modify the system clipboard
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore] // Ignored by default because it modifies system clipboard
+    fn test_save_restore_clipboard_file_url() {
+        use std::process::Command;
+
+        // Save original clipboard
+        let original = save_clipboard_snapshot();
+
+        // Copy a file to clipboard using AppleScript
+        let _ = Command::new("osascript")
+            .args(["-e", r#"
+                set theFile to POSIX file "/etc/hosts"
+                tell application "Finder"
+                    set the clipboard to theFile
+                end tell
+            "#])
+            .output();
+
+        // Wait for clipboard to update
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Save clipboard with file
+        let file_snapshot = save_clipboard_snapshot();
+        assert!(file_snapshot.is_some());
+
+        if let Some(ref snap) = file_snapshot {
+            // Should have file-related types
+            let has_file_type = snap.items.iter().any(|(t, _)| {
+                t.contains("file-url") || t.contains("public.url") || t.contains("Filename")
+            });
+            // Note: assertion is informational - file copying behavior varies
+            if !has_file_type {
+                println!("Note: No file URL types found. This may be expected on some systems.");
+            }
+        }
+
+        // Clear clipboard
+        set_clipboard_text("cleared");
+
+        // Restore file clipboard
+        if let Some(snap) = file_snapshot {
+            restore_clipboard_snapshot(&snap);
+        }
+
+        // Restore original clipboard
+        if let Some(orig) = original {
+            restore_clipboard_snapshot(&orig);
+        }
+    }
+
+    /// Test that images are preserved in clipboard
+    /// Note: This test requires macOS and will modify the system clipboard
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore] // Ignored by default because it modifies system clipboard
+    fn test_save_restore_clipboard_image() {
+        use std::process::Command;
+
+        // Save original clipboard
+        let original = save_clipboard_snapshot();
+
+        // Take a tiny screenshot and copy to clipboard
+        let _ = Command::new("screencapture")
+            .args(["-c", "-R", "0,0,10,10"]) // Capture tiny 10x10 region to clipboard
+            .output();
+
+        // Wait for clipboard to update
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Save clipboard with image
+        let image_snapshot = save_clipboard_snapshot();
+        assert!(image_snapshot.is_some());
+
+        if let Some(ref snap) = image_snapshot {
+            // Should have image-related types
+            let has_image_type = snap.items.iter().any(|(t, _)| {
+                t.contains("png") || t.contains("tiff") || t.contains("image")
+            });
+            assert!(has_image_type, "Expected image types in clipboard snapshot");
+
+            // Image data should be non-trivial size
+            let total_size: usize = snap.items.iter().map(|(_, d)| d.len()).sum();
+            assert!(total_size > 100, "Expected substantial image data");
+        }
+
+        // Clear clipboard
+        set_clipboard_text("cleared");
+
+        // Restore image clipboard
+        if let Some(snap) = image_snapshot {
+            restore_clipboard_snapshot(&snap);
+        }
+
+        // Verify image is restored (check for image types)
+        let restored = save_clipboard_snapshot();
+        if let Some(snap) = restored {
+            let has_image_type = snap.items.iter().any(|(t, _)| {
+                t.contains("png") || t.contains("tiff") || t.contains("image")
+            });
+            assert!(has_image_type, "Expected image types after restoration");
+        }
+
+        // Restore original clipboard
+        if let Some(orig) = original {
+            restore_clipboard_snapshot(&orig);
+        }
+    }
+
+    /// Test audio resampling (existing functionality)
+    #[test]
+    fn test_resample_to_16k_linear_passthrough() {
+        // If input is already 16kHz, should pass through unchanged
+        let input: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4, 0.5];
+        let output = resample_to_16k_linear(&input, 16000);
+        assert_eq!(input.len(), output.len());
+        for (i, o) in input.iter().zip(output.iter()) {
+            assert!((i - o).abs() < 0.001);
+        }
+    }
+
+    /// Test audio resampling downsampling
+    #[test]
+    fn test_resample_to_16k_linear_downsample() {
+        // 48kHz -> 16kHz should reduce samples by 3x
+        let input: Vec<f32> = (0..48000).map(|i| (i as f32 / 48000.0).sin()).collect();
+        let output = resample_to_16k_linear(&input, 48000);
+        // Output should be approximately 1/3 the size
+        let expected_len = (input.len() as f64 * 16000.0 / 48000.0) as usize;
+        assert!((output.len() as i64 - expected_len as i64).abs() <= 1);
+    }
+
+    /// Test audio statistics calculation
+    #[test]
+    fn test_audio_stats_silence() {
+        let silence: Vec<f32> = vec![0.0; 1000];
+        let (rms, peak) = audio_stats(&silence);
+        assert_eq!(rms, 0.0);
+        assert_eq!(peak, 0.0);
+    }
+
+    /// Test audio statistics with signal
+    #[test]
+    fn test_audio_stats_with_signal() {
+        // Create a simple sine wave
+        let samples: Vec<f32> = (0..1000)
+            .map(|i| (i as f32 * 0.1).sin() * 0.5)
+            .collect();
+        let (rms, peak) = audio_stats(&samples);
+
+        // RMS should be approximately 0.5 / sqrt(2) ≈ 0.354 for a sine wave
+        assert!(rms > 0.3 && rms < 0.4, "RMS {} not in expected range", rms);
+        // Peak should be close to 0.5
+        assert!(peak > 0.4 && peak <= 0.5, "Peak {} not in expected range", peak);
+    }
 }

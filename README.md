@@ -66,7 +66,6 @@ Configure your t2t installation:
 - **OpenRouter API Key**: Set your API key for agent mode
 - **AI Model Selection**: Choose which model to use for agent mode
   - Supports all OpenRouter models
-  - Image generation models show a 🖼️ badge
   - Auto-refresh available to fetch latest models
 - **MCP Servers**: Add, configure, and manage MCP servers
   - Test connections and view available tools
@@ -88,39 +87,23 @@ When MCP servers are configured in settings, agent mode uses MCP instead of Appl
 
 **To configure**: Menu bar icon → **View Settings** → Settings tab → MCP Servers section. Requires an OpenRouter API key.
 
-## Image Generation Models & Automatic Screenshots
+## Vision Support & Automatic Screenshots
 
-When you select an **image generation model** (e.g., DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram), t2t automatically captures and includes a screenshot with every agent input. This enables the "agent can see" feature - the AI can see your screen context when generating images.
+t2t automatically captures and includes a screenshot with every agent call, enabling vision-capable models to "see" your screen context. This works seamlessly with any model - vision-capable models process the image, while text-only models simply ignore it.
 
 ### How It Works
 
-- **Automatic detection**: Models are automatically detected as image generation capable based on their ID patterns
-- **Screenshot capture**: When you use agent mode (Fn+Ctrl) with an image generation model, a screenshot is captured before sending your prompt
+- **Automatic capture**: When you use agent mode (Fn+Ctrl), a screenshot is captured before sending your prompt
+- **Universal support**: Screenshots are included with all agent calls, regardless of model selection
+- **Smart routing**: OpenRouter automatically routes to vision-capable models when available, or ignores the image for text-only models
 - **Seamless integration**: Screenshots are included in the API request without any additional UI or user action
-- **Privacy**: Screenshots are only captured when using image generation models, and only sent to the API (not stored locally)
-
-### Supported Model Patterns
-
-The following model ID patterns trigger automatic screenshot capture:
-- `dall-e`, `dalle` (OpenAI DALL-E)
-- `stable-diffusion`, `stablediffusion` (Stability AI)
-- `flux` (Black Forest Labs)
-- `midjourney`
-- `ideogram`
-- `imagen` (Google)
-- `sdxl`, `realistic-vision`, `dreamshaper` (Stable Diffusion variants)
-- Models from `black-forest-labs` or `stability-ai` providers
-
-### UI Indicators
-
-In Settings → Model Selection:
-- Image generation models show a 🖼️ badge
-- A purple info box appears when an image generation model is selected, explaining the automatic screenshot behavior
+- **Privacy**: Screenshots are only sent to the API (not stored locally), and thumbnails are visible in History
 
 ### Privacy & Permissions
 
-- **Screen Recording permission**: macOS may prompt for screen recording permission the first time you use an image generation model
-- **No local storage**: Screenshots are not saved to disk - they're only sent to the API
+- **Screen Recording permission**: macOS may prompt for screen recording permission the first time you use agent mode
+- **No local storage**: Full screenshots are not saved to disk - they're only sent to the API
+- **Thumbnails**: Small thumbnails (150x150px) are stored locally in History for reference
 - **Error handling**: If screenshot capture fails (e.g., permission denied), the agent falls back to text-only mode
 
 ### Technical Details
@@ -128,6 +111,7 @@ In Settings → Model Selection:
 - Screenshots are captured using macOS `screencapture` command
 - Images are encoded as base64 PNG and included in the OpenAI-compatible message format
 - The screenshot is included in both initial requests and follow-up requests after tool execution
+- Vision-capable models (GPT-4 Vision, Claude 3.5 Sonnet, etc.) can process the image to understand your screen context
 
 ## History & Logging
 
@@ -137,7 +121,7 @@ t2t automatically logs all transcriptions and agent calls for review and debuggi
 
 - **Transcription history**: All voice transcriptions are saved with timestamps
 - **Agent call logging**: Complete request/response logs for all OpenRouter API calls
-- **Screenshot thumbnails**: Tiny thumbnails (150x150px) of screenshots sent with agent calls
+- **Screenshot thumbnails**: Tiny thumbnails (150x150px) of screenshots captured with all agent calls
 - **Search**: Fast local search across all history entries
 - **Expandable details**: Click any entry to view full request/response JSON and tool calls
 
@@ -164,7 +148,7 @@ Menu bar icon → **View Settings** → **History** tab
 - Full request JSON (messages, parameters)
 - Full response JSON (AI output, tool calls)
 - Tool calls executed (if any)
-- Screenshot thumbnail (if screenshot was included)
+- Screenshot thumbnail (captured automatically with each agent call)
 - Success/error status
 
 ## First Run
