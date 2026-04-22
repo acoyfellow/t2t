@@ -274,10 +274,10 @@
               Visual Feedback
             </h3>
             <p class="mb-2">
-              A red bar appears at the top of your screen while recording:
+              A green bar appears at the bottom of your screen while recording:
             </p>
             <ul class="list-disc list-inside space-y-1 ml-4">
-              <li><strong>Red bar</strong> = Recording (typing mode)</li>
+              <li><strong>Green bar</strong> = Recording (typing mode)</li>
               <li><strong>Amber bar</strong> = Processing transcription</li>
               <li>Bar disappears when text is pasted</li>
             </ul>
@@ -327,19 +327,11 @@
                 class="px-2 py-1 bg-muted border border-border text-primary font-mono rounded text-sm"
                 >ctrl</kbd
               >
-              (or
-              <kbd
-                class="px-2 py-1 bg-muted border border-border text-primary font-mono rounded text-sm"
-                >fn</kbd
-              >
-              +
-              <kbd
-                class="px-2 py-1 bg-muted border border-border text-primary font-mono rounded text-sm"
-                >cmd</kbd
-              > on macOS) to enter agent mode.
+              to enter agent mode.
             </p>
             <p class="text-sm text-muted-foreground">
-              A cyan bar appears while recording in agent mode.
+              A purple bar appears while recording in agent mode.
+              An orange bar with a sweeping animation means Shelley is working — click it to open the Chat tab.
             </p>
           </div>
 
@@ -348,16 +340,20 @@
               What It Does
             </h3>
             <p class="mb-2">
-              Agent mode uses AI to understand your voice command and execute
-              actions:
+              Agent mode sends your voice command to Shelley, a coding agent
+              that runs locally inside t2t:
             </p>
             <ul class="list-disc list-inside space-y-1 ml-4">
               <li>
-                <strong>With MCP servers</strong>: Connects to your configured
-                MCP servers and uses their tools
+                <strong>Shelley</strong> (default): Full coding agent with bash, file editing,
+                and multi-model support. See the Chat tab.
               </li>
               <li>
-                <strong>Without MCP servers</strong>: Generates and executes
+                <strong>MCP servers</strong> (fallback): If Shelley is unavailable, connects
+                to your configured MCP servers and uses their tools
+              </li>
+              <li>
+                <strong>AppleScript</strong> (last resort): Generates and executes
                 AppleScript for macOS automation
               </li>
             </ul>

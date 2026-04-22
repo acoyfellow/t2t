@@ -10,206 +10,137 @@
 
 [View all releases on GitHub →](https://github.com/acoyfellow/t2t/releases)
 
-> **Note:** The app is not code-signed yet. On first launch, macOS may show a security warning. To open it:
+> **Note:** The app is not code-signed yet. On first launch:
 > - Right-click the app → **Open**, then click **Open** in the dialog
 > - Or run: `xattr -cr /Applications/t2t.app` in Terminal
 >
-> **Heads up:** This is an unsigned build while we polish things up. Each time you update to a new version, you'll need to remove t2t from System Settings → Privacy & Security → Accessibility (and Microphone if needed), then re-add it. We'll get it properly signed soon!
+> Each update may require re-adding t2t in System Settings → Privacy & Security → Accessibility.
 
-## How It Works
+## Get started
 
-- **Hold Fn key** → records microphone audio
-- **Release Fn key** → transcribes using local Whisper model
-- **Typing mode** (red bar): Hold Fn alone → pastes transcription into focused text field, preserves clipboard
-- **Agent mode** (cyan bar): Hold Fn+Ctrl → speaks commands to AI agent
-  - **MCP mode** (if configured): Connects to MCP servers, uses their tools via OpenRouter AI
-  - **AppleScript mode** (fallback): Generates and executes AppleScript for macOS automation
-- Visual feedback: red/cyan bar while recording (based on mode), amber while processing
+1. Download and install from [t2t.now](https://t2t.now)
+2. Grant Accessibility and Microphone permissions when prompted
+3. **Hold fn** → speak → release → text appears in your focused field
 
-## Requirements
+That's it. You're dictating.
 
-- **macOS** (currently macOS only; tested on Apple Silicon)
-- **Accessibility permission** - Required for Fn key detection and focusing the correct field before paste
-- **Microphone permission** - Required for audio recording
-- **OpenRouter API key** (for agent mode) - Get one at [openrouter.ai](https://openrouter.ai)
+## Usage
 
-The app will prompt you if permissions are missing.
+### fn — Dictate
 
-## Getting Started
+Hold fn, speak, release. Your words are transcribed locally (Whisper) and pasted into whatever text field is focused. Clipboard is preserved.
 
-1. **Download and install** the app from [t2t.now](https://t2t.now)
-2. **Grant permissions** when prompted (Accessibility and Microphone)
-3. **Get an OpenRouter API key** at [openrouter.ai](https://openrouter.ai) (required for agent mode)
-4. **Open settings**: Click the menu bar icon → **View Settings**
-5. **Configure agent mode** (optional):
-   - Add your OpenRouter API key in settings
-   - Optionally configure MCP servers for extended automation
+- Green status bar while recording
+- Amber bar while transcribing
 
-## Settings & Analytics
+### fn+ctrl — Command Shelley
 
-The settings window (Menu bar icon → **View Settings**) includes three tabs:
+Hold fn, then hold ctrl, speak a command, release. Your voice is sent to Shelley, a coding agent that runs locally inside t2t.
 
-### Analytics Tab
+- Purple status bar while recording
+- Orange bar with sweep animation while Shelley is working
+- **Click the orange bar** to open the Chat tab and see what Shelley is doing
+- Press Escape to dismiss
 
-View your transcription usage statistics:
-- **Total Words**: Lifetime count of all transcribed words
-- **Lifetime Average**: Average words per minute across all sessions
-- **Session Average**: Average words per minute for current session
-- **Sessions**: Total number of transcription sessions
-- **Hours Active**: Total time spent transcribing
-- **Recent Activity**: 48-hour hourly activity chart
+Shelley requires an API key (it calls the model over the internet). Set it in Settings.
 
-### Settings Tab
+**Fallback chain:** If Shelley isn't available, agent mode falls back to MCP servers (if configured), then to AppleScript generation.
 
-Configure your t2t installation:
-- **Theme**: Toggle between light and dark mode
-- **OpenRouter API Key**: Set your API key for agent mode
-- **AI Model Selection**: Choose which model to use for agent mode
-  - Supports all OpenRouter models
-  - Image generation models show a 🖼️ badge
-  - Auto-refresh available to fetch latest models
-- **MCP Servers**: Add, configure, and manage MCP servers
-  - Test connections and view available tools
-  - Enable/disable servers individually
-  - Supports stdio, HTTP, and SSE transports
+### Vision
 
-### History Tab
+Agent mode automatically captures a screenshot with each command. Vision-capable models see your screen context; text-only models ignore it. No setup required.
 
-See [History & Logging](#history--logging) section below.
+## Settings
 
-## MCP (Model Context Protocol) Support
+Menu bar icon → **View Settings**. Four tabs:
 
-When MCP servers are configured in settings, agent mode uses MCP instead of AppleScript. This enables:
+| Tab | What it shows |
+|---|---|
+| **Analytics** | Total words, WPM averages, session count, 48-hour activity chart |
+| **Settings** | API key, model selection, theme, MCP server management |
+| **History** | Searchable log of all transcriptions and agent calls |
+| **Chat** | Shelley's web UI — full coding agent interface |
 
-- **Extensible automation**: Connect to any MCP-compatible service (databases, APIs, file systems, etc.)
-- **Tool-based execution**: AI agent uses tools provided by your MCP servers
-- **Multiple servers**: Connect to multiple MCP servers simultaneously
-- **Transport options**: Supports stdio, HTTP, and SSE transports
+### Configure agent mode
 
-**To configure**: Menu bar icon → **View Settings** → Settings tab → MCP Servers section. Requires an OpenRouter API key.
+1. Get an API key at [openrouter.ai](https://openrouter.ai)
+2. Open Settings tab → paste your OpenRouter API key → Save
+3. Optionally select a model (defaults to `openai/gpt-5-nano`)
+4. Optionally add MCP servers for extended tool access
 
-## Image Generation Models & Automatic Screenshots
+### MCP servers
 
-When you select an **image generation model** (e.g., DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram), t2t automatically captures and includes a screenshot with every agent input. This enables the "agent can see" feature - the AI can see your screen context when generating images.
+When MCP servers are configured, agent mode can use their tools (databases, APIs, file systems). Supports stdio, HTTP, and SSE transports. Add servers in the Settings tab.
 
-### How It Works
+## Reference
 
-- **Automatic detection**: Models are automatically detected as image generation capable based on their ID patterns
-- **Screenshot capture**: When you use agent mode (Fn+Ctrl) with an image generation model, a screenshot is captured before sending your prompt
-- **Seamless integration**: Screenshots are included in the API request without any additional UI or user action
-- **Privacy**: Screenshots are only captured when using image generation models, and only sent to the API (not stored locally)
+### Status bar colors
 
-### Supported Model Patterns
+| Color | Meaning |
+|---|---|
+| Green | Recording (typing mode) |
+| Purple | Recording (agent mode) |
+| Amber | Transcribing |
+| Orange + sweep | Shelley working (click to open Chat) |
 
-The following model ID patterns trigger automatic screenshot capture:
-- `dall-e`, `dalle` (OpenAI DALL-E)
-- `stable-diffusion`, `stablediffusion` (Stability AI)
-- `flux` (Black Forest Labs)
-- `midjourney`
-- `ideogram`
-- `imagen` (Google)
-- `sdxl`, `realistic-vision`, `dreamshaper` (Stable Diffusion variants)
-- Models from `black-forest-labs` or `stability-ai` providers
+### Environment variables
 
-### UI Indicators
+| Variable | Default | Description |
+|---|---|---|
+| `OPENROUTER_API_KEY` | — | Fallback API key (settings UI takes priority) |
+| `OPENROUTER_MODEL` | `openai/gpt-5-nano` | Fallback model |
+| `ANTHROPIC_API_KEY` | — | Passed to Shelley for direct Anthropic access |
+| `T2T_HISTORY_LIMIT` | `1000` | Max history entries before pruning |
 
-In Settings → Model Selection:
-- Image generation models show a 🖼️ badge
-- A purple info box appears when an image generation model is selected, explaining the automatic screenshot behavior
+### File locations
 
-### Privacy & Permissions
+| File | Path |
+|---|---|
+| Logs | `~/Library/Logs/t2t.log` |
+| Whisper model | `~/.cache/whisper/ggml-base.en.bin` (~150MB, auto-downloaded) |
+| History | `history.json` (Tauri store) |
+| Shelley DB | App data dir / `shelley.db` |
+| MCP config | `mcp-servers.json` (Tauri store) |
 
-- **Screen Recording permission**: macOS may prompt for screen recording permission the first time you use an image generation model
-- **No local storage**: Screenshots are not saved to disk - they're only sent to the API
-- **Error handling**: If screenshot capture fails (e.g., permission denied), the agent falls back to text-only mode
+### Permissions required
 
-### Technical Details
+- **Accessibility** — Fn key detection, paste targeting
+- **Microphone** — Audio capture
+- **Screen Recording** — Agent mode screenshots (prompted on first use)
 
-- Screenshots are captured using macOS `screencapture` command
-- Images are encoded as base64 PNG and included in the OpenAI-compatible message format
-- The screenshot is included in both initial requests and follow-up requests after tool execution
-
-## History & Logging
-
-t2t automatically logs all transcriptions and agent calls for review and debugging.
-
-### Features
-
-- **Transcription history**: All voice transcriptions are saved with timestamps
-- **Agent call logging**: Complete request/response logs for all OpenRouter API calls
-- **Screenshot thumbnails**: Tiny thumbnails (150x150px) of screenshots sent with agent calls
-- **Search**: Fast local search across all history entries
-- **Expandable details**: Click any entry to view full request/response JSON and tool calls
-
-### Accessing History
-
-Menu bar icon → **View Settings** → **History** tab
-
-### Configuration
-
-- **History limit**: Set `T2T_HISTORY_LIMIT` environment variable (default: 1000 entries)
-- **Storage**: History is stored locally in `history.json` via Tauri's store plugin
-- **Privacy**: All data stays on your machine - nothing is sent to external services
-
-### What's Logged
-
-**Transcriptions:**
-- Timestamp
-- Transcribed text
-
-**Agent Calls:**
-- Timestamp
-- Transcript (your voice input)
-- Model used
-- Full request JSON (messages, parameters)
-- Full response JSON (AI output, tool calls)
-- Tool calls executed (if any)
-- Screenshot thumbnail (if screenshot was included)
-- Success/error status
-
-## First Run
-
-On first launch, the app automatically downloads the Whisper model (~150MB) to `~/.cache/whisper/ggml-base.en.bin`. This happens in the background.
-
-## For Developers
+## For developers
 
 ### Setup
 
 ```bash
-# Install dependencies (in desktop/)
 cd desktop && bun install
 
+# Fetch Shelley binary
+bash scripts/fetch-shelley.sh
+
 # Development
-bun dev              # From root, or:
-cd desktop && bun tauri dev
+bun dev
 
 # Build
-bun build            # From root, or:
-cd desktop && bun tauri build
+bun build
 ```
 
-### Requirements
+**Requires:** Rust (via rustup), Bun or Node.js 18+
 
-- **Rust** (install via rustup)
-- **Bun** (recommended) or Node.js 18+
+### Tech stack
 
-### Tech Stack
+| Layer | Technology |
+|---|---|
+| Frontend | Svelte 5 + SvelteKit |
+| Desktop | Rust + Tauri 2 |
+| Speech-to-text | whisper-rs (local) |
+| AI | OpenRouter API |
+| Coding agent | Shelley (Go, bundled sidecar) |
+| MCP | stdio / HTTP / SSE client |
+| Audio | cpal (native) |
+| Hotkey | macOS IOKit (Fn key) |
 
-- **Frontend**: Svelte 5 + SvelteKit
-- **Backend**: Rust + Tauri
-- **STT**: whisper-rs (local Whisper.cpp model)
-- **AI**: OpenRouter API (direct calls, no infrastructure needed)
-- **MCP**: Model Context Protocol client (local stdio/HTTP/SSE)
-- **Hotkey**: macOS event monitoring (Fn key) + fallbacks
-- **Audio capture**: native (Rust via cpal)
-
-**Architecture**: Fully local. Only OpenRouter API calls go out. No servers, workers, or infrastructure required.
-
-### Debugging
-
-- **Logs**: `~/Library/Logs/t2t.log`
-- **Model location**: `~/.cache/whisper/ggml-base.en.bin`
-- **History storage**: `history.json` (via Tauri store, location depends on Tauri config)
+Fully local. Only API calls leave your machine.
 
 ## License
 

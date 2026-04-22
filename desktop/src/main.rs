@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, AtomicU16};
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Manager, RunEvent,
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -38,6 +38,11 @@ enum AudioCmd {
 
 static AUDIO_TX: OnceCell<mpsc::Sender<AudioCmd>> = OnceCell::new();
 static VOLUME_LEVEL_TX: OnceCell<mpsc::Sender<f32>> = OnceCell::new();
+
+// Shelley sidecar state
+static SHELLEY_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+static SHELLEY_RUNNING: AtomicBool = AtomicBool::new(false);
+static SHELLEY_CHILD: OnceCell<Mutex<Option<std::process::Child>>> = OnceCell::new();
 
 // OpenRouter API endpoints
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -186,20 +191,16 @@ fn format_user_message(text: &str, screenshot_base64: Option<&str>) -> serde_jso
 
 // Local AppleScript agent: Calls OpenRouter directly, no worker needed
 fn call_applescript_agent_local(transcript: &str, openrouter_key: &str, model: &str, app: Option<&AppHandle>) -> Result<AgentResponse, String> {
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -571,20 +572,16 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         .map(mcp_tool_to_openai)
         .collect();
     
-    // Check if model supports image generation and capture screenshot if so
-    let screenshot = if is_image_generation_model(model) {
-        match capture_screenshot() {
-            Ok(img) => {
-                log_line(&format!("Captured screenshot for image generation model: {}", model));
-                Some(img)
-            }
-            Err(e) => {
-                log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
-                None
-            }
+    // Capture screenshot for vision-capable models (OpenRouter ignores for non-vision models)
+    let screenshot = match capture_screenshot() {
+        Ok(img) => {
+            log_line(&format!("Captured screenshot for model: {}", model));
+            Some(img)
         }
-    } else {
-        None
+        Err(e) => {
+            log_line(&format!("Warning: Failed to capture screenshot: {}. Continuing with text-only.", e));
+            None
+        }
     };
     
     let user_message = format_user_message(transcript, screenshot.as_deref());
@@ -1757,15 +1754,58 @@ mod macos_fn_key {
                                 })
                             );
                         } else {
-                            // Agent mode: check for MCP servers first
-                            log_line(&format!("Agent mode: calling API with '{}'", text));
-                            
+                            // Agent mode: try Shelley first, then MCP, then AppleScript
+                            log_line(&format!("Agent mode: processing '{}'", text));
+
                             // Check if cancelled before starting
                             if IS_CANCELLING.load(Ordering::SeqCst) {
                                 log_line("Processing cancelled before API call");
                                 return;
                             }
-                            
+
+                            // Try Shelley first if running
+                            if SHELLEY_RUNNING.load(Ordering::SeqCst) && SHELLEY_PORT.load(Ordering::SeqCst) > 0 {
+                                log_line("Shelley is running, routing through Shelley");
+
+                                match send_to_shelley_sync(&text) {
+                                    Ok(conv_id) => {
+                                        log_line(&format!("Sent to Shelley conversation: {}", conv_id));
+                                        let port = SHELLEY_PORT.load(Ordering::SeqCst);
+                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
+
+                                        // Log to history
+                                        let _ = save_history_entry(
+                                            app_unwrapped.clone(),
+                                            "agent".to_string(),
+                                            serde_json::json!({
+                                                "transcript": text,
+                                                "model": "shelley",
+                                                "agent": "shelley",
+                                                "conversation_id": conv_id,
+                                                "shelley_url": format!("http://localhost:{}", port),
+                                                "success": true
+                                            })
+                                        );
+
+                                        // Set the orange Shelley bar with sweep animation.
+                                        // It persists until the user clicks it to open Chat.
+                                        if let Some(app_h) = APP_HANDLE.get().cloned() {
+                                            let app_c = app_h.clone();
+                                            let _ = app_h.run_on_main_thread(move || {
+                                                if let Some(w) = app_c.get_webview_window("main") {
+                                                    let _ = w.eval("window.__setShelleyActive && window.__setShelleyActive(true)");
+                                                }
+                                            });
+                                        }
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        log_line(&format!("Shelley failed, falling back: {}", e));
+                                        // Fall through to MCP/AppleScript
+                                    }
+                                }
+                            }
+
                             let selected_model = get_selected_model(&app_unwrapped);
                             let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
                                 log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
@@ -2785,42 +2825,6 @@ fn get_system_theme() -> String {
     "light".to_string()
 }
 
-/// Check if a model is an image generation model (supports image input for generation)
-/// 
-/// This function detects image generation models based on common OpenRouter model ID patterns.
-/// When an image generation model is selected, screenshots are automatically included with
-/// every agent input to enable the "agent can see" feature.
-/// 
-/// Supported patterns include: DALL-E, Stable Diffusion, Flux, Midjourney, Ideogram, and others.
-/// 
-/// # Arguments
-/// * `model_id` - The OpenRouter model ID (e.g., "openai/dall-e-3", "black-forest-labs/flux")
-/// 
-/// # Returns
-/// `true` if the model is an image generation model, `false` otherwise
-fn is_image_generation_model(model_id: &str) -> bool {
-    let model_lower = model_id.to_lowercase();
-    
-    // Common image generation model patterns
-    model_lower.contains("dall-e") ||
-    model_lower.contains("dalle") ||
-    model_lower.contains("stable-diffusion") ||
-    model_lower.contains("stablediffusion") ||
-    model_lower.contains("flux") ||
-    model_lower.contains("midjourney") ||
-    model_lower.contains("ideogram") ||
-    model_lower.contains("imagen") ||
-    model_lower.contains("cogview") ||
-    model_lower.contains("wuerstchen") ||
-    model_lower.contains("playground") ||
-    model_lower.contains("kandinsky") ||
-    model_lower.contains("realistic-vision") ||
-    model_lower.contains("dreamshaper") ||
-    model_lower.contains("sdxl") ||
-    model_lower.contains("black-forest-labs") ||
-    model_lower.contains("stability-ai")
-}
-
 /// Capture screenshot on macOS using screencapture command
 /// 
 /// This function captures the current screen and returns it as a base64-encoded PNG image
@@ -3384,6 +3388,274 @@ fn log_event(message: String) {
     log_line(&format!("FE: {message}"));
 }
 
+/// Find an available TCP port for Shelley
+fn find_available_port() -> u16 {
+    use std::net::TcpListener;
+    TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .unwrap_or(9876)
+}
+
+/// Start Shelley sidecar process
+fn start_shelley(app: &AppHandle) {
+    let _ = SHELLEY_CHILD.get_or_init(|| Mutex::new(None));
+
+    let port = find_available_port();
+    SHELLEY_PORT.store(port, Ordering::SeqCst);
+
+    // Build the sidecar binary path
+    // Tauri sidecars are placed next to the main binary with a target-triple suffix
+    let shelley_path = app.path().resource_dir()
+        .ok()
+        .map(|p| p.join("binaries").join("shelley"))
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|exe| {
+                exe.parent().map(|dir| dir.join("shelley"))
+            })
+        });
+
+    let binary_path = match shelley_path {
+        Some(p) if p.exists() => p,
+        _ => {
+            // Try system PATH as fallback (for dev mode)
+            PathBuf::from("shelley")
+        }
+    };
+
+    // Get API keys to pass as env vars
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+    let openrouter_key = get_openrouter_key(app.clone()).unwrap_or_default();
+
+    // Build database path in app data dir
+    let db_path = app.path().app_data_dir()
+        .map(|p| {
+            let _ = std::fs::create_dir_all(&p);
+            p.join("shelley.db")
+        })
+        .unwrap_or_else(|_| PathBuf::from("shelley.db"));
+
+    log_line(&format!("Starting Shelley on port {} (binary: {:?}, db: {:?})", port, binary_path, db_path));
+
+    let mut cmd = std::process::Command::new(&binary_path);
+    cmd.arg("-db").arg(&db_path)
+       .arg("serve")
+       .arg("-port").arg(port.to_string());
+
+    // Pass API keys via env
+    if !anthropic_key.is_empty() {
+        cmd.env("ANTHROPIC_API_KEY", &anthropic_key);
+    }
+    if !openrouter_key.is_empty() {
+        // Shelley uses ANTHROPIC_API_KEY natively, but also pass OpenRouter key
+        cmd.env("OPENROUTER_API_KEY", &openrouter_key);
+    }
+
+    // Don't inherit stdin, capture stderr for logging
+    cmd.stdin(Stdio::null())
+       .stdout(Stdio::null())
+       .stderr(Stdio::piped());
+
+    match cmd.spawn() {
+        Ok(child) => {
+            let pid = child.id();
+            log_line(&format!("Shelley started (pid: {}, port: {})", pid, port));
+            SHELLEY_RUNNING.store(true, Ordering::SeqCst);
+
+            if let Some(lock) = SHELLEY_CHILD.get() {
+                if let Ok(mut guard) = lock.lock() {
+                    *guard = Some(child);
+                }
+            }
+        }
+        Err(e) => {
+            log_line(&format!("Failed to start Shelley: {e}"));
+            SHELLEY_RUNNING.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Stop Shelley sidecar process
+fn stop_shelley() {
+    if let Some(lock) = SHELLEY_CHILD.get() {
+        if let Ok(mut guard) = lock.lock() {
+            if let Some(ref mut child) = *guard {
+                log_line("Stopping Shelley...");
+                let _ = child.kill();
+                let _ = child.wait();
+                log_line("Shelley stopped");
+            }
+            *guard = None;
+        }
+    }
+    SHELLEY_RUNNING.store(false, Ordering::SeqCst);
+    SHELLEY_PORT.store(0, Ordering::SeqCst);
+}
+
+#[derive(serde::Serialize)]
+struct ShelleyStatus {
+    running: bool,
+    port: Option<u16>,
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn get_shelley_status() -> ShelleyStatus {
+    let running = SHELLEY_RUNNING.load(Ordering::SeqCst);
+    let port = SHELLEY_PORT.load(Ordering::SeqCst);
+
+    if running && port > 0 {
+        // Quick health check - try to connect
+        let addr = format!("127.0.0.1:{}", port);
+        match std::net::TcpStream::connect_timeout(
+            &addr.parse().unwrap(),
+            std::time::Duration::from_millis(500),
+        ) {
+            Ok(_) => ShelleyStatus {
+                running: true,
+                port: Some(port),
+                error: None,
+            },
+            Err(_) => ShelleyStatus {
+                running: true,
+                port: Some(port),
+                error: Some("Shelley is starting up...".to_string()),
+            },
+        }
+    } else {
+        ShelleyStatus {
+            running: false,
+            port: None,
+            error: Some("Shelley binary not found. Install with: brew install boldsoftware/tap/shelley".to_string()),
+        }
+    }
+}
+
+/// Open the settings window and switch to Chat tab
+#[tauri::command]
+fn open_chat_window(app: AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    let w = app.get_webview_window("settings").or_else(|| {
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "settings",
+            tauri::WebviewUrl::App("/settings".into())
+        )
+        .title("Settings")
+        .inner_size(900.0, 700.0)
+        .center()
+        .skip_taskbar(false)
+        .build()
+        .ok()
+    });
+    if let Some(w) = w {
+        let _ = w.set_skip_taskbar(false);
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_always_on_top(true);
+        let _ = w.set_always_on_top(false);
+        let _ = w.set_focus();
+        let _ = w.eval("window.__switchToChat && window.__switchToChat()");
+    }
+}
+
+/// Send a chat message to Shelley via its HTTP API (async, for Tauri commands)
+#[tauri::command]
+async fn send_to_shelley(transcript: String) -> Result<serde_json::Value, String> {
+    let port = SHELLEY_PORT.load(Ordering::SeqCst);
+    if port == 0 || !SHELLEY_RUNNING.load(Ordering::SeqCst) {
+        return Err("Shelley is not running".to_string());
+    }
+
+    let client = reqwest::Client::new();
+
+    // Create a new conversation with the transcript via Shelley's chat API
+    let create_url = format!("http://127.0.0.1:{}/conversations", port);
+    let create_resp = client
+        .post(&create_url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to create conversation: {e}"))?;
+
+    let conv: serde_json::Value = create_resp.json()
+        .await
+        .map_err(|e| format!("Failed to parse conversation: {e}"))?;
+
+    let conv_id = conv.get("conversation_id")
+        .or_else(|| conv.get("id"))
+        .and_then(|v| v.as_str().or_else(|| v.as_i64().map(|_| "")))
+        .ok_or("No conversation ID in response")?;
+
+    // Send the message
+    let chat_url = format!("http://127.0.0.1:{}/conversation/{}/chat", port, conv_id);
+    let response = client
+        .post(&chat_url)
+        .json(&serde_json::json!({ "message": transcript }))
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send to Shelley: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Shelley returned {}: {}", status, body));
+    }
+
+    Ok(serde_json::json!({
+        "success": true,
+        "conversation_id": conv_id,
+    }))
+}
+
+/// Send transcript to Shelley synchronously (for use in fn key handler thread)
+fn send_to_shelley_sync(transcript: &str) -> Result<String, String> {
+    let port = SHELLEY_PORT.load(Ordering::SeqCst);
+    if port == 0 || !SHELLEY_RUNNING.load(Ordering::SeqCst) {
+        return Err("Shelley is not running".to_string());
+    }
+
+    let client = reqwest::blocking::Client::new();
+
+    // Create a new conversation
+    let create_url = format!("http://127.0.0.1:{}/conversations", port);
+    let create_resp = client
+        .post(&create_url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .map_err(|e| format!("Failed to create conversation: {e}"))?;
+
+    let conv: serde_json::Value = create_resp.json()
+        .map_err(|e| format!("Failed to parse conversation: {e}"))?;
+
+    let conv_id = conv.get("conversation_id")
+        .or_else(|| conv.get("id"))
+        .and_then(|v| {
+            v.as_str().map(|s| s.to_string())
+                .or_else(|| v.as_i64().map(|n| n.to_string()))
+        })
+        .ok_or("No conversation ID in response")?;
+
+    // Send the user's voice transcript as a chat message
+    let chat_url = format!("http://127.0.0.1:{}/conversation/{}/chat", port, conv_id);
+    let response = client
+        .post(&chat_url)
+        .json(&serde_json::json!({ "message": transcript }))
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .map_err(|e| format!("Failed to send to Shelley: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(format!("Shelley returned {}: {}", status, body));
+    }
+
+    Ok(conv_id)
+}
+
 fn main() {
     // Load .env file if it exists
     let _ = dotenv::dotenv();
@@ -3410,14 +3682,18 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history, get_shelley_status, send_to_shelley, open_chat_window])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
             if let Err(e) = init_audio_thread() {
                 log_line(&format!("ERROR: init_audio_thread: {e}"));
             }
-            
+
+            // Start Shelley sidecar
+            start_shelley(app.handle());
+
             #[cfg(target_os = "macos")]
             {
                 // Try to force the Accessibility prompt on first run (Finder launch).
@@ -3512,6 +3788,7 @@ fn main() {
                     match event.id.as_ref() {
                         "settings" => {
                             // Change activation policy to Regular so it appears in Command+Tab
+                            #[cfg(target_os = "macos")]
                             let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
                             
                             // Show the settings window and bring to front
@@ -3538,7 +3815,10 @@ fn main() {
                                 log_line("tray: view settings");
                             }
                         }
-                        "quit" => app.exit(0),
+                        "quit" => {
+                            stop_shelley();
+                            app.exit(0);
+                        }
                         _ => {}
                     }
                 })
@@ -3549,6 +3829,11 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error running app");
+        .build(tauri::generate_context!())
+        .expect("error building app")
+        .run(|_app, event| {
+            if let RunEvent::Exit = event {
+                stop_shelley();
+            }
+        });
 }

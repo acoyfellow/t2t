@@ -2,38 +2,6 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
-
-  let appWindow = $state<Awaited<ReturnType<typeof getCurrentWindow>> | null>(
-    null
-  );
-
-  onMount(async () => {
-    appWindow = await getCurrentWindow();
-  });
-
-  async function closeWindow() {
-    if (appWindow) {
-      await appWindow.close();
-    }
-  }
-
-  async function minimizeWindow() {
-    if (appWindow) {
-      await appWindow.minimize();
-    }
-  }
-
-  async function toggleMaximize() {
-    if (appWindow) {
-      const isMaximized = await appWindow.isMaximized();
-      if (isMaximized) {
-        await appWindow.unmaximize();
-      } else {
-        await appWindow.maximize();
-      }
-    }
-  }
   import {
     Plus,
     X,
@@ -50,6 +18,7 @@
     Moon,
     Sun,
     Pencil,
+    MessageCircle,
   } from "@lucide/svelte";
   import { tick } from "svelte";
   import * as Command from "$lib/components/ui/command/index.js";
@@ -79,7 +48,7 @@
     prompts?: Array<{ name: string; description?: string; arguments?: any[] }>;
   };
 
-  type ActiveTab = "analytics" | "servers" | "history";
+  type ActiveTab = "analytics" | "servers" | "history" | "chat";
 
   let activeTab = $state<ActiveTab>("analytics");
   let loading = $state(true);
@@ -132,39 +101,6 @@
     url: Schema.optional(Schema.String),
     enabled: Schema.optional(Schema.Boolean),
   });
-
-  // Check if a model is an image generation model
-  function isImageGenerationModel(modelId: string): boolean {
-    const modelLower = modelId.toLowerCase();
-    return (
-      modelLower.includes("dall-e") ||
-      modelLower.includes("dalle") ||
-      modelLower.includes("stable-diffusion") ||
-      modelLower.includes("stablediffusion") ||
-      modelLower.includes("flux") ||
-      modelLower.includes("midjourney") ||
-      modelLower.includes("ideogram") ||
-      modelLower.includes("imagen") ||
-      modelLower.includes("cogview") ||
-      modelLower.includes("wuerstchen") ||
-      modelLower.includes("playground") ||
-      modelLower.includes("kandinsky") ||
-      modelLower.includes("realistic-vision") ||
-      modelLower.includes("dreamshaper") ||
-      modelLower.includes("sdxl") ||
-      modelLower.includes("black-forest-labs") ||
-      modelLower.includes("stability-ai")
-    );
-  }
-
-  // Get model capability label
-  function getModelCapability(modelId: string): string {
-    if (isImageGenerationModel(modelId)) {
-      return "Image Generation";
-    }
-    // Could add vision model detection here in the future
-    return "Text";
-  }
 
   function closeAndFocusTrigger() {
     modelComboboxOpen = false;
@@ -668,6 +604,12 @@
       isDark = t === "dark";
     });
 
+    // Allow Rust backend to switch to Chat tab via window.__switchToChat()
+    (window as any).__switchToChat = () => {
+      handleTabChangeWithScroll("chat");
+      loadShelleyStatus();
+    };
+
     // Load data and models asynchronously
     loadData().then(() => {
       // Auto-fetch models if we have an OpenRouter key
@@ -812,6 +754,34 @@
     });
   }
 
+  // Shelley state
+  let shelleyUrl = $state<string | null>(null);
+  let shelleyLoading = $state(false);
+  let shelleyError = $state<string | null>(null);
+
+  async function loadShelleyStatus() {
+    shelleyLoading = true;
+    shelleyError = null;
+    try {
+      const result = (await invoke("get_shelley_status")) as {
+        running: boolean;
+        port: number | null;
+        error?: string;
+      };
+      if (result.running && result.port) {
+        shelleyUrl = `http://localhost:${result.port}`;
+      } else if (result.error) {
+        shelleyError = result.error;
+      } else {
+        shelleyError = "Shelley is not running";
+      }
+    } catch (e) {
+      shelleyError = e instanceof Error ? e.message : "Failed to connect to Shelley";
+    } finally {
+      shelleyLoading = false;
+    }
+  }
+
   const tabs = [
     {
       id: "analytics" as const,
@@ -831,51 +801,23 @@
         loadHistory();
       },
     },
+    {
+      id: "chat" as const,
+      label: "Chat",
+      icon: MessageCircle,
+      onClick: () => {
+        loadShelleyStatus();
+      },
+    },
   ];
 </script>
 
-<div
-  class="h-screen flex flex-col bg-background text-foreground overflow-hidden"
->
+<div class="h-screen flex flex-col bg-white text-foreground overflow-hidden">
   <!-- Header with Tabs -->
   <header
     class="border-b border-border bg-card/50 backdrop-blur-sm shrink-0 z-10"
-    data-tauri-drag-region
   >
     <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
-      <!-- macOS Window Controls -->
-      <div class="flex items-center gap-2 mb-2" data-tauri-drag-region>
-        <button
-          onclick={closeWindow}
-          class="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center group"
-          title="Close"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-red-900"
-            >×</span
-          >
-        </button>
-        <button
-          onclick={minimizeWindow}
-          class="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-colors flex items-center justify-center group"
-          title="Minimize"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-yellow-900"
-            >−</span
-          >
-        </button>
-        <button
-          onclick={toggleMaximize}
-          class="w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center group"
-          title="Maximize"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-green-900"
-            >+</span
-          >
-        </button>
-      </div>
       <div
         class="flex items-center justify-between py-3 sm:py-4 gap-2 sm:gap-4"
       >
@@ -1150,14 +1092,6 @@
                     <span class="truncate"
                       >{selectedModelLabel || "Select a model..."}</span
                     >
-                    {#if isImageGenerationModel(selectedModel)}
-                      <span
-                        class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
-                        title="Screenshots will be automatically included with prompts"
-                      >
-                        🖼️
-                      </span>
-                    {/if}
                     <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
                   </div>
                 </Button>
@@ -1204,14 +1138,6 @@
                                 >{model.name || model.id}</span
                               >
                             </div>
-                            {#if isImageGenerationModel(model.id)}
-                              <span
-                                class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
-                                title="Screenshots will be automatically included with prompts"
-                              >
-                                🖼️ Image Gen
-                              </span>
-                            {/if}
                           </div>
                         </Command.Item>
                       {/each}
@@ -1240,17 +1166,9 @@
             >
             or
             <code class="px-1 py-0.5 bg-muted rounded">OPENROUTER_MODEL</code> env
-            var.
+            var. Screenshots are automatically captured with agent calls for vision-capable
+            models.
           </p>
-          {#if isImageGenerationModel(selectedModel)}
-            <div
-              class="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-300"
-            >
-              <strong>🖼️ Image Generation Mode:</strong> Screenshots are automatically
-              captured and included with every agent input. The agent can "see" your
-              screen.
-            </div>
-          {/if}
         </div>
 
         <p class="text-sm text-muted-foreground">Manage your MCP servers</p>
@@ -1596,6 +1514,60 @@
                 {/if}
               </button>
             {/each}
+          </div>
+        {/if}
+      </div>
+    {:else if activeTab === "chat"}
+      <!-- Chat Tab - Shelley Coding Agent -->
+      <div class="flex flex-col h-full min-h-0">
+        {#if shelleyLoading}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="flex items-center gap-3 text-muted-foreground">
+              <div
+                class="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"
+              ></div>
+              <span class="text-sm">Connecting to Shelley...</span>
+            </div>
+          </div>
+        {:else if shelleyError}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center space-y-4 p-8">
+              <div class="w-16 h-16 mx-auto rounded-full bg-destructive/10 flex items-center justify-center">
+                <MessageCircle class="w-8 h-8 text-destructive" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-foreground">Shelley not available</p>
+                <p class="text-xs text-muted-foreground mt-1">{shelleyError}</p>
+              </div>
+              <Button onclick={loadShelleyStatus} variant="outline" size="sm">
+                Retry
+              </Button>
+            </div>
+          </div>
+        {:else if shelleyUrl}
+          <iframe
+            src={shelleyUrl}
+            title="Shelley Coding Agent"
+            class="flex-1 w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          ></iframe>
+        {:else}
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center space-y-4 p-8">
+              <div class="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+                <MessageCircle class="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-foreground">Shelley Coding Agent</p>
+                <p class="text-xs text-muted-foreground mt-1">
+                  Multi-model coding agent powered by your API key.
+                  <br />Use <code class="px-1 py-0.5 bg-muted rounded text-[10px]">fn+ctrl</code> to talk to Shelley from anywhere.
+                </p>
+              </div>
+              <Button onclick={loadShelleyStatus} size="sm">
+                Connect
+              </Button>
+            </div>
           </div>
         {/if}
       </div>

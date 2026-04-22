@@ -7,6 +7,8 @@
     "core:default",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
-    "store:default"
+    "store:default",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write"
   ]
 }
