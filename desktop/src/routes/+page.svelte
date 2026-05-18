@@ -47,9 +47,9 @@
     if (recording) {
       state = recordColor;
     } else if (speaking) {
-      state = "bg-[#a855f7]/90";
+      state = "bg-[#a855f7]/90 t2t-agent-speaking";
     } else if (processing && mode === "agent") {
-      state = "bg-[#c27aff]/80 animate-pulse";
+      state = "bg-[#c27aff]/80 t2t-agent-thinking";
     } else if (processing) {
       state = "bg-amber-500/80";
     } else {
