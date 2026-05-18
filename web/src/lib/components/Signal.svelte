@@ -16,7 +16,7 @@
     glowIntensity?: number;
     frequency?: number;
   };
-  const defaultProps: SignalThreadProps = {
+  const defaultProps: Required<SignalThreadProps> = {
     color: "#ffffff",
     backgroundColor: "#000000",
     speed: 1,

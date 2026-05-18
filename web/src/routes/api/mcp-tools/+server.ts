@@ -13,11 +13,13 @@ type MCPServer = {
 
 export const POST: RequestHandler = async ({ request }) => {
   let client: any = null;
+  let server: MCPServer | undefined;
 
   try {
-    const { server } = await request.json<{
+    const body = await request.json<{
       server: MCPServer;
     }>();
+    server = body.server;
 
     if (!server) {
       return json({ error: 'Missing server configuration' }, { status: 400 });
@@ -90,13 +92,13 @@ export const POST: RequestHandler = async ({ request }) => {
     if (error instanceof Error) {
       const msg = error.message.toLowerCase();
       if (msg.includes('enoent') || msg.includes('not found')) {
-        errorMessage = `Command not found: ${server.command || 'unknown'}. Make sure the MCP server package is installed.`;
+        errorMessage = `Command not found: ${server?.command || 'unknown'}. Make sure the MCP server package is installed.`;
       } else if (msg.includes('timeout') || msg.includes('timed out')) {
         errorMessage = `Connection timeout: The MCP server took too long to respond. Check if the server is running.`;
       } else if (msg.includes('econnrefused') || msg.includes('connection refused')) {
-        errorMessage = `Connection refused: Unable to connect to ${server.url || 'server'}. Check if the URL is correct and the server is running.`;
+        errorMessage = `Connection refused: Unable to connect to ${server?.url || 'server'}. Check if the URL is correct and the server is running.`;
       } else if (msg.includes('fetch') || msg.includes('network')) {
-        errorMessage = `Network error: Unable to reach ${server.url || 'server'}. Check your internet connection and server URL.`;
+        errorMessage = `Network error: Unable to reach ${server?.url || 'server'}. Check your internet connection and server URL.`;
       } else if (msg.includes('spawn') || msg.includes('exec')) {
         errorMessage = `Failed to start process: ${error.message}`;
       } else {
