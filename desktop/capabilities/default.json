@@ -2,9 +2,15 @@
   "$schema": "https://schemas.tauri.app/capability/1",
   "identifier": "default",
   "description": "Default capabilities for Push to Type",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "overlay-*"],
   "permissions": [
     "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-start-dragging",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
     "store:default"

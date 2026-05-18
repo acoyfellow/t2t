@@ -145,6 +145,38 @@ struct HistoryResponse {
     total: usize,
 }
 
+#[derive(Clone)]
+struct PiAgentConfig { binary: String, provider: String, model: String }
+
+fn get_pi_agent_config(app: &AppHandle) -> PiAgentConfig {
+    let mut c = PiAgentConfig {
+        binary: std::env::var("T2T_PI_BINARY").unwrap_or_else(|_| "pi".into()),
+        provider: std::env::var("T2T_PI_PROVIDER").unwrap_or_else(|_| "opencode.cloudflare.dev".into()),
+        model: std::env::var("T2T_PI_MODEL").unwrap_or_else(|_| "ember-alpha".into()),
+    };
+    if let Ok(s) = app.store("pi-agent") {
+        if let Some(v) = s.get("binary").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.binary=v; } }
+        if let Some(v) = s.get("provider").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.provider=v; } }
+        if let Some(v) = s.get("model").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.model=v; } }
+    }
+    c
+}
+
+fn call_pi_agent_local(text: &str, c: &PiAgentConfig, app: &AppHandle) -> Result<String,String> {
+    let ca="/Users/jcoeyman/.local/share/cloudflare-warp-certs/CloudflareRootCertificateCombined.pem";
+    let mut cmd=std::process::Command::new(&c.binary);
+    cmd.args(["-p","--provider",&c.provider,"--model",&c.model,"--no-session",text])
+        .env("PATH", format!("/Users/jcoeyman/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()));
+    if std::path::Path::new(ca).exists(){ cmd.env("NODE_EXTRA_CA_CERTS",ca).env("SSL_CERT_FILE",ca); }
+    let o=cmd.output().map_err(|e| format!("Failed to launch Pi: {e}"))?;
+    let out=String::from_utf8_lossy(&o.stdout).trim().to_string();
+    let err=String::from_utf8_lossy(&o.stderr).trim().to_string();
+    if !o.status.success(){return Err(format!("Pi agent exited {}: {}",o.status, if err.is_empty(){out}else{err}));}
+    if out.is_empty(){return Err("Pi agent returned an empty response".into());}
+    let _=save_history_entry(app.clone(),"agent".into(),serde_json::json!({"engine":"pi","provider":c.provider,"model":c.model,"transcript":text,"response":out,"success":true}));
+    Ok(out)
+}
+
 /// Format user message with optional screenshot for image generation models
 /// 
 /// Creates an OpenAI-compatible message format that can include both text and images.
@@ -372,11 +404,38 @@ async fn execute_mcp_tool_stdio(
     let empty_args: Vec<String> = vec![];
     let args = server.args.as_ref().unwrap_or(&empty_args);
 
+    // macOS apps launched from Finder/Dock inherit a minimal PATH.
+    // Inject common user binary dirs so `npx`, `bunx`, `uvx`, `node`, etc. resolve.
+    let augmented_path = {
+        let mut paths = vec![
+            "/opt/homebrew/bin".to_string(),       // Apple Silicon Homebrew
+            "/opt/homebrew/sbin".to_string(),
+            "/usr/local/bin".to_string(),           // Intel Homebrew + /usr/local installs
+            "/usr/local/sbin".to_string(),
+        ];
+        // Append existing PATH (if any)
+        if let Ok(existing) = std::env::var("PATH") {
+            for p in existing.split(':') {
+                if !p.is_empty() && !paths.contains(&p.to_string()) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+        // /usr/bin:/bin:/usr/sbin:/sbin as ultimate fallback
+        for fallback in &["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+            if !paths.iter().any(|p| p == fallback) {
+                paths.push(fallback.to_string());
+            }
+        }
+        paths.join(":")
+    };
+
     let mut child = TokioCommand::new(command)
         .args(args)
+        .env("PATH", &augmented_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to spawn process: {e}"))?;
 
@@ -521,16 +580,21 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
                     let args = server.args.as_ref().unwrap_or(&empty_args);
                     rt.block_on(fetch_mcp_tools_stdio(cmd, args))
                 }
-                "http" | "https" => {
+                "http" | "https" | "sse" => {
                     let url = server.url.as_ref().ok_or("No URL")?;
                     rt.block_on(fetch_mcp_tools_http(url))
                 }
                 _ => continue,
             };
             
-            if let Ok(tools_resp) = tools_result {
-                server_tool_map.insert(server.id.clone(), (server.clone(), tools_resp.tools.clone()));
-                all_tools.extend(tools_resp.tools.clone());
+            match tools_result {
+                Ok(tools_resp) => {
+                    server_tool_map.insert(server.id.clone(), (server.clone(), tools_resp.tools.clone()));
+                    all_tools.extend(tools_resp.tools.clone());
+                }
+                Err(e) => {
+                    log_line(&format!("MCP Agent: skipped server '{}' during discovery: {}", server.name, e));
+                }
             }
         }
     }
@@ -647,117 +711,159 @@ fn call_mcp_agent_local(transcript: &str, mcp_servers: Vec<MCPServer>, openroute
         return Err(format!("OpenRouter returned {}: {}", status, error_body));
     }
     
-    let openrouter_resp: serde_json::Value = response.json()
+    let mut openrouter_resp: serde_json::Value = response.json()
         .map_err(|e| format!("Failed to parse OpenRouter response: {e}"))?;
-    
+
+    const MAX_TOOL_ROUNDS: usize = 5;
     let mut tool_calls = Vec::new();
     let mut final_text = None;
-    
-    // Parse response
-    if let Some(choices) = openrouter_resp.get("choices").and_then(|c| c.as_array()) {
-        if let Some(choice) = choices.first() {
-            if let Some(message) = choice.get("message") {
-                // Check for tool calls
-                if let Some(tool_calls_array) = message.get("tool_calls").and_then(|tc| tc.as_array()) {
-                    // Execute tool calls
-                    for tool_call in tool_calls_array {
-                        if let (Some(tool_id), Some(function)) = (
-                            tool_call.get("id").and_then(|v| v.as_str()),
-                            tool_call.get("function")
-                        ) {
-                            if let (Some(tool_name), Some(arguments_str)) = (
-                                function.get("name").and_then(|v| v.as_str()),
-                                function.get("arguments").and_then(|v| v.as_str())
-                            ) {
-                                let arguments: serde_json::Value = serde_json::from_str(arguments_str)
-                                    .map_err(|e| format!("Invalid tool arguments: {e}"))?;
-                                
-                                // Find which server has this tool
-                                let mut tool_result = Err("Tool not found".to_string());
-                                for (_server_id, (server, tools)) in &server_tool_map {
-                                    if tools.iter().any(|t| t.name == tool_name) {
-                                        tool_result = match server.transport.as_str() {
-                                            "stdio" => {
-                                                rt.block_on(execute_mcp_tool_stdio(server, tool_name, &arguments))
-                                            }
-                                            "http" | "https" => {
-                                                let url = server.url.as_ref().unwrap();
-                                                rt.block_on(execute_mcp_tool_http(url, tool_name, &arguments))
-                                            }
-                                            _ => continue,
-                                        };
-                                        break;
-                                    }
+    let mut rounds: usize = 0;
+
+    // Running message list for multi-round tool use. Seeded with system + user;
+    // each round appends the assistant's tool-requesting message plus tool results.
+    let mut messages: Vec<serde_json::Value> = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "You are a helpful assistant with access to tools. Use them when needed."
+        }),
+        user_message.clone(),
+    ];
+
+    loop {
+        if IS_CANCELLING.load(Ordering::SeqCst) {
+            log_line("MCP Agent: cancelled during tool loop");
+            break;
+        }
+
+        // Extract the assistant message from the current response.
+        let message = openrouter_resp
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .cloned();
+
+        let message = match message {
+            Some(m) => m,
+            None => break,
+        };
+
+        // If the assistant returned no tool calls, capture final text and stop.
+        let tool_calls_array_opt = message
+            .get("tool_calls")
+            .and_then(|tc| tc.as_array())
+            .filter(|arr| !arr.is_empty())
+            .cloned();
+
+        let tool_calls_array = match tool_calls_array_opt {
+            Some(arr) => arr,
+            None => {
+                final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+                break;
+            }
+        };
+
+        if rounds >= MAX_TOOL_ROUNDS {
+            log_line(&format!("MCP Agent: hit max tool rounds ({}); returning current response", MAX_TOOL_ROUNDS));
+            // Best-effort: surface any text the assistant included alongside tool calls.
+            final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+            break;
+        }
+        rounds += 1;
+        log_line(&format!("MCP Agent: tool round {} of max {}", rounds, MAX_TOOL_ROUNDS));
+
+        // Append the assistant message (with its tool_calls) so subsequent tool
+        // role messages can reference the tool_call_ids.
+        messages.push(message.clone());
+
+        // Execute each tool call in this round and record results.
+        let mut round_tool_calls: Vec<serde_json::Value> = Vec::new();
+        for tool_call in &tool_calls_array {
+            if let (Some(tool_id), Some(function)) = (
+                tool_call.get("id").and_then(|v| v.as_str()),
+                tool_call.get("function")
+            ) {
+                if let (Some(tool_name), Some(arguments_str)) = (
+                    function.get("name").and_then(|v| v.as_str()),
+                    function.get("arguments").and_then(|v| v.as_str())
+                ) {
+                    let arguments: serde_json::Value = serde_json::from_str(arguments_str)
+                        .map_err(|e| format!("Invalid tool arguments: {e}"))?;
+
+                    // Find which server has this tool
+                    let mut tool_result = Err("Tool not found".to_string());
+                    for (_server_id, (server, tools)) in &server_tool_map {
+                        if tools.iter().any(|t| t.name == tool_name) {
+                            tool_result = match server.transport.as_str() {
+                                "stdio" => {
+                                    rt.block_on(execute_mcp_tool_stdio(server, tool_name, &arguments))
                                 }
-                                
-                                let tool_result_value = match tool_result {
-                                    Ok(v) => v,
-                                    Err(e) => serde_json::json!({ "error": e })
-                                };
-                                
-                                tool_calls.push(serde_json::json!({
-                                    "id": tool_id,
-                                    "toolName": tool_name,
-                                    "arguments": arguments,
-                                    "result": tool_result_value
-                                }));
-                            }
+                                "http" | "https" | "sse" => {
+                                    let url = server.url.as_ref().unwrap();
+                                    rt.block_on(execute_mcp_tool_http(url, tool_name, &arguments))
+                                }
+                                _ => continue,
+                            };
+                            break;
                         }
                     }
-                    
-                    // If we executed tools, make another call with results
-                    if !tool_calls.is_empty() {
-                        let mut messages = vec![
-                            serde_json::json!({
-                                "role": "system",
-                                "content": "You are a helpful assistant with access to tools."
-                            }),
-                            user_message.clone(), // Include original user message with screenshot if applicable
-                            message.clone(),
-                        ];
-                        
-                        // Add tool results
-                        for tool_call in &tool_calls {
-                            messages.push(serde_json::json!({
-                                "role": "tool",
-                                "tool_call_id": tool_call.get("id"),
-                                "content": tool_call.get("result").map(|r| r.to_string()).unwrap_or_default()
-                            }));
-                        }
-                        
-                        // Final call
-                        let final_response = client
-                            .post(OPENROUTER_API_URL)
-                            .header("Authorization", format!("Bearer {}", openrouter_key))
-                            .header("HTTP-Referer", "https://github.com/yourusername/t2t")
-                            .header("X-Title", "t2t")
-                            .json(&serde_json::json!({
-                                "model": model,
-                                "messages": messages,
-                                "tools": openai_tools,
-                            }))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .send()
-                            .map_err(|e| format!("Final OpenRouter request failed: {e}"))?;
-                        
-                        if final_response.status().is_success() {
-                            if let Ok(final_resp) = final_response.json::<serde_json::Value>() {
-                                if let Some(choices) = final_resp.get("choices").and_then(|c| c.as_array()) {
-                                    if let Some(choice) = choices.first() {
-                                        if let Some(msg) = choice.get("message") {
-                                            final_text = msg.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // No tool calls, just text response
-                    final_text = message.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                    let tool_result_value = match tool_result {
+                        Ok(v) => v,
+                        Err(e) => serde_json::json!({ "error": e })
+                    };
+
+                    let entry = serde_json::json!({
+                        "id": tool_id,
+                        "toolName": tool_name,
+                        "arguments": arguments,
+                        "result": tool_result_value
+                    });
+                    round_tool_calls.push(entry.clone());
+                    tool_calls.push(entry);
                 }
             }
         }
+
+        // Push tool results into the conversation for the next LLM call.
+        for tc in &round_tool_calls {
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": tc.get("id"),
+                "content": tc.get("result").map(|r| r.to_string()).unwrap_or_default()
+            }));
+        }
+
+        if IS_CANCELLING.load(Ordering::SeqCst) {
+            log_line("MCP Agent: cancelled during tool loop");
+            break;
+        }
+
+        // Next LLM call with updated messages.
+        let next_response = client
+            .post(OPENROUTER_API_URL)
+            .header("Authorization", format!("Bearer {}", openrouter_key))
+            .header("HTTP-Referer", "https://github.com/yourusername/t2t")
+            .header("X-Title", "t2t")
+            .json(&serde_json::json!({
+                "model": model,
+                "messages": messages,
+                "tools": openai_tools,
+                "tool_choice": "auto"
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .map_err(|e| format!("Follow-up OpenRouter request failed: {e}"))?;
+
+        if !next_response.status().is_success() {
+            let status = next_response.status();
+            let error_body = next_response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+            log_line(&format!("MCP Agent: follow-up call failed {}: {}", status, error_body));
+            break;
+        }
+
+        openrouter_resp = next_response.json::<serde_json::Value>()
+            .map_err(|e| format!("Failed to parse follow-up OpenRouter response: {e}"))?;
     }
     
     let result = MCPAgentResponse {
@@ -913,6 +1019,89 @@ fn show_notification(title: &str, message: &str) {
         title.replace('"', "\\\"")
     );
     let _ = execute_applescript(&script);
+}
+
+/// Speak text aloud using macOS `say`. Honors the TTS enabled toggle.
+/// Used for successful agent responses. Drives the UI speaking indicator.
+fn speak_tts(app: &AppHandle, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (enabled, voice) = read_tts_settings(app);
+    if !enabled {
+        return;
+    }
+    speak_say(app, text, voice);
+}
+
+/// Always-on TTS for agent-mode errors. Bypasses the enabled toggle because
+/// agent mode has no UI — if something fails the user needs to know. Still
+/// respects the user's voice preference. Drives the UI speaking indicator.
+fn speak_error(app: &AppHandle, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    let (_enabled, voice) = read_tts_settings(app);
+    speak_say(app, text, voice);
+}
+
+fn read_tts_settings(app: &AppHandle) -> (bool, Option<String>) {
+    match app.store("tts") {
+        Ok(store) => {
+            let enabled = store.get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let voice = store.get("voice")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .filter(|s| !s.is_empty());
+            (enabled, voice)
+        }
+        Err(_) => (false, None),
+    }
+}
+
+/// Set the "speaking" indicator in the UI (deep purple solid bar).
+fn set_speaking_ui(app: &AppHandle, speaking: bool) {
+    let app_clone = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(w) = app_clone.get_webview_window("main") {
+            let js = format!("window.__setSpeaking && window.__setSpeaking({})", speaking);
+            let _ = w.eval(&js);
+        }
+    });
+}
+
+fn speak_say(app: &AppHandle, text: &str, voice: Option<String>) {
+    let mut cmd = std::process::Command::new("say");
+    if let Some(v) = voice {
+        cmd.arg("-v").arg(v);
+    }
+    cmd.arg(text);
+    match cmd.spawn() {
+        Ok(mut child) => {
+            set_speaking_ui(app, true);
+            // Poll for exit on a background thread so we don't block agent flow.
+            let app_for_thread = app.clone();
+            std::thread::spawn(move || {
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_status)) => break,
+                        Ok(None) => {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Err(e) => {
+                            log_line(&format!("speak_say: try_wait error: {}", e));
+                            break;
+                        }
+                    }
+                }
+                set_speaking_ui(&app_for_thread, false);
+            });
+        }
+        Err(e) => {
+            log_line(&format!("speak_say: failed to spawn say: {}", e));
+        }
+    }
 }
 
 fn log_line(msg: &str) {
@@ -1610,12 +1799,14 @@ mod macos_fn_key {
                     let fn_down = (flags & K_CG_EVENT_FLAG_MASK_SECONDARY_FN) != 0;
                     let control_down = (flags & control_flag) != 0;
                     
-                    // Switch to agent mode while Ctrl is held
+                    // Sticky agent mode: once Ctrl is pressed during the Fn hold, we
+                    // commit to agent through Fn release. Releasing Ctrl does NOT revert.
+                    // To escape agent: fully release Fn, then start a new Fn-press.
+                    // Rationale: natural finger release order (Fn first, Ctrl second) was
+                    // dropping the agent intent. Sticky survives any release order.
                     if control_down && IS_TEXT_INPUT_MODE.load(Ordering::SeqCst) {
                         IS_TEXT_INPUT_MODE.store(false, Ordering::SeqCst);
-                        log_line("Control pressed -> agent mode");
-                        
-                        // Update frontend
+                        log_line("Control pressed -> agent mode (sticky until Fn release)");
                         if let Some(app) = APP_HANDLE.get().cloned() {
                             let app_clone = app.clone();
                             let _ = app.run_on_main_thread(move || {
@@ -1706,7 +1897,7 @@ mod macos_fn_key {
 
                 let samples_16k = normalize_audio(resample_to_16k_linear(&samples, in_rate));
                 let (rms, peak) = audio_stats(&samples_16k);
-                if rms < 0.006 && peak < 0.04 {
+                if rms < 0.002 && peak < 0.02 {
                     log_line("Skipping transcription: too quiet (likely silence)");
                     return;
                 }
@@ -1757,175 +1948,21 @@ mod macos_fn_key {
                                 })
                             );
                         } else {
-                            // Agent mode: check for MCP servers first
-                            log_line(&format!("Agent mode: calling API with '{}'", text));
-                            
-                            // Check if cancelled before starting
-                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                log_line("Processing cancelled before API call");
-                                return;
-                            }
-                            
-                            let selected_model = get_selected_model(&app_unwrapped);
-                            let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
-                                log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
-                                Some(call_mcp_agent_api(&text, servers, key, &selected_model, Some(&app_unwrapped)))
-                            } else {
-                                log_line("No MCP servers configured, falling back to AppleScript agent");
-                                None
-                            };
-                            
-                            // Check if cancelled after API call
-                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                log_line("Processing cancelled after API call");
-                                return;
-                            }
-                            
-                            match mcp_result {
-                                Some(Ok(response)) => {
-                                    // Check if cancelled after API response
-                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                        log_line("Processing cancelled after API response - skipping result");
-                                        return;
-                                    }
-                                    
-                                    if response.success {
-                                        // Log tool calls if any
-                                        if let Some(tool_calls) = &response.tool_calls {
-                                            if !tool_calls.is_empty() {
-                                                log_line(&format!("MCP Agent: {} tool(s) executed", tool_calls.len()));
-                                                for (i, call) in tool_calls.iter().enumerate() {
-                                                    if let Some(tool_name) = call.get("toolName").and_then(|v| v.as_str()) {
-                                                        log_line(&format!("  Tool {}: {}", i + 1, tool_name));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        if let Some(response_text) = response.text {
-                                            log_line(&format!("MCP Agent response: {}", response_text));
-                                            
-                                            // Build notification message with tool info
-                                            let mut msg = String::new();
-                                            if let Some(tool_calls) = &response.tool_calls {
-                                                if !tool_calls.is_empty() {
-                                                    let tool_names: Vec<String> = tool_calls.iter()
-                                                        .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                                                        .collect();
-                                                    if !tool_names.is_empty() {
-                                                        msg.push_str(&format!("Used: {}. ", tool_names.join(", ")));
-                                                    }
-                                                }
-                                            }
-                                            
-                                            // Always paste the response
-                                            let original = get_clipboard_macos();
-                                            set_clipboard_macos(&response_text);
-                                            paste_text();
-                                            std::thread::sleep(std::time::Duration::from_millis(80));
-                                            if let Some(orig) = original {
-                                                set_clipboard_macos(&orig);
-                                            }
-                                            
-                                            // Show notification with tool info
-                                            if msg.is_empty() {
-                                                show_notification("t2t", "Result pasted");
-                                            } else {
-                                                show_notification("t2t", &format!("{}Result pasted", msg));
-                                            }
-                                        } else if let Some(tool_calls) = &response.tool_calls {
-                                            if !tool_calls.is_empty() {
-                                                let tool_names: Vec<String> = tool_calls.iter()
-                                                    .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                                                    .collect();
-                                                show_notification("t2t", &format!("Executed: {}", tool_names.join(", ")));
-                                            }
-                                        }
-                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
-                                    } else {
-                                        let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                                        log_line(&format!("MCP Agent: API error: {}", err));
-                                        show_notification("t2t", &format!("Error: {}", err));
-                                    }
+                            // Agent mode: hand the spoken one-shot prompt to local Pi.
+                            log_line(&format!("Agent mode: calling Pi with '{}'", text));
+                            if IS_CANCELLING.load(Ordering::SeqCst) { return; }
+                            let config = get_pi_agent_config(&app_unwrapped);
+                            match call_pi_agent_local(&text, &config, &app_unwrapped) {
+                                Ok(response_text) => {
+                                    log_line(&format!("Pi Agent response: {}", response_text));
+                                    speak_tts(&app_unwrapped, &response_text);
+                                    show_notification("t2t", "Pi response spoken");
+                                    update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
                                 }
-                                Some(Err(e)) => {
-                                    log_line(&format!("MCP Agent: API call failed: {}", e));
-                                    show_notification("t2t", &format!("API error: {}", e));
-                                }
-                                None => {
-                                    // Fallback to local AppleScript agent
-                                    log_line("No MCP servers configured, using local AppleScript agent");
-                                    
-                                    // Get OpenRouter key for AppleScript generation
-                                    let openrouter_key = if let Ok(key_store) = app_unwrapped.store("openrouter-key") {
-                                        key_store.get("key")
-                                            .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                            .filter(|k| !k.is_empty())
-                                    } else {
-                                        None
-                                    };
-                                    
-                                    let openrouter_key = openrouter_key.or_else(|| {
-                                        std::env::var("OPENROUTER_API_KEY").ok()
-                                    }).filter(|k| !k.is_empty());
-                                    
-                                    // Check if cancelled before AppleScript agent call
-                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                        log_line("Processing cancelled before AppleScript agent call");
-                                        return;
-                                    }
-                                    
-                                    let selected_model = get_selected_model(&app_unwrapped);
-                                    match openrouter_key {
-                                        Some(key) => {
-                                            match call_applescript_agent_local(&text, &key, &selected_model, Some(&app_unwrapped)) {
-                                                Ok(response) => {
-                                                    // Check if cancelled after AppleScript agent call
-                                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                                        log_line("Processing cancelled after AppleScript agent call - skipping execution");
-                                                        return;
-                                                    }
-                                                    
-                                                    if response.success {
-                                                        if let Some(script) = response.script {
-                                                            // Check again before executing script
-                                                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                                                log_line("Processing cancelled before script execution");
-                                                                return;
-                                                            }
-                                                            log_line(&format!("Agent: executing script: {}", script));
-                                                            match execute_applescript(&script) {
-                                                                Ok(output) => {
-                                                                    log_line(&format!("Agent: script succeeded: {}", output));
-                                                                    show_notification("t2t", "Done");
-                                                                }
-                                                                Err(e) => {
-                                                                    log_line(&format!("Agent: script failed: {}", e));
-                                                                    show_notification("t2t", &format!("Script error: {}", e));
-                                                                }
-                                                            }
-                                                        }
-                                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
-                                                    } else if response.blocked == Some(true) {
-                                                        log_line("Agent: script blocked by safety filter");
-                                                        show_notification("t2t", "Action blocked for safety");
-                                                    } else {
-                                                        let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                                                        log_line(&format!("Agent: error: {}", err));
-                                                        show_notification("t2t", &format!("Error: {}", err));
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    log_line(&format!("Agent: AppleScript generation failed: {}", e));
-                                                    show_notification("t2t", &format!("Error: {}", e));
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            log_line("Agent: No OpenRouter API key found");
-                                            show_notification("t2t", "OpenRouter API key required for agent mode");
-                                        }
-                                    }
+                                Err(e) => {
+                                    log_line(&format!("Pi Agent failed: {}", e));
+                                    show_notification("t2t", &format!("Pi error: {}", e));
+                                    speak_error(&app_unwrapped, "Pi agent failed. See the log.");
                                 }
                             }
                         }
@@ -2967,11 +3004,38 @@ async fn fetch_mcp_tools_stdio(
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::process::Command as TokioCommand;
 
+    // macOS apps launched from Finder/Dock inherit a minimal PATH.
+    // Inject common user binary dirs so `npx`, `bunx`, `uvx`, `node`, etc. resolve.
+    let augmented_path = {
+        let mut paths = vec![
+            "/opt/homebrew/bin".to_string(),       // Apple Silicon Homebrew
+            "/opt/homebrew/sbin".to_string(),
+            "/usr/local/bin".to_string(),           // Intel Homebrew + /usr/local installs
+            "/usr/local/sbin".to_string(),
+        ];
+        // Append existing PATH (if any)
+        if let Ok(existing) = std::env::var("PATH") {
+            for p in existing.split(':') {
+                if !p.is_empty() && !paths.contains(&p.to_string()) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+        // /usr/bin:/bin:/usr/sbin:/sbin as ultimate fallback
+        for fallback in &["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+            if !paths.iter().any(|p| p == fallback) {
+                paths.push(fallback.to_string());
+            }
+        }
+        paths.join(":")
+    };
+
     let mut child = TokioCommand::new(command)
         .args(args)
+        .env("PATH", &augmented_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to spawn process: {e}"))?;
 
@@ -3410,7 +3474,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 

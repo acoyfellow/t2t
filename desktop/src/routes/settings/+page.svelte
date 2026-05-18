@@ -34,6 +34,11 @@
       }
     }
   }
+
+  async function startWindowDrag(event: MouseEvent) {
+    if (event.button !== 0 || !appWindow) return;
+    await appWindow.startDragging();
+  }
   import {
     Plus,
     X,
@@ -109,15 +114,9 @@
   let pasteError = $state<string | null>(null);
 
   // Model selection state
-  let models = $state<Array<{ id: string; name?: string }>>([]);
-  let selectedModel = $state("openai/gpt-5-nano");
-  let modelsLoading = $state(false);
-  let modelComboboxOpen = $state(false);
-  let modelTriggerRef = $state<HTMLButtonElement>(null!);
-
-  const selectedModelLabel = $derived(
-    models.find((m) => m.id === selectedModel)?.name || selectedModel
-  );
+  let piBinary = $state("pi");
+  let piProvider = $state("opencode.cloudflare.dev");
+  let selectedModel = $state("ember-alpha");
 
   // MCP Server Config Schema for validation
   const MCPServerConfigSchema = Schema.Struct({
@@ -166,13 +165,6 @@
     return "Text";
   }
 
-  function closeAndFocusTrigger() {
-    modelComboboxOpen = false;
-    tick().then(() => {
-      modelTriggerRef?.focus();
-    });
-  }
-
   // Transport selection state
   let transportComboboxOpen = $state(false);
   let transportTriggerRef = $state<HTMLButtonElement>(null!);
@@ -185,9 +177,9 @@
     });
   }
 
-  // OpenRouter key state
-  let openrouterKey = $state("");
-  let keyLoading = $state(false);
+  // TTS (agent mode speaks responses via macOS `say`)
+  let ttsEnabled = $state(false);
+  let ttsVoice = $state("");
 
   // Theme state
   let isDark = $state(false);
@@ -261,8 +253,11 @@
       const { load } = window.__TAURI__.store;
       const serversStore = await load("mcp-servers.json", { autoSave: true });
 
-      const serversData = ((await serversStore.get("servers")) ??
-        []) as MCPServer[];
+      // Defensive: store file could be corrupt/wrong shape ({} instead of
+      // {servers: []}). Without this guard, .map below throws and the whole
+      // Settings window renders white. Seen 2026-04-17.
+      const raw = await serversStore.get("servers");
+      const serversData = (Array.isArray(raw) ? raw : []) as MCPServer[];
 
       servers = serversData.map((s) => ({
         ...s,
@@ -283,95 +278,55 @@
     }
   }
 
-  async function loadModel() {
+  async function loadPiAgent() {
     try {
       if (!window.__TAURI__?.store) return;
       const { load } = window.__TAURI__.store;
-      const store = await load("model", { autoSave: true });
-      const saved = (await store.get("model")) as string | undefined;
-      if (saved && saved.length > 0) {
-        selectedModel = saved;
-      }
+      const store = await load("pi-agent", { autoSave: true });
+      piBinary = ((await store.get("binary")) ?? piBinary) as string;
+      piProvider = ((await store.get("provider")) ?? piProvider) as string;
+      selectedModel = ((await store.get("model")) ?? selectedModel) as string;
     } catch (e) {
-      console.error("Failed to load model:", e);
+      console.error("Failed to load Pi agent settings:", e);
     }
   }
 
-  async function loadOpenRouterKey() {
-    try {
-      keyLoading = true;
-      const key = (await invoke("get_openrouter_key")) as string | null;
-      if (key) {
-        openrouterKey = key;
-      }
-    } catch (e) {
-      console.error("Failed to load OpenRouter key:", e);
-    } finally {
-      keyLoading = false;
-    }
-  }
-
-  async function saveOpenRouterKey() {
-    try {
-      if (!openrouterKey || openrouterKey.length === 0) {
-        console.error("OpenRouter key cannot be empty");
-        return;
-      }
-      await invoke("set_openrouter_key", { key: openrouterKey });
-      // Refresh models after saving key
-      await fetchModels();
-    } catch (e) {
-      console.error("Failed to save OpenRouter key:", e);
-    }
-  }
-
-  async function saveModel() {
+  async function savePiAgent() {
     try {
       if (!window.__TAURI__?.store) return;
       const { load } = window.__TAURI__.store;
-      const store = await load("model", { autoSave: true });
+      const store = await load("pi-agent", { autoSave: true });
+      await store.set("binary", piBinary);
+      await store.set("provider", piProvider);
       await store.set("model", selectedModel);
       await store.save();
     } catch (e) {
-      console.error("Failed to save model:", e);
+      console.error("Failed to save Pi agent settings:", e);
     }
   }
 
-  async function fetchModels() {
+  async function loadTts() {
     try {
-      modelsLoading = true;
-      // Get OpenRouter key (from store or env var)
-      const key = (await invoke("get_openrouter_key")) as string | null;
-
-      if (!key || key.length === 0) {
-        console.error("No OpenRouter key found. Please set it in Settings.");
-        modelsLoading = false;
-        return;
-      }
-
-      const result = (await invoke("fetch_openrouter_models", {
-        openrouterKey: key,
-      })) as { data?: Array<{ id: string; name?: string }> };
-
-      console.log("OpenRouter models response:", result);
-
-      if (result && result.data && Array.isArray(result.data)) {
-        // Sort models by name/id for better UX
-        models = result.data.sort((a, b) => {
-          const aName = a.name || a.id;
-          const bName = b.name || b.id;
-          return aName.localeCompare(bName);
-        });
-        console.log(`Loaded ${models.length} models`);
-      } else {
-        console.warn("Unexpected response structure:", result);
-        models = [];
-      }
+      if (!window.__TAURI__?.store) return;
+      const { load } = window.__TAURI__.store;
+      const store = await load("tts", { autoSave: true });
+      ttsEnabled = ((await store.get("enabled")) ?? true) as boolean;
+      ttsVoice = ((await store.get("voice")) ?? "") as string;
     } catch (e) {
-      console.error("Failed to fetch models:", e);
-      models = [];
-    } finally {
-      modelsLoading = false;
+      console.error("Failed to load TTS settings:", e);
+    }
+  }
+
+  async function saveTts() {
+    try {
+      if (!window.__TAURI__?.store) return;
+      const { load } = window.__TAURI__.store;
+      const store = await load("tts", { autoSave: true });
+      await store.set("enabled", ttsEnabled);
+      await store.set("voice", ttsVoice);
+      await store.save();
+    } catch (e) {
+      console.error("Failed to save TTS settings:", e);
     }
   }
 
@@ -380,8 +335,8 @@
     await Promise.all([
       loadAnalytics(),
       loadServers(),
-      loadModel(),
-      loadOpenRouterKey(),
+      loadPiAgent(),
+      loadTts(),
     ]);
     loading = false;
   }
@@ -668,20 +623,7 @@
       isDark = t === "dark";
     });
 
-    // Load data and models asynchronously
-    loadData().then(() => {
-      // Auto-fetch models if we have an OpenRouter key
-      invoke("get_openrouter_key")
-        .then((key) => {
-          if (key && typeof key === "string" && key.length > 0) {
-            openrouterKey = key;
-            fetchModels();
-          }
-        })
-        .catch(() => {
-          // Ignore - models can be fetched manually
-        });
-    });
+    loadData();
 
     // Setup history realtime if history tab is active
     if (activeTab === "history") {
@@ -838,16 +780,13 @@
   class="h-screen flex flex-col bg-background text-foreground overflow-hidden"
 >
   <!-- Header with Tabs -->
-  <header
-    class="border-b border-border bg-card/50 backdrop-blur-sm shrink-0 z-10"
-    data-tauri-drag-region
-  >
-    <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
-      <!-- macOS Window Controls -->
-      <div class="flex items-center gap-2 mb-2" data-tauri-drag-region>
+  <header class="border-b border-border bg-card/70 backdrop-blur-sm shrink-0 z-10 rounded-t-[18px] overflow-hidden">
+    <div class="flex h-11 items-center border-b border-border/60 px-4 sm:px-6 lg:px-8 xl:px-12">
+      <div class="flex items-center gap-2 shrink-0">
         <button
+          type="button"
           onclick={closeWindow}
-          class="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center group"
+          class="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center group"
           title="Close"
         >
           <span
@@ -856,8 +795,9 @@
           >
         </button>
         <button
+          type="button"
           onclick={minimizeWindow}
-          class="w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-colors flex items-center justify-center group"
+          class="w-3.5 h-3.5 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-colors flex items-center justify-center group"
           title="Minimize"
         >
           <span
@@ -866,8 +806,9 @@
           >
         </button>
         <button
+          type="button"
           onclick={toggleMaximize}
-          class="w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center group"
+          class="w-3.5 h-3.5 rounded-full bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center group"
           title="Maximize"
         >
           <span
@@ -876,6 +817,17 @@
           >
         </button>
       </div>
+      <button
+        type="button"
+        class="ml-4 flex h-full flex-1 cursor-grab items-center text-left text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80 active:cursor-grabbing"
+        onmousedown={startWindowDrag}
+        aria-label="Drag settings window"
+        title="Drag to move window"
+      >
+        Settings
+      </button>
+    </div>
+    <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
       <div
         class="flex items-center justify-between py-3 sm:py-4 gap-2 sm:gap-4"
       >
@@ -1094,163 +1046,31 @@
           </Toggle>
         </div>
 
-        <!-- OpenRouter API Key -->
-        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
-          <label
-            for="openrouter-key"
-            class="block text-sm font-medium text-foreground mb-2"
-            >OpenRouter API Key</label
-          >
-          <div class="flex gap-2">
-            <input
-              id="openrouter-key"
-              type="password"
-              bind:value={openrouterKey}
-              placeholder={keyLoading ? "Loading..." : "sk-or-v1-..."}
-              class="flex-1 px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"
-            />
-            <Button
-              onclick={saveOpenRouterKey}
-              disabled={!openrouterKey || openrouterKey.length === 0}
-            >
-              Save
-            </Button>
+        <!-- Pi Agent + Cloudflare AI Gateway -->
+        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg space-y-4">
+          <div>
+            <h2 class="text-sm font-medium text-foreground">Pi voice agent</h2>
+            <p class="text-xs text-muted-foreground mt-1">
+              Fn+Ctrl sends the transcription to the local <code class="px-1 py-0.5 bg-muted rounded">pi</code> CLI with tools enabled, then speaks the reply. Cloudflare AI Gateway is the recommended public provider.
+            </p>
           </div>
-          <p class="text-xs text-muted-foreground mt-2">
-            Your API key is stored locally. Falls back to <code
-              class="px-1 py-0.5 bg-muted rounded">OPENROUTER_API_KEY</code
-            > env var if not set.
-          </p>
-        </div>
-
-        <!-- Model Selection -->
-        <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg">
-          <div class="flex items-center justify-between mb-3">
-            <label class="text-sm font-medium text-foreground">AI Model</label>
-            <button
-              onclick={fetchModels}
-              disabled={modelsLoading || !openrouterKey}
-              class="text-xs text-primary hover:text-primary disabled:opacity-50"
-            >
-              {modelsLoading ? "Loading..." : "Refresh Models"}
-            </button>
+          <div class="grid gap-4 md:grid-cols-3">
+            <label class="space-y-2 text-xs font-medium text-foreground">
+              Pi binary
+              <input bind:value={piBinary} onchange={savePiAgent} placeholder="pi" class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm" />
+            </label>
+            <label class="space-y-2 text-xs font-medium text-foreground">
+              Provider
+              <input bind:value={piProvider} onchange={savePiAgent} placeholder="cloudflare-ai-gateway" class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm" />
+            </label>
+            <label class="space-y-2 text-xs font-medium text-foreground">
+              Model
+              <input bind:value={selectedModel} onchange={savePiAgent} placeholder="ember-alpha" class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm" />
+            </label>
           </div>
-
-          <Popover.Root bind:open={modelComboboxOpen}>
-            <Popover.Trigger bind:ref={modelTriggerRef}>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="outline"
-                  class="w-full justify-between bg-muted border-border/50 text-foreground hover:bg-muted/80"
-                  role="combobox"
-                  aria-expanded={modelComboboxOpen}
-                >
-                  <div class="flex items-center justify-between w-full min-w-0">
-                    <span class="truncate"
-                      >{selectedModelLabel || "Select a model..."}</span
-                    >
-                    {#if isImageGenerationModel(selectedModel)}
-                      <span
-                        class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
-                        title="Screenshots will be automatically included with prompts"
-                      >
-                        🖼️
-                      </span>
-                    {/if}
-                    <ChevronsUpDown class="ms-2 size-4 shrink-0 opacity-50" />
-                  </div>
-                </Button>
-              {/snippet}
-            </Popover.Trigger>
-            <Popover.Content class="w-full p-0" align="start">
-              <Command.Root>
-                <Command.Input placeholder="Search models..." class="h-9" />
-                <Command.List>
-                  <Command.Empty>No model found.</Command.Empty>
-                  <Command.Group>
-                    {#if models.length === 0}
-                      <Command.Item
-                        value={selectedModel}
-                        onSelect={() => {
-                          saveModel();
-                          closeAndFocusTrigger();
-                        }}
-                      >
-                        <Check class="me-2 size-4 opacity-100" />
-                        {selectedModel}
-                      </Command.Item>
-                    {:else}
-                      {#each models as model}
-                        <Command.Item
-                          value={model.name || model.id}
-                          onSelect={() => {
-                            selectedModel = model.id;
-                            saveModel();
-                            closeAndFocusTrigger();
-                          }}
-                        >
-                          <div class="flex items-center justify-between w-full">
-                            <div class="flex items-center flex-1 min-w-0">
-                              <Check
-                                class={cn(
-                                  "me-2 size-4 shrink-0",
-                                  model.id === selectedModel
-                                    ? "opacity-100"
-                                    : "opacity-0"
-                                )}
-                              />
-                              <span class="truncate"
-                                >{model.name || model.id}</span
-                              >
-                            </div>
-                            {#if isImageGenerationModel(model.id)}
-                              <span
-                                class="ms-2 px-2 py-0.5 text-xs rounded bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0"
-                                title="Screenshots will be automatically included with prompts"
-                              >
-                                🖼️ Image Gen
-                              </span>
-                            {/if}
-                          </div>
-                        </Command.Item>
-                      {/each}
-                      <!-- Ensure selected model is always available even if not in fetched list -->
-                      {#if models.findIndex((m) => m.id === selectedModel) === -1}
-                        <Command.Item
-                          value={selectedModel}
-                          onSelect={() => {
-                            saveModel();
-                            closeAndFocusTrigger();
-                          }}
-                        >
-                          <Check class="me-2 size-4 opacity-100" />
-                          {selectedModel}
-                        </Command.Item>
-                      {/if}
-                    {/if}
-                  </Command.Group>
-                </Command.List>
-              </Command.Root>
-            </Popover.Content>
-          </Popover.Root>
-          <p class="text-xs text-muted-foreground mt-2">
-            Model used for agent mode. Defaults to <code
-              class="px-1 py-0.5 bg-muted rounded">openai/gpt-5-nano</code
-            >
-            or
-            <code class="px-1 py-0.5 bg-muted rounded">OPENROUTER_MODEL</code> env
-            var.
-          </p>
-          {#if isImageGenerationModel(selectedModel)}
-            <div
-              class="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded text-xs text-purple-300"
-            >
-              <strong>🖼️ Image Generation Mode:</strong> Screenshots are automatically
-              captured and included with every agent input. The agent can "see" your
-              screen.
-            </div>
-          {/if}
+          <div class="rounded-md border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground">
+            Public setup: configure Pi's <code class="px-1 py-0.5 bg-muted rounded">cloudflare-ai-gateway</code> provider with <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_API_KEY</code>, <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_ACCOUNT_ID</code>, and <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_GATEWAY_ID</code>. Local employee default here is <code class="px-1 py-0.5 bg-muted rounded">opencode.cloudflare.dev / ember-alpha</code>.
+          </div>
         </div>
 
         <p class="text-sm text-muted-foreground">Manage your MCP servers</p>
@@ -1312,9 +1132,10 @@
                         </h3>
                       </div>
 
-                      <div
+                      <button
+                        type="button"
                         onclick={() => handleExpand(server.id)}
-                        class="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground cursor-pointer hover:text-foreground flex-wrap"
+                        class="flex items-center gap-2 text-left text-xs sm:text-sm text-muted-foreground cursor-pointer hover:text-foreground flex-wrap"
                       >
                         {#if server.status === "loading"}
                           <div class="flex items-center gap-2">
@@ -1357,7 +1178,7 @@
                         {:else}
                           <span>{server.transport}</span>
                         {/if}
-                      </div>
+                      </button>
 
                       <!-- Expanded tools list -->
                       {#if server.expanded && server.tools}
@@ -1605,14 +1426,16 @@
   <!-- Add/Edit Dialog -->
   {#if showAddDialog}
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onclick={(e) => {
-        if (e.target === e.currentTarget) resetForm();
-      }}
+      class="fixed inset-0 flex items-center justify-center z-50"
     >
+      <button
+        type="button"
+        aria-label="Close add server dialog"
+        class="absolute inset-0 bg-black/50"
+        onclick={resetForm}
+      ></button>
       <div
-        class="bg-card border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
-        onclick={(e) => e.stopPropagation()}
+        class="relative bg-card border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
       >
         <div class="px-6 py-4 border-b border-border/30">
           <h3 class="text-lg font-semibold text-foreground">
@@ -1717,9 +1540,9 @@
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-foreground mb-2">
+              <span class="block text-sm font-medium text-foreground mb-2">
                 Transport
-              </label>
+              </span>
               <Popover.Root bind:open={transportComboboxOpen}>
                 <Popover.Trigger bind:ref={transportTriggerRef}>
                   {#snippet child({ props })}
@@ -1842,8 +1665,7 @@
   {#if deleteConfirmId}
     {@const serverToDelete = servers.find((s) => s.id === deleteConfirmId)}
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onclick={cancelDelete}
+      class="fixed inset-0 flex items-center justify-center z-50"
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-server-dialog-title"
@@ -1851,9 +1673,14 @@
       tabindex="-1"
       aria-hidden="true"
     >
+      <button
+        type="button"
+        aria-label="Close delete server dialog"
+        class="absolute inset-0 bg-black/50"
+        onclick={cancelDelete}
+      ></button>
       <div
-        class="bg-[oklch(0.15_0.01_258.34)] border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
-        onclick={(e) => e.stopPropagation()}
+        class="relative bg-[oklch(0.15_0.01_258.34)] border border-border/50 rounded-lg shadow-lg w-full max-w-md mx-4"
       >
         <div class="px-6 py-4 border-b border-border/50">
           <h3 class="text-lg font-semibold text-foreground">Delete Server</h3>

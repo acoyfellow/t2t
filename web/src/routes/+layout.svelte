@@ -6,10 +6,8 @@
 
   let { data, children } = $props();
 
-  // Initialize auth store with server data
-  authStore.initialize(data.user, data.session);
-
   onMount(() => {
+    authStore.initialize(data.user, data.session);
     initializeTheme(data.theme);
   });
 </script>
