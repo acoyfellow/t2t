@@ -240,7 +240,7 @@
     const modal = modals[type];
     modal.show = false;
     if ("resolve" in modal && modal.resolve) {
-      modal.resolve(value);
+      (modal.resolve as ((resolvedValue: unknown) => void) | null)?.(value);
       modal.resolve = null;
     }
   };
@@ -497,7 +497,7 @@
         type="text"
         placeholder={modals.confirm.password}
         bind:value={modals.confirm.passwordInput}
-        onkeydown={(e) => e.key === "Enter" && handleConfirm(true)}
+        onkeydown={(e: KeyboardEvent) => e.key === "Enter" && handleConfirm(true)}
         class="{styles.input} mb-4"
       />
     {/if}
@@ -591,7 +591,7 @@
         : (modals.prompt.options as { placeholder?: string })?.placeholder ||
           "..."}
       bind:value={modals.prompt.answer}
-      onkeydown={(e) =>
+      onkeydown={(e: KeyboardEvent) =>
         e.key === "Enter"
           ? handlePrompt(true)
           : e.key === "Escape" && handlePrompt(false)}
@@ -658,7 +658,10 @@
           {#if field.type === "textarea"}
             <Textarea
               id={field.name}
-              bind:value={modals.form.data[field.name]}
+              value={String(modals.form.data[field.name] ?? "")}
+              oninput={(event) => {
+                modals.form.data[field.name] = (event.currentTarget as HTMLTextAreaElement).value;
+              }}
               placeholder={field.placeholder}
               class={styles.input}
             />
@@ -682,7 +685,10 @@
             <label class="flex items-center">
               <input
                 type="checkbox"
-                bind:checked={modals.form.data[field.name]}
+                checked={Boolean(modals.form.data[field.name])}
+                onchange={(event) => {
+                  modals.form.data[field.name] = (event.currentTarget as HTMLInputElement).checked;
+                }}
                 class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-gray-700"

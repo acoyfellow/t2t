@@ -2,7 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
-  const { theme } = await request.json();
+  const body = await request.json<{ theme?: unknown }>();
+  const { theme } = body;
   
   if (theme !== 'light' && theme !== 'dark') {
     return json({ error: 'Invalid theme' }, { status: 400 });
@@ -17,7 +18,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
   
   return json({ success: true, theme });
 };
-
 
 
 

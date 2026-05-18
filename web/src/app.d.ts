@@ -15,6 +15,15 @@ declare global {
 				DB: D1Database;
 				MY_DO: DurableObjectNamespace;
 				WORKER: Fetcher;
+				AI?: {
+					run(
+						model: string,
+						options: {
+							messages: Array<{ role: string; content: string }>;
+							max_tokens?: number;
+						}
+					): Promise<{ response?: string }>;
+				};
 				BETTER_AUTH_SECRET?: string;
 				BETTER_AUTH_URL?: string;
 			};

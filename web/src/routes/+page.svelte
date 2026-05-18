@@ -211,7 +211,7 @@
             >
               fn+ctrl
             </kbd>{" "}
-            to speak commands. Your OpenRouter key. Any model. Local agent, zero
+            to speak with a local Pi agent. Cloudflare AI Gateway recommended. Any model you configure. Local agent, zero
             servers.
           </p>
         </div>

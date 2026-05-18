@@ -40,25 +40,25 @@
   const borderClass = $derived.by(() => {
     const recordColor =
       mode === "agent"
-        ? "bg-[#c27aff]/80 shadow-[0_0_var(--glow)_rgba(194,122,255,var(--alpha))]"
-        : "bg-[#00ffa3]/80 shadow-[0_0_var(--glow)_rgba(0,255,163,var(--alpha))]";
+        ? "bg-[#c27aff]/80"
+        : "bg-[#00ffa3]/80";
 
     let state: string;
     if (recording) {
       state = recordColor;
     } else if (speaking) {
-      state = "bg-[#a855f7]/90 shadow-[0_0_20px_rgba(168,85,247,0.8)]";
+      state = "bg-[#a855f7]/90";
     } else if (processing && mode === "agent") {
-      state = "bg-[#c27aff]/80 shadow-[0_0_18px_rgba(194,122,255,0.6)] animate-pulse";
+      state = "bg-[#c27aff]/80 animate-pulse";
     } else if (processing) {
-      state = "bg-amber-500/80 shadow-[0_0_15px_rgba(245,158,11,0.8)]";
+      state = "bg-amber-500/80";
     } else {
       state = "bg-transparent";
     }
 
     return [
       "absolute bottom-0 left-0 w-full h-full",
-      "transition-[background-color,box-shadow,height] duration-300 ease-out",
+      "transition-[background-color,height] duration-300 ease-out",
       "border-0 outline-none",
       state,
     ].join(" ");
