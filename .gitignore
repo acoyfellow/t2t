@@ -1,18 +1,33 @@
-# Desktop app
-desktop/target/
-desktop/node_modules/
-desktop/.svelte-kit/
-desktop/build/
-desktop/gen/
-
-# Web app
-web/node_modules/
-web/.svelte-kit/
-web/.alchemy/
-
-# Root
+# Dependencies
 node_modules/
-.env
-*.lock
-.DS_Store
+
+# Build outputs
+dist/
+build/
+target/
+.svelte-kit/
+.alchemy/
 .wrangler/
+gen/
+
+# Lockfiles (project convention - not committed)
+*.lock
+bun.lock
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated types
+worker-configuration.d.ts
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~

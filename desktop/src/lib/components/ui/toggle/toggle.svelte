@@ -55,7 +55,7 @@
 </script>
 
 <TogglePrimitive.Root
-	bind:this={ref}
+	bind:ref
 	class={cn(toggleVariants({ variant, size }), className)}
 	bind:pressed
 	onPressedChange={handlePressedChange}
@@ -63,4 +63,3 @@
 >
 	{@render children?.()}
 </TogglePrimitive.Root>
-

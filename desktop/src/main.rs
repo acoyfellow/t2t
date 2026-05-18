@@ -145,6 +145,38 @@ struct HistoryResponse {
     total: usize,
 }
 
+#[derive(Clone)]
+struct PiAgentConfig { binary: String, provider: String, model: String }
+
+fn get_pi_agent_config(app: &AppHandle) -> PiAgentConfig {
+    let mut c = PiAgentConfig {
+        binary: std::env::var("T2T_PI_BINARY").unwrap_or_else(|_| "pi".into()),
+        provider: std::env::var("T2T_PI_PROVIDER").unwrap_or_else(|_| "opencode.cloudflare.dev".into()),
+        model: std::env::var("T2T_PI_MODEL").unwrap_or_else(|_| "ember-alpha".into()),
+    };
+    if let Ok(s) = app.store("pi-agent") {
+        if let Some(v) = s.get("binary").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.binary=v; } }
+        if let Some(v) = s.get("provider").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.provider=v; } }
+        if let Some(v) = s.get("model").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.model=v; } }
+    }
+    c
+}
+
+fn call_pi_agent_local(text: &str, c: &PiAgentConfig, app: &AppHandle) -> Result<String,String> {
+    let ca="/Users/jcoeyman/.local/share/cloudflare-warp-certs/CloudflareRootCertificateCombined.pem";
+    let mut cmd=std::process::Command::new(&c.binary);
+    cmd.args(["-p","--provider",&c.provider,"--model",&c.model,"--no-session",text])
+        .env("PATH", format!("/Users/jcoeyman/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()));
+    if std::path::Path::new(ca).exists(){ cmd.env("NODE_EXTRA_CA_CERTS",ca).env("SSL_CERT_FILE",ca); }
+    let o=cmd.output().map_err(|e| format!("Failed to launch Pi: {e}"))?;
+    let out=String::from_utf8_lossy(&o.stdout).trim().to_string();
+    let err=String::from_utf8_lossy(&o.stderr).trim().to_string();
+    if !o.status.success(){return Err(format!("Pi agent exited {}: {}",o.status, if err.is_empty(){out}else{err}));}
+    if out.is_empty(){return Err("Pi agent returned an empty response".into());}
+    let _=save_history_entry(app.clone(),"agent".into(),serde_json::json!({"engine":"pi","provider":c.provider,"model":c.model,"transcript":text,"response":out,"success":true}));
+    Ok(out)
+}
+
 /// Format user message with optional screenshot for image generation models
 /// 
 /// Creates an OpenAI-compatible message format that can include both text and images.
@@ -1865,7 +1897,7 @@ mod macos_fn_key {
 
                 let samples_16k = normalize_audio(resample_to_16k_linear(&samples, in_rate));
                 let (rms, peak) = audio_stats(&samples_16k);
-                if rms < 0.006 && peak < 0.04 {
+                if rms < 0.002 && peak < 0.02 {
                     log_line("Skipping transcription: too quiet (likely silence)");
                     return;
                 }
@@ -1916,187 +1948,21 @@ mod macos_fn_key {
                                 })
                             );
                         } else {
-                            // Agent mode: check for MCP servers first
-                            log_line(&format!("Agent mode: calling API with '{}'", text));
-                            
-                            // Check if cancelled before starting
-                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                log_line("Processing cancelled before API call");
-                                return;
-                            }
-                            
-                            let selected_model = get_selected_model(&app_unwrapped);
-                            let mcp_result = if let Some((servers, key)) = get_mcp_config(&app_unwrapped) {
-                                log_line(&format!("MCP servers configured ({}), using MCP agent", servers.len()));
-                                Some(call_mcp_agent_api(&text, servers, key, &selected_model, Some(&app_unwrapped)))
-                            } else {
-                                log_line("No MCP servers configured, falling back to AppleScript agent");
-                                None
-                            };
-                            
-                            // Check if cancelled after API call
-                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                log_line("Processing cancelled after API call");
-                                return;
-                            }
-                            
-                            match mcp_result {
-                                Some(Ok(response)) => {
-                                    // Check if cancelled after API response
-                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                        log_line("Processing cancelled after API response - skipping result");
-                                        return;
-                                    }
-                                    
-                                    if response.success {
-                                        // Log tool calls if any
-                                        if let Some(tool_calls) = &response.tool_calls {
-                                            if !tool_calls.is_empty() {
-                                                log_line(&format!("MCP Agent: {} tool(s) executed", tool_calls.len()));
-                                                for (i, call) in tool_calls.iter().enumerate() {
-                                                    if let Some(tool_name) = call.get("toolName").and_then(|v| v.as_str()) {
-                                                        log_line(&format!("  Tool {}: {}", i + 1, tool_name));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        if let Some(response_text) = response.text {
-                                            log_line(&format!("MCP Agent response: {}", response_text));
-                                            
-                                            // Build notification message with tool info
-                                            let mut msg = String::new();
-                                            if let Some(tool_calls) = &response.tool_calls {
-                                                if !tool_calls.is_empty() {
-                                                    let tool_names: Vec<String> = tool_calls.iter()
-                                                        .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                                                        .collect();
-                                                    if !tool_names.is_empty() {
-                                                        msg.push_str(&format!("Used: {}. ", tool_names.join(", ")));
-                                                    }
-                                                }
-                                            }
-                                            
-                                            // Always paste the response
-                                            let original = get_clipboard_macos();
-                                            set_clipboard_macos(&response_text);
-                                            paste_text();
-                                            std::thread::sleep(std::time::Duration::from_millis(80));
-                                            if let Some(orig) = original {
-                                                set_clipboard_macos(&orig);
-                                            }
-
-                                            // Speak the response if TTS is enabled (agent mode only).
-                                            speak_tts(&app_unwrapped, &response_text);
-
-                                            // Show notification with tool info
-                                            if msg.is_empty() {
-                                                show_notification("t2t", "Result pasted");
-                                            } else {
-                                                show_notification("t2t", &format!("{}Result pasted", msg));
-                                            }
-                                        } else if let Some(tool_calls) = &response.tool_calls {
-                                            if !tool_calls.is_empty() {
-                                                let tool_names: Vec<String> = tool_calls.iter()
-                                                    .filter_map(|call| call.get("toolName").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                                                    .collect();
-                                                show_notification("t2t", &format!("Executed: {}", tool_names.join(", ")));
-                                            }
-                                        }
-                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
-                                    } else {
-                                        let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                                        log_line(&format!("MCP Agent: API error: {}", err));
-                                        show_notification("t2t", &format!("Error: {}", err));
-                                        speak_error(&app_unwrapped, &format!("Agent error. {}", err));
-                                    }
+                            // Agent mode: hand the spoken one-shot prompt to local Pi.
+                            log_line(&format!("Agent mode: calling Pi with '{}'", text));
+                            if IS_CANCELLING.load(Ordering::SeqCst) { return; }
+                            let config = get_pi_agent_config(&app_unwrapped);
+                            match call_pi_agent_local(&text, &config, &app_unwrapped) {
+                                Ok(response_text) => {
+                                    log_line(&format!("Pi Agent response: {}", response_text));
+                                    speak_tts(&app_unwrapped, &response_text);
+                                    show_notification("t2t", "Pi response spoken");
+                                    update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
                                 }
-                                Some(Err(e)) => {
-                                    log_line(&format!("MCP Agent: API call failed: {}", e));
-                                    show_notification("t2t", &format!("API error: {}", e));
-                                    speak_error(&app_unwrapped, "API call failed. See the log for details.");
-                                }
-                                None => {
-                                    // Fallback to local AppleScript agent
-                                    log_line("No MCP servers configured, using local AppleScript agent");
-                                    
-                                    // Get OpenRouter key for AppleScript generation
-                                    let openrouter_key = if let Ok(key_store) = app_unwrapped.store("openrouter-key") {
-                                        key_store.get("key")
-                                            .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                            .filter(|k| !k.is_empty())
-                                    } else {
-                                        None
-                                    };
-                                    
-                                    let openrouter_key = openrouter_key.or_else(|| {
-                                        std::env::var("OPENROUTER_API_KEY").ok()
-                                    }).filter(|k| !k.is_empty());
-                                    
-                                    // Check if cancelled before AppleScript agent call
-                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                        log_line("Processing cancelled before AppleScript agent call");
-                                        return;
-                                    }
-                                    
-                                    let selected_model = get_selected_model(&app_unwrapped);
-                                    match openrouter_key {
-                                        Some(key) => {
-                                            match call_applescript_agent_local(&text, &key, &selected_model, Some(&app_unwrapped)) {
-                                                Ok(response) => {
-                                                    // Check if cancelled after AppleScript agent call
-                                                    if IS_CANCELLING.load(Ordering::SeqCst) {
-                                                        log_line("Processing cancelled after AppleScript agent call - skipping execution");
-                                                        return;
-                                                    }
-                                                    
-                                                    if response.success {
-                                                        if let Some(script) = response.script {
-                                                            // Check again before executing script
-                                                            if IS_CANCELLING.load(Ordering::SeqCst) {
-                                                                log_line("Processing cancelled before script execution");
-                                                                return;
-                                                            }
-                                                            log_line(&format!("Agent: executing script: {}", script));
-                                                             match execute_applescript(&script) {
-                                                                Ok(output) => {
-                                                                    log_line(&format!("Agent: script succeeded: {}", output));
-                                                                    show_notification("t2t", "Done");
-                                                                    // Speak confirmation if TTS is enabled (agent mode only).
-                                                                    speak_tts(&app_unwrapped, "Done");
-                                                                }
-                                                                Err(e) => {
-                                                                    log_line(&format!("Agent: script failed: {}", e));
-                                                                    show_notification("t2t", &format!("Script error: {}", e));
-                                                                    speak_error(&app_unwrapped, "Script failed.");
-                                                                }
-                                                            }
-                                                        }
-                                                        update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
-                                                    } else if response.blocked == Some(true) {
-                                                        log_line("Agent: script blocked by safety filter");
-                                                        show_notification("t2t", "Action blocked for safety");
-                                                        speak_error(&app_unwrapped, "Action blocked for safety.");
-                                                    } else {
-                                                        let err = response.error.unwrap_or_else(|| "Unknown error".to_string());
-                                                        log_line(&format!("Agent: error: {}", err));
-                                                        show_notification("t2t", &format!("Error: {}", err));
-                                                        speak_error(&app_unwrapped, &format!("Agent error. {}", err));
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    log_line(&format!("Agent: AppleScript generation failed: {}", e));
-                                                    show_notification("t2t", &format!("Error: {}", e));
-                                                    speak_error(&app_unwrapped, "AppleScript generation failed. See the log.");
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            log_line("Agent: No OpenRouter API key found");
-                                            show_notification("t2t", "OpenRouter API key required for agent mode");
-                                            speak_error(&app_unwrapped, "OpenRouter API key required. Set it in settings.");
-                                        }
-                                    }
+                                Err(e) => {
+                                    log_line(&format!("Pi Agent failed: {}", e));
+                                    show_notification("t2t", &format!("Pi error: {}", e));
+                                    speak_error(&app_unwrapped, "Pi agent failed. See the log.");
                                 }
                             }
                         }
@@ -3608,7 +3474,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, fetch_openrouter_models, get_openrouter_key, set_openrouter_key, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 

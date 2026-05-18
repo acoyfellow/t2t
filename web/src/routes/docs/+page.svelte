@@ -358,7 +358,7 @@
               </li>
               <li>
                 <strong>Without MCP servers</strong>: Generates and executes
-                AppleScript for macOS automation
+                the local Pi CLI agent
               </li>
             </ul>
           </div>
@@ -367,16 +367,16 @@
             <h3 class="text-xl font-semibold text-foreground mb-2">
               Setup Required
             </h3>
-            <p class="mb-2">Agent mode requires an OpenRouter API key:</p>
+            <p class="mb-2">Agent mode uses a local Pi CLI provider/model configuration:</p>
             <ol class="list-decimal list-inside space-y-1 ml-4">
               <li>
                 Get a free API key from <a
-                  href="https://openrouter.ai"
-                  class="text-primary hover:underline">openrouter.ai</a
+                  href="https://Cloudflare AI Gateway or another Pi provider"
+                  class="text-primary hover:underline">Cloudflare AI Gateway or another Pi provider</a
                 >
               </li>
               <li>Open t2t settings (menu bar icon → View Settings)</li>
-              <li>Add your OpenRouter API key in the Settings tab</li>
+              <li>Configure Pi provider/model in the Settings tab</li>
               <li>Optionally select your preferred AI model</li>
             </ol>
           </div>
@@ -589,16 +589,15 @@
 
           <div>
             <h3 class="text-xl font-semibold text-foreground mb-2">
-              macOS Automation
+              Pi Agent Actions
             </h3>
             <p>
-              Without MCP servers, agent mode uses AppleScript for macOS
-              automation:
+              Agent mode delegates prompts to the local Pi CLI. Pi can use its configured tools and providers:
             </p>
             <ul class="list-disc list-inside space-y-1 ml-4 mt-2">
-              <li>Opening applications</li>
-              <li>System notifications</li>
-              <li>Basic app control</li>
+              <li>Model routing via Cloudflare AI Gateway</li>
+              <li>Local tool use through Pi</li>
+              <li>Custom provider/model configuration</li>
             </ul>
           </div>
         </div>
@@ -678,7 +677,7 @@
             </h3>
             <p class="mb-2">If agent mode doesn't respond:</p>
             <ul class="list-disc list-inside space-y-1 ml-4">
-              <li>Verify your OpenRouter API key is set in settings</li>
+              <li>Verify your Pi provider/model configuration is set in settings</li>
               <li>Check that you're holding fn+ctrl (or fn+cmd on macOS)</li>
               <li>Look for error notifications</li>
               <li>
