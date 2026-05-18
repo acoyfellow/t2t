@@ -119,3 +119,26 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes t2t-agent-thinking {
+  0%, 100% { opacity: 0.62; transform: scaleY(0.72); filter: saturate(0.95); }
+  35% { opacity: 1; transform: scaleY(1.45); filter: saturate(1.3); }
+  70% { opacity: 0.86; transform: scaleY(1.05); filter: saturate(1.15); }
+}
+
+@keyframes t2t-agent-speaking {
+  0%, 100% { opacity: 0.78; transform: scaleY(0.9); }
+  20% { opacity: 1; transform: scaleY(1.55); }
+  55% { opacity: 0.88; transform: scaleY(1.16); }
+  82% { opacity: 1; transform: scaleY(1.35); }
+}
+
+.t2t-agent-thinking {
+  transform-origin: bottom center;
+  animation: t2t-agent-thinking 0.72s ease-in-out infinite;
+}
+
+.t2t-agent-speaking {
+  transform-origin: bottom center;
+  animation: t2t-agent-speaking 0.48s ease-in-out infinite;
+}

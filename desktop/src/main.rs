@@ -166,9 +166,25 @@ fn call_pi_agent_local(text: &str, c: &PiAgentConfig, app: &AppHandle) -> Result
     let ca="/Users/jcoeyman/.local/share/cloudflare-warp-certs/CloudflareRootCertificateCombined.pem";
     let mut cmd=std::process::Command::new(&c.binary);
     cmd.args(["-p","--provider",&c.provider,"--model",&c.model,"--no-session",text])
-        .env("PATH", format!("/Users/jcoeyman/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()));
+        .env("PATH", format!("/Users/jcoeyman/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if std::path::Path::new(ca).exists(){ cmd.env("NODE_EXTRA_CA_CERTS",ca).env("SSL_CERT_FILE",ca); }
-    let o=cmd.output().map_err(|e| format!("Failed to launch Pi: {e}"))?;
+    let mut child=cmd.spawn().map_err(|e| format!("Failed to launch Pi: {e}"))?;
+    loop {
+        if IS_CANCELLING.load(Ordering::SeqCst) {
+            let _=child.kill();
+            let _=child.wait();
+            log_line("Pi agent cancelled and child process terminated");
+            return Err("Pi response cancelled".into());
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(40)),
+            Err(e) => return Err(format!("Failed while waiting for Pi: {e}")),
+        }
+    }
+    let o=child.wait_with_output().map_err(|e| format!("Failed to collect Pi output: {e}"))?;
     let out=String::from_utf8_lossy(&o.stdout).trim().to_string();
     let err=String::from_utf8_lossy(&o.stderr).trim().to_string();
     if !o.status.success(){return Err(format!("Pi agent exited {}: {}",o.status, if err.is_empty(){out}else{err}));}
