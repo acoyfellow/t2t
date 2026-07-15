@@ -56,6 +56,19 @@ fn eval_indicator_windows(app: &AppHandle, js: &str) {
 fn configure_indicator_windows(app: &tauri::App, main: &tauri::WebviewWindow) {
     let Ok(monitors) = main.available_monitors() else { return; };
     use tauri::{LogicalPosition, LogicalSize, WebviewUrl, WebviewWindowBuilder};
+
+    // Remove overlays left over from a previous display arrangement. Without
+    // this, reconnecting a monitor can leave two transparent windows on one
+    // display, making the response/caption surface appear duplicated.
+    let expected: std::collections::HashSet<String> = (1..monitors.len())
+        .map(|index| format!("overlay-{index}"))
+        .collect();
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("overlay-") && !expected.contains(&label) {
+            let _ = window.close();
+            log_line(&format!("Removed stale indicator window {label}"));
+        }
+    }
     for (index, monitor) in monitors.iter().enumerate() {
         let scale = monitor.scale_factor();
         let pos = monitor.position();
@@ -158,6 +171,10 @@ struct MCPServer {
     url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     enabled: Option<bool>,
+    // Preserve Pi MCP fields that the basic editor does not expose yet
+    // (auth, env, lifecycle, directTools, and future config fields).
+    #[serde(flatten)]
+    extra: HashMap<String, serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -2898,16 +2915,72 @@ fn send_agent_prompt(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_caption_interactivity(app: AppHandle, interactive: bool) -> Result<(), String> {
-    for (label, window) in app.webview_windows() {
-        if is_indicator_window(&label) {
-            window.set_ignore_cursor_events(!interactive)
-                .map_err(|e| format!("Failed to set caption pointer mode: {e}"))?;
-            window.set_focusable(interactive)
-                .map_err(|e| format!("Failed to set caption focus mode: {e}"))?;
-        }
+fn get_installed_mcp_servers() -> Result<Vec<MCPServer>, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+    let path = std::path::PathBuf::from(home).join(".pi/agent/mcp.json");
+    if !path.exists() {
+        return Ok(Vec::new());
     }
-    log_line(&format!("Caption interactivity: {interactive}"));
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read Pi MCP config: {e}"))?;
+    let root: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Invalid Pi MCP config: {e}"))?;
+    let Some(entries) = root.get("mcpServers").and_then(|v| v.as_object()) else {
+        return Ok(Vec::new());
+    };
+    entries.iter().map(|(name, value)| {
+        let mut object = value.as_object().cloned().unwrap_or_default();
+        let transport = if object.contains_key("url") { "http" } else { "stdio" };
+        object.insert("id".into(), serde_json::Value::String(name.clone()));
+        object.insert("name".into(), serde_json::Value::String(name.clone()));
+        object.insert("transport".into(), serde_json::Value::String(transport.into()));
+        serde_json::from_value(serde_json::Value::Object(object))
+            .map_err(|e| format!("Invalid MCP server '{name}': {e}"))
+    }).collect()
+}
+
+#[tauri::command]
+fn save_installed_mcp_servers(servers: Vec<MCPServer>) -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+    let path = std::path::PathBuf::from(home).join(".pi/agent/mcp.json");
+    let mut entries = serde_json::Map::new();
+    for server in servers {
+        let mut value = serde_json::to_value(&server)
+            .map_err(|e| format!("Failed to encode MCP server: {e}"))?;
+        let object = value.as_object_mut().ok_or("MCP server was not an object")?;
+        object.remove("id");
+        object.remove("name");
+        object.remove("transport");
+        object.remove("status");
+        object.remove("statusMessage");
+        object.remove("toolsCount");
+        object.remove("promptsCount");
+        object.remove("resourcesCount");
+        object.remove("expanded");
+        object.remove("tools");
+        object.remove("prompts");
+        entries.insert(server.name, value);
+    }
+    let root = serde_json::json!({ "mcpServers": entries });
+    let bytes = serde_json::to_vec_pretty(&root)
+        .map_err(|e| format!("Failed to encode Pi MCP config: {e}"))?;
+    std::fs::write(&path, bytes)
+        .map_err(|e| format!("Failed to write Pi MCP config: {e}"))?;
+    log_line(&format!("Saved {} MCP servers to {}", entries.len(), path.display()));
+    Ok(())
+}
+
+#[tauri::command]
+fn set_caption_interactivity(app: AppHandle, interactive: bool) -> Result<(), String> {
+    // The response panel is rendered only by the primary indicator window.
+    // Secondary monitor windows remain transparent, click-through indicators.
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_ignore_cursor_events(!interactive)
+            .map_err(|e| format!("Failed to set caption pointer mode: {e}"))?;
+        window.set_focusable(interactive)
+            .map_err(|e| format!("Failed to set caption focus mode: {e}"))?;
+    }
+    log_line(&format!("Caption interactivity (main window only): {interactive}"));
     Ok(())
 }
 
@@ -3720,7 +3793,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_theme, set_theme, get_system_theme, cancel_processing, send_agent_prompt, set_caption_interactivity, save_history_entry, get_history, search_history])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_installed_mcp_servers, save_installed_mcp_servers, get_theme, set_theme, get_system_theme, cancel_processing, send_agent_prompt, set_caption_interactivity, save_history_entry, get_history, search_history])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
@@ -3742,8 +3815,9 @@ fn main() {
             }
 
             let settings = MenuItem::with_id(app, "settings", "View Settings", true, None::<&str>)?;
+            let toggle_panel = MenuItem::with_id(app, "toggle-response-panel", "Toggle Response Panel", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings, &quit])?;
+            let menu = Menu::with_items(app, &[&settings, &toggle_panel, &quit])?;
             
             // Load tray icon from file - need to decode PNG to RGBA
             fn load_png_as_image(path: &std::path::Path) -> Option<Image<'static>> {
@@ -3845,6 +3919,9 @@ fn main() {
                             } else {
                                 log_line("tray: failed to find or create settings window");
                             }
+                        }
+                        "toggle-response-panel" => {
+                            let _ = app.emit("toggle-response-panel", ());
                         }
                         "quit" => app.exit(0),
                         _ => {}

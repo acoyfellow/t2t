@@ -5,6 +5,7 @@
   import { installUiBridge, interruptFiber } from "../lib/effect/uiBridge";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { load } from "@tauri-apps/plugin-store";
 
   let recording = $state(false);
@@ -14,7 +15,9 @@
   let mode = $state<"typing" | "agent">("typing");
   let streamedResponse = $state("");
   let streamVisible = $state(false);
+  let panelMinimized = $state(false);
   let captionsEnabled = $state(true);
+  const isMainWindow = getCurrentWindow().label === "main";
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -71,6 +74,7 @@
 
   onMount(() => {
     let unlistenStream: (() => void) | undefined;
+    let unlistenPanelToggle: (() => void) | undefined;
     load("tts", { autoSave: true, defaults: {} }).then(async (store) => {
       captionsEnabled = ((await store.get("captions")) ?? true) as boolean;
     }).catch(() => {});
@@ -83,6 +87,7 @@
       if (payload.kind === "start") {
         streamedResponse = "";
         streamVisible = true;
+        panelMinimized = false;
         invoke("set_caption_interactivity", { interactive: true }).catch((err) => {
           console.error("Failed to enable caption scrolling:", err);
         });
@@ -90,14 +95,22 @@
         streamedResponse += payload.text;
         streamVisible = true;
       } else if (payload.kind === "end") {
-        // A Pi event stream is one voice turn. Close the live-caption surface
-        // when the terminal event arrives so the next request starts cleanly.
+        // Keep the completed response available until the user hides or minimizes
+        // it. A new turn replaces it and automatically restores the panel.
         if (payload.text) streamedResponse = payload.text;
-        streamVisible = false;
-        invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
+        streamVisible = true;
+        invoke("set_caption_interactivity", { interactive: !panelMinimized }).catch(() => {});
       }
     }).then((cleanup) => {
       unlistenStream = cleanup;
+    });
+    listen("toggle-response-panel", () => {
+      if (!streamedResponse) return;
+      panelMinimized = !panelMinimized;
+      streamVisible = !panelMinimized;
+      invoke("set_caption_interactivity", { interactive: !panelMinimized }).catch(() => {});
+    }).then((cleanup) => {
+      unlistenPanelToggle = cleanup;
     });
 
     // Initialize mode to typing (red bar)
@@ -191,15 +204,36 @@
       delete (window as any).__setMode;
       delete (window as any).__agentInput;
       unlistenStream?.();
+      unlistenPanelToggle?.();
       invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
     };
   });
 </script>
 
-{#if streamVisible && streamedResponse}
-  <div class="fixed bottom-8 right-5 z-[10000] w-[min(760px,calc(100vw-40px))] max-h-[calc(100vh-32px)] overflow-y-auto overscroll-contain rounded-xl border border-purple-300/30 bg-black/90 px-5 py-4 text-left text-base leading-relaxed text-white shadow-2xl backdrop-blur-md pointer-events-auto select-text whitespace-pre-wrap">
-    {streamedResponse}
-  </div>
+{#if isMainWindow && streamVisible && streamedResponse}
+  <aside
+    aria-label="Agent response"
+    class="fixed bottom-8 right-5 z-[10000] w-[min(760px,calc(100vw-40px))] max-h-[70vh] overflow-hidden rounded-xl border border-purple-300/30 bg-black/90 text-left text-base leading-relaxed text-white shadow-2xl backdrop-blur-md pointer-events-auto"
+  >
+    <div class="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3 text-xs uppercase tracking-[0.18em] text-purple-200/80">
+      <span>Agent response</span>
+      <button
+        type="button"
+        aria-label="Minimize agent response"
+        class="rounded px-2 py-1 text-purple-200 hover:bg-white/10 hover:text-white"
+        onclick={() => {
+          panelMinimized = true;
+          streamVisible = false;
+          invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
+        }}
+      >
+        Minimize
+      </button>
+    </div>
+    <div class="max-h-[calc(70vh-48px)] overflow-y-auto overscroll-contain px-5 py-4 select-text whitespace-pre-wrap">
+      {streamedResponse}
+    </div>
+  </aside>
 {/if}
 
 <div

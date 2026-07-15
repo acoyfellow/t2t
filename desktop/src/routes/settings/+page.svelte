@@ -82,6 +82,7 @@
     expanded?: boolean;
     tools?: Array<{ name: string; description?: string }>;
     prompts?: Array<{ name: string; description?: string; arguments?: any[] }>;
+    extra?: Record<string, unknown>;
   };
 
   type ActiveTab = "analytics" | "servers" | "history";
@@ -202,6 +203,7 @@
   let mainContentRef = $state<HTMLDivElement>(null!);
   let agentPrompt = $state("");
   let agentPromptSending = $state(false);
+  let agentPromptActive = $state(false);
   let agentPromptResponse = $state("");
   let agentPromptError = $state("");
 
@@ -252,19 +254,17 @@
 
   async function loadServers() {
     try {
-      if (!window.__TAURI__?.store) {
-        console.error("Tauri store API not available");
-        return;
+      let serversData: MCPServer[];
+      try {
+        serversData = (await invoke("get_installed_mcp_servers")) as MCPServer[];
+      } catch (configError) {
+        console.warn("Pi MCP config unavailable; loading T2T cache:", configError);
+        if (!window.__TAURI__?.store) return;
+        const { load } = window.__TAURI__.store;
+        const serversStore = await load("mcp-servers.json", { autoSave: true });
+        const raw = await serversStore.get("servers");
+        serversData = (Array.isArray(raw) ? raw : []) as MCPServer[];
       }
-
-      const { load } = window.__TAURI__.store;
-      const serversStore = await load("mcp-servers.json", { autoSave: true });
-
-      // Defensive: store file could be corrupt/wrong shape ({} instead of
-      // {servers: []}). Without this guard, .map below throws and the whole
-      // Settings window renders white. Seen 2026-04-17.
-      const raw = await serversStore.get("servers");
-      const serversData = (Array.isArray(raw) ? raw : []) as MCPServer[];
 
       servers = serversData.map((s) => ({
         ...s,
@@ -365,11 +365,16 @@
   }
 
   async function saveServers() {
-    if (!window.__TAURI__?.store) return;
-    const { load } = window.__TAURI__.store;
-    const store = await load("mcp-servers.json", { autoSave: true });
-    await store.set("servers", servers);
-    await store.save();
+    try {
+      await invoke("save_installed_mcp_servers", { servers });
+    } catch (configError) {
+      console.error("Failed to save Pi MCP config:", configError);
+      if (!window.__TAURI__?.store) return;
+      const { load } = window.__TAURI__.store;
+      const store = await load("mcp-servers.json", { autoSave: true });
+      await store.set("servers", servers);
+      await store.save();
+    }
   }
 
   function resetForm() {
@@ -476,11 +481,13 @@
   async function handleSave() {
     if (!formName.trim()) return;
 
+    const existing = editingId ? servers.find((s) => s.id === editingId) : undefined;
     const server: MCPServer = {
+      ...(existing ?? {}),
       id: editingId ?? crypto.randomUUID(),
       name: formName.trim(),
       transport: formTransport,
-      enabled: true,
+      enabled: existing?.enabled ?? true,
       status: "loading",
       statusMessage: "Testing connection...",
     };
@@ -650,6 +657,9 @@
 
     const unlistenPrompt = listen<{ kind: string; text?: string }>("pi-stream", (event) => {
       const payload = event.payload;
+      // Only a prompt submitted from this form owns this busy state. Voice
+      // turns elsewhere in the app must not disable this textarea.
+      if (!agentPromptActive) return;
       if (payload.kind === "start") {
         agentPromptResponse = "";
         agentPromptError = "";
@@ -659,6 +669,7 @@
       } else if (payload.kind === "end") {
         if (payload.text) agentPromptResponse = payload.text;
         agentPromptSending = false;
+        agentPromptActive = false;
       }
     });
 
@@ -711,6 +722,7 @@
     const prompt = agentPrompt.trim();
     if (!prompt || agentPromptSending) return;
     agentPromptSending = true;
+    agentPromptActive = true;
     agentPromptError = "";
     agentPromptResponse = "";
     try {
@@ -718,6 +730,7 @@
       agentPrompt = "";
     } catch (e) {
       agentPromptSending = false;
+      agentPromptActive = false;
       agentPromptError = e instanceof Error ? e.message : String(e);
     }
   }
