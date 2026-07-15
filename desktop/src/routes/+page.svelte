@@ -18,6 +18,71 @@
   let panelMinimized = $state(false);
   let captionsEnabled = $state(true);
   const isMainWindow = getCurrentWindow().label === "main";
+  let panelX = $state(0);
+  let panelY = $state(0);
+  let panelWidth = $state(760);
+  let panelHeight = $state(320);
+  let draggingPanel = $state(false);
+  let panelElement = $state<HTMLElement | null>(null);
+  let dragOffset = { x: 0, y: 0 };
+
+  function savePanelLayout() {
+    if (!isMainWindow) return;
+    localStorage.setItem("t2t-response-panel", JSON.stringify({
+      x: panelX,
+      y: panelY,
+      width: panelWidth,
+      height: panelHeight,
+    }));
+  }
+
+  function loadPanelLayout() {
+    if (!isMainWindow) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem("t2t-response-panel") || "null");
+      if (saved && typeof saved === "object") {
+        panelX = Number(saved.x) || 0;
+        panelY = Number(saved.y) || 0;
+        panelWidth = Math.max(360, Number(saved.width) || 760);
+        panelHeight = Math.max(180, Number(saved.height) || 320);
+      } else {
+        panelX = Math.max(16, window.innerWidth - panelWidth - 24);
+        panelY = Math.max(16, window.innerHeight - panelHeight - 48);
+      }
+    } catch {
+      panelX = Math.max(16, window.innerWidth - panelWidth - 24);
+      panelY = Math.max(16, window.innerHeight - panelHeight - 48);
+    }
+  }
+
+  function startPanelDrag(event: PointerEvent) {
+    if (!isMainWindow || event.button !== 0) return;
+    draggingPanel = true;
+    dragOffset = { x: event.clientX - panelX, y: event.clientY - panelY };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function movePanel(event: PointerEvent) {
+    if (!draggingPanel) return;
+    panelX = Math.max(8, Math.min(window.innerWidth - 120, event.clientX - dragOffset.x));
+    panelY = Math.max(8, Math.min(window.innerHeight - 100, event.clientY - dragOffset.y));
+  }
+
+  function stopPanelDrag() {
+    if (!draggingPanel) return;
+    draggingPanel = false;
+    savePanelSizeFromElement();
+    savePanelLayout();
+  }
+
+  function savePanelSizeFromElement() {
+    if (!panelElement) return;
+    const rect = panelElement.getBoundingClientRect();
+    panelWidth = Math.max(360, Math.round(rect.width));
+    panelHeight = Math.max(180, Math.round(rect.height));
+    savePanelLayout();
+  }
+
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -115,6 +180,10 @@
 
     // Initialize mode to typing (red bar)
     mode = "typing";
+    loadPanelLayout();
+    window.addEventListener("pointermove", movePanel);
+    window.addEventListener("pointerup", stopPanelDrag);
+    window.addEventListener("pointerup", savePanelSizeFromElement);
 
     // Expose hooks to Rust - set up synchronously so they're available immediately
     (window as any).__setMode = (m: "typing" | "agent") => {
@@ -205,6 +274,9 @@
       delete (window as any).__agentInput;
       unlistenStream?.();
       unlistenPanelToggle?.();
+      window.removeEventListener("pointermove", movePanel);
+      window.removeEventListener("pointerup", stopPanelDrag);
+      window.removeEventListener("pointerup", savePanelSizeFromElement);
       invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
     };
   });
@@ -213,10 +285,20 @@
 {#if isMainWindow && streamVisible && streamedResponse}
   <aside
     aria-label="Agent response"
-    class="fixed bottom-8 right-5 z-[10000] w-[min(760px,calc(100vw-40px))] max-h-[70vh] overflow-hidden rounded-xl border border-purple-300/30 bg-black/90 text-left text-base leading-relaxed text-white shadow-2xl backdrop-blur-md pointer-events-auto"
+    role="region"
+    bind:this={panelElement}
+    class="fixed z-[10000] min-w-[360px] min-h-[180px] max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)] resize overflow-hidden rounded-xl border border-purple-300/30 bg-black/90 text-left text-base leading-relaxed text-white shadow-2xl backdrop-blur-md pointer-events-auto"
+    style={`left:${panelX}px; top:${panelY}px; width:${panelWidth}px; height:${panelHeight}px`}
   >
-    <div class="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-3 text-xs uppercase tracking-[0.18em] text-purple-200/80">
-      <span>Agent response</span>
+    <div
+      role="button"
+      tabindex="0"
+      onkeydown={(event) => event.preventDefault()}
+      class="flex cursor-move touch-none items-center justify-between gap-4 border-b border-white/10 px-5 py-3 text-xs uppercase tracking-[0.18em] text-purple-200/80"
+      onpointerdown={startPanelDrag}
+      title="Drag to move response panel"
+    >
+      <span>Agent response · drag to move · resize from corner</span>
       <button
         type="button"
         aria-label="Minimize agent response"

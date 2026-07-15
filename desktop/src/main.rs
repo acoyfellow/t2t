@@ -92,9 +92,16 @@ fn configure_indicator_windows(app: &tauri::App, main: &tauri::WebviewWindow) {
         if let Some(window) = window {
             let x = pos.x as f64 / scale;
             let w = size.width as f64 / scale;
-            // Reserve enough vertical space for a readable, scrollable caption panel.
-            let h = 560.0;
-            let y = pos.y as f64 / scale + size.height as f64 / scale - h;
+            // The primary window owns the movable response panel, so it covers
+            // the primary display while remaining click-through outside the panel.
+            // Secondary displays only need the compact activity indicator.
+            let monitor_height = size.height as f64 / scale;
+            let h = if index == 0 { monitor_height } else { 560.0 };
+            let y = if index == 0 {
+                pos.y as f64 / scale
+            } else {
+                pos.y as f64 / scale + monitor_height - h
+            };
             // Caption panels become interactive while a response is visible. The
             // frontend toggles this through `set_caption_interactivity`; keep the
             // initial overlay click-through until then.
