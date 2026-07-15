@@ -4,12 +4,17 @@
   import { runtime } from "../lib/effect/runtime";
   import { installUiBridge, interruptFiber } from "../lib/effect/uiBridge";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
+  import { load } from "@tauri-apps/plugin-store";
 
   let recording = $state(false);
   let processing = $state(false);
   let speaking = $state(false);
   let level = $state(0);
   let mode = $state<"typing" | "agent">("typing");
+  let streamedResponse = $state("");
+  let streamVisible = $state(false);
+  let captionsEnabled = $state(true);
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -65,6 +70,36 @@
   });
 
   onMount(() => {
+    let unlistenStream: (() => void) | undefined;
+    load("tts", { autoSave: true, defaults: {} }).then(async (store) => {
+      captionsEnabled = ((await store.get("captions")) ?? true) as boolean;
+    }).catch(() => {});
+    listen<{ kind: string; text?: string }>("pi-stream", (event) => {
+      const payload = event.payload;
+      if (!captionsEnabled) {
+        invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
+        return;
+      }
+      if (payload.kind === "start") {
+        streamedResponse = "";
+        streamVisible = true;
+        invoke("set_caption_interactivity", { interactive: true }).catch((err) => {
+          console.error("Failed to enable caption scrolling:", err);
+        });
+      } else if (payload.kind === "delta" && payload.text) {
+        streamedResponse += payload.text;
+        streamVisible = true;
+      } else if (payload.kind === "end") {
+        // A Pi event stream is one voice turn. Close the live-caption surface
+        // when the terminal event arrives so the next request starts cleanly.
+        if (payload.text) streamedResponse = payload.text;
+        streamVisible = false;
+        invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
+      }
+    }).then((cleanup) => {
+      unlistenStream = cleanup;
+    });
+
     // Initialize mode to typing (red bar)
     mode = "typing";
 
@@ -155,9 +190,17 @@
       delete (window as any).__setLevel;
       delete (window as any).__setMode;
       delete (window as any).__agentInput;
+      unlistenStream?.();
+      invoke("set_caption_interactivity", { interactive: false }).catch(() => {});
     };
   });
 </script>
+
+{#if streamVisible && streamedResponse}
+  <div class="fixed bottom-8 right-5 z-[10000] w-[min(760px,calc(100vw-40px))] max-h-[calc(100vh-32px)] overflow-y-auto overscroll-contain rounded-xl border border-purple-300/30 bg-black/90 px-5 py-4 text-left text-base leading-relaxed text-white shadow-2xl backdrop-blur-md pointer-events-auto select-text whitespace-pre-wrap">
+    {streamedResponse}
+  </div>
+{/if}
 
 <div
   class={indicatorClass}

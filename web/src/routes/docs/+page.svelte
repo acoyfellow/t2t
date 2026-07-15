@@ -371,7 +371,7 @@
             <ol class="list-decimal list-inside space-y-1 ml-4">
               <li>
                 Get a free API key from <a
-                  href="https://Cloudflare AI Gateway or another Pi provider"
+                  href="https://developers.cloudflare.com/ai-gateway/"
                   class="text-primary hover:underline">Cloudflare AI Gateway or another Pi provider</a
                 >
               </li>

@@ -117,6 +117,8 @@
   let piBinary = $state("pi");
   let piProvider = $state("cloudflare-ai-gateway");
   let selectedModel = $state("gpt-5.6-luna");
+  let piThinking = $state("medium");
+  let piCaBundle = $state("");
 
   // MCP Server Config Schema for validation
   const MCPServerConfigSchema = Schema.Struct({
@@ -180,6 +182,7 @@
   // TTS (agent mode speaks responses via macOS `say`)
   let ttsEnabled = $state(false);
   let ttsVoice = $state("");
+  let captionsEnabled = $state(true);
 
   // Theme state
   let isDark = $state(false);
@@ -197,6 +200,10 @@
   let historySearch = $state("");
   let expandedEntryId = $state<string | null>(null);
   let mainContentRef = $state<HTMLDivElement>(null!);
+  let agentPrompt = $state("");
+  let agentPromptSending = $state(false);
+  let agentPromptResponse = $state("");
+  let agentPromptError = $state("");
 
   const HOUR_MS = 3600 * 1000;
 
@@ -286,6 +293,18 @@
       piBinary = ((await store.get("binary")) ?? piBinary) as string;
       piProvider = ((await store.get("provider")) ?? piProvider) as string;
       selectedModel = ((await store.get("model")) ?? selectedModel) as string;
+      piThinking = ((await store.get("thinking")) ?? piThinking) as string;
+      piCaBundle = ((await store.get("caBundle")) ?? piCaBundle) as string;
+      if ((piProvider === "cloudflare-ai-gateway" && selectedModel === "gpt-5.4-mini") ||
+          (piProvider === "cloudflare-ai-gateway" && selectedModel === "gpt-5.6-luna")) {
+        piProvider = "cloudflare-ai-gateway";
+        selectedModel = "gpt-5.6-luna";
+        piThinking = "medium";
+        await store.set("provider", piProvider);
+        await store.set("model", selectedModel);
+        await store.set("thinking", piThinking);
+        await store.save();
+      }
     } catch (e) {
       console.error("Failed to load Pi agent settings:", e);
     }
@@ -299,6 +318,8 @@
       await store.set("binary", piBinary);
       await store.set("provider", piProvider);
       await store.set("model", selectedModel);
+      await store.set("thinking", piThinking);
+      await store.set("caBundle", piCaBundle);
       await store.save();
     } catch (e) {
       console.error("Failed to save Pi agent settings:", e);
@@ -312,6 +333,7 @@
       const store = await load("tts", { autoSave: true });
       ttsEnabled = ((await store.get("enabled")) ?? true) as boolean;
       ttsVoice = ((await store.get("voice")) ?? "") as string;
+      captionsEnabled = ((await store.get("captions")) ?? true) as boolean;
     } catch (e) {
       console.error("Failed to load TTS settings:", e);
     }
@@ -324,6 +346,7 @@
       const store = await load("tts", { autoSave: true });
       await store.set("enabled", ttsEnabled);
       await store.set("voice", ttsVoice);
+      await store.set("captions", captionsEnabled);
       await store.save();
     } catch (e) {
       console.error("Failed to save TTS settings:", e);
@@ -625,6 +648,20 @@
 
     loadData();
 
+    const unlistenPrompt = listen<{ kind: string; text?: string }>("pi-stream", (event) => {
+      const payload = event.payload;
+      if (payload.kind === "start") {
+        agentPromptResponse = "";
+        agentPromptError = "";
+        agentPromptSending = true;
+      } else if (payload.kind === "delta" && payload.text) {
+        agentPromptResponse += payload.text;
+      } else if (payload.kind === "end") {
+        if (payload.text) agentPromptResponse = payload.text;
+        agentPromptSending = false;
+      }
+    });
+
     // Setup history realtime if history tab is active
     if (activeTab === "history") {
       loadHistory();
@@ -634,6 +671,7 @@
     return () => {
       unsubscribe();
       cleanupHistoryRealtime();
+      unlistenPrompt.then((cleanup) => cleanup()).catch(() => {});
     };
   });
 
@@ -666,6 +704,21 @@
       // Always clear loading state
       historyLoading = false;
       console.log("History loading complete, entries:", historyEntries.length);
+    }
+  }
+
+  async function sendTextAgentPrompt() {
+    const prompt = agentPrompt.trim();
+    if (!prompt || agentPromptSending) return;
+    agentPromptSending = true;
+    agentPromptError = "";
+    agentPromptResponse = "";
+    try {
+      await invoke("send_agent_prompt", { text: prompt });
+      agentPrompt = "";
+    } catch (e) {
+      agentPromptSending = false;
+      agentPromptError = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -781,52 +834,6 @@
 >
   <!-- Header with Tabs -->
   <header class="border-b border-border bg-card/70 backdrop-blur-sm shrink-0 z-10 rounded-t-[18px] overflow-hidden">
-    <div class="flex h-11 items-center border-b border-border/60 px-4 sm:px-6 lg:px-8 xl:px-12">
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          type="button"
-          onclick={closeWindow}
-          class="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 transition-colors flex items-center justify-center group"
-          title="Close"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-red-900"
-            >×</span
-          >
-        </button>
-        <button
-          type="button"
-          onclick={minimizeWindow}
-          class="w-3.5 h-3.5 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-colors flex items-center justify-center group"
-          title="Minimize"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-yellow-900"
-            >−</span
-          >
-        </button>
-        <button
-          type="button"
-          onclick={toggleMaximize}
-          class="w-3.5 h-3.5 rounded-full bg-green-500 hover:bg-green-600 transition-colors flex items-center justify-center group"
-          title="Maximize"
-        >
-          <span
-            class="opacity-0 group-hover:opacity-100 text-[8px] text-green-900"
-            >+</span
-          >
-        </button>
-      </div>
-      <button
-        type="button"
-        class="ml-4 flex h-full flex-1 cursor-grab items-center text-left text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80 active:cursor-grabbing"
-        onmousedown={startWindowDrag}
-        aria-label="Drag settings window"
-        title="Drag to move window"
-      >
-        Settings
-      </button>
-    </div>
     <div class="w-full px-4 sm:px-6 lg:px-8 xl:px-12">
       <div
         class="flex items-center justify-between py-3 sm:py-4 gap-2 sm:gap-4"
@@ -1046,12 +1053,12 @@
           </Toggle>
         </div>
 
-        <!-- Pi Agent + Cloudflare AI Gateway -->
+        <!-- Pi Agent -->
         <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg space-y-4">
           <div>
             <h2 class="text-sm font-medium text-foreground">Pi voice agent</h2>
             <p class="text-xs text-muted-foreground mt-1">
-              Fn+Ctrl sends the transcription to the local <code class="px-1 py-0.5 bg-muted rounded">pi</code> CLI with tools enabled, then speaks the reply. Cloudflare AI Gateway is the recommended public provider.
+              Fn+Ctrl sends the transcription to the local <code class="px-1 py-0.5 bg-muted rounded">pi</code> CLI with tools enabled, then speaks the reply. This uses the same Pi provider, model, and thinking level as the local Pi setup.
             </p>
           </div>
           <div class="grid gap-4 md:grid-cols-3">
@@ -1068,8 +1075,31 @@
               <input bind:value={selectedModel} onchange={savePiAgent} placeholder="gpt-5.6-luna" class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm" />
             </label>
           </div>
+          <label class="block space-y-2 text-xs font-medium text-foreground">
+            Thinking level
+            <select bind:value={piThinking} onchange={savePiAgent} class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm">
+              <option value="off">off</option>
+              <option value="minimal">minimal</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+            </select>
+          </label>
+          <label class="block space-y-2 text-xs font-medium text-foreground">
+            Private connection CA bundle (optional)
+            <input bind:value={piCaBundle} onchange={savePiAgent} placeholder="/path/to/private-ca.pem" class="w-full px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-mono text-sm" />
+          </label>
+          <label class="flex items-center gap-3 text-sm text-foreground">
+            <input type="checkbox" bind:checked={captionsEnabled} onchange={saveTts} />
+            <span>
+              Show live response captions
+              <span class="block text-xs text-muted-foreground">Display Pi text as it arrives in the overlay. Enabled by default.</span>
+            </span>
+          </label>
           <div class="rounded-md border border-border/50 bg-muted/30 p-3 text-xs text-muted-foreground">
-            Public setup: configure Pi's <code class="px-1 py-0.5 bg-muted rounded">cloudflare-ai-gateway</code> provider with <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_API_KEY</code>, <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_ACCOUNT_ID</code>, and <code class="px-1 py-0.5 bg-muted rounded">CLOUDFLARE_GATEWAY_ID</code>. Local employee default here is <code class="px-1 py-0.5 bg-muted rounded">cloudflare-ai-gateway / gpt-5.6-luna</code>.
+            Pi uses <code class="px-1 py-0.5 bg-muted rounded">cloudflare-ai-gateway</code> with <code class="px-1 py-0.5 bg-muted rounded">gpt-5.6-luna</code> at medium thinking by default. Credentials remain in your local Pi configuration; t2t does not store or display them. You can override the provider, model, thinking level, or CA bundle here.
           </div>
         </div>
 
@@ -1288,6 +1318,46 @@
             View all transcriptions and agent calls
           </p>
         </div>
+
+        <!-- Text agent turn -->
+        <form
+          class="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3"
+          onsubmit={(event) => { event.preventDefault(); sendTextAgentPrompt(); }}
+        >
+          <div>
+            <h3 class="text-sm font-semibold text-foreground">Talk to the agent</h3>
+            <p class="text-xs text-muted-foreground mt-1">
+              Type a prompt here to send one agent turn without using the microphone.
+            </p>
+          </div>
+          <div class="flex gap-2 items-end">
+            <textarea
+              bind:value={agentPrompt}
+              rows="3"
+              placeholder="What would you like the agent to do?"
+              disabled={agentPromptSending}
+              class="flex-1 resize-y min-h-20 px-3 py-2 rounded-md bg-background border border-border/50 text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+            ></textarea>
+            <button
+              type="submit"
+              disabled={agentPromptSending || !agentPrompt.trim()}
+              class="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {agentPromptSending ? "Sending…" : "Send"}
+            </button>
+          </div>
+          {#if agentPromptError}
+            <p class="text-sm text-destructive">{agentPromptError}</p>
+          {/if}
+          {#if agentPromptResponse}
+            <div class="rounded-md border border-border/50 bg-background/70 p-3">
+              <div class="text-xs font-medium text-muted-foreground mb-1">
+                {agentPromptSending ? "Agent response (streaming)" : "Agent response"}
+              </div>
+              <p class="text-sm text-foreground whitespace-pre-wrap">{agentPromptResponse}</p>
+            </div>
+          {/if}
+        </form>
 
         <!-- Search -->
         <div class="relative">

@@ -24,6 +24,8 @@ static WHISPER: OnceCell<Mutex<WhisperContext>> = OnceCell::new();
 static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static IS_CANCELLING: AtomicBool = AtomicBool::new(false);
+static IS_PROCESSING: AtomicBool = AtomicBool::new(false);
+static TTS_CHILD: OnceCell<Mutex<Option<std::process::Child>>> = OnceCell::new();
 static FRONTMOST_PID: AtomicI32 = AtomicI32::new(0);
 static FOCUSED_AX_ELEM: OnceCell<Mutex<Option<usize>>> = OnceCell::new();
 static FOCUSED_AX_FINGERPRINT: OnceCell<Mutex<Option<String>>> = OnceCell::new();
@@ -38,6 +40,59 @@ enum AudioCmd {
 
 static AUDIO_TX: OnceCell<mpsc::Sender<AudioCmd>> = OnceCell::new();
 static VOLUME_LEVEL_TX: OnceCell<mpsc::Sender<f32>> = OnceCell::new();
+
+fn is_indicator_window(label: &str) -> bool {
+    label == "main" || label.starts_with("overlay-")
+}
+
+fn eval_indicator_windows(app: &AppHandle, js: &str) {
+    for (label, window) in app.webview_windows() {
+        if is_indicator_window(&label) {
+            let _ = window.eval(js);
+        }
+    }
+}
+
+fn configure_indicator_windows(app: &tauri::App, main: &tauri::WebviewWindow) {
+    let Ok(monitors) = main.available_monitors() else { return; };
+    use tauri::{LogicalPosition, LogicalSize, WebviewUrl, WebviewWindowBuilder};
+    for (index, monitor) in monitors.iter().enumerate() {
+        let scale = monitor.scale_factor();
+        let pos = monitor.position();
+        let size = monitor.size();
+        let label = if index == 0 { "main".to_string() } else { format!("overlay-{index}") };
+        let window = if index == 0 {
+            Some(main.clone())
+        } else {
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
+                .title("")
+                .decorations(false)
+                .transparent(true)
+                .skip_taskbar(true)
+                .always_on_top(true)
+                .resizable(false)
+                .focusable(false)
+                .focused(false)
+                .build()
+                .ok()
+        };
+        if let Some(window) = window {
+            let x = pos.x as f64 / scale;
+            let w = size.width as f64 / scale;
+            // Reserve enough vertical space for a readable, scrollable caption panel.
+            let h = 560.0;
+            let y = pos.y as f64 / scale + size.height as f64 / scale - h;
+            // Caption panels become interactive while a response is visible. The
+            // frontend toggles this through `set_caption_interactivity`; keep the
+            // initial overlay click-through until then.
+            let _ = window.set_ignore_cursor_events(true);
+            let _ = window.set_focusable(false);
+            let _ = window.set_size(LogicalSize::new(w, h));
+            let _ = window.set_position(LogicalPosition::new(x, y));
+            log_line(&format!("Indicator window {label}: monitor={index} x={x:.1} width={w:.1} y={y:.1} height={h:.1}"));
+        }
+    }
+}
 
 // OpenRouter API endpoints
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -146,51 +201,107 @@ struct HistoryResponse {
 }
 
 #[derive(Clone)]
-struct PiAgentConfig { binary: String, provider: String, model: String }
+struct PiAgentConfig { binary: String, provider: String, model: String, thinking: String, ca_bundle: Option<String> }
 
 fn get_pi_agent_config(app: &AppHandle) -> PiAgentConfig {
     let mut c = PiAgentConfig {
         binary: std::env::var("T2T_PI_BINARY").unwrap_or_else(|_| "pi".into()),
         provider: std::env::var("T2T_PI_PROVIDER").unwrap_or_else(|_| "cloudflare-ai-gateway".into()),
         model: std::env::var("T2T_PI_MODEL").unwrap_or_else(|_| "gpt-5.6-luna".into()),
+        thinking: std::env::var("T2T_PI_THINKING").unwrap_or_else(|_| "medium".into()),
+        ca_bundle: std::env::var("T2T_PI_CA_BUNDLE").ok().filter(|v| !v.is_empty()),
     };
     if let Ok(s) = app.store("pi-agent") {
         if let Some(v) = s.get("binary").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.binary=v; } }
         if let Some(v) = s.get("provider").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.provider=v; } }
         if let Some(v) = s.get("model").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.model=v; } }
+        if let Some(v) = s.get("thinking").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.thinking=v; } }
+        if let Some(v) = s.get("caBundle").and_then(|v| v.as_str().map(str::to_string)) { if !v.is_empty() { c.ca_bundle=Some(v); } }
+    }
+    // Migrate the shipped defaults that pointed at unavailable models. Keep
+    // explicit user-selected provider/model pairs untouched.
+    if (c.provider == "cloudflare-ai-gateway" && c.model == "gpt-5.4-mini")
+        || (c.provider == "cloudflare-ai-gateway" && c.model == "gpt-5.6-luna")
+    {
+        c.provider = "cloudflare-ai-gateway".into();
+        c.model = "gpt-5.6-luna".into();
+        c.thinking = "medium".into();
     }
     c
 }
 
+const T2T_GENERAL_ASSISTANT_PROMPT: &str = r#"
+You are the voice assistant inside T2T, a general computer assistant—not a code-only assistant.
+
+Do not assume the user wants to work on the current repository or write code. The user may be talking about any application, document, browser tab, or project on their computer. If the request is ambiguous about the target application or project, ask one concise clarifying question before taking action.
+
+For now, you do not have reliable live screen or Accessibility context unless T2T explicitly provides it. Never claim to see, control, or inspect the user's computer when no such context or tool result was provided. You may discuss code when the user clearly asks for coding help, but do not proactively steer unrelated requests toward the T2T repository.
+
+Treat every voice request as one bounded turn: understand the request, answer or ask for clarification, and stop. Do not invent follow-up tasks or continue working after the request is satisfied.
+"#;
+
 fn call_pi_agent_local(text: &str, c: &PiAgentConfig, app: &AppHandle) -> Result<String,String> {
-    let ca="/Users/jcoeyman/.local/share/cloudflare-warp-certs/CloudflareRootCertificateCombined.pem";
     let mut cmd=std::process::Command::new(&c.binary);
-    cmd.args(["-p","--provider",&c.provider,"--model",&c.model,"--no-session",text])
-        .env("PATH", format!("/Users/jcoeyman/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()))
+    let home = std::env::var("HOME").unwrap_or_default();
+    let home_nvm = if home.is_empty() { String::new() } else { format!("{home}/.nvm/versions/node/v22.22.2/bin:") };
+    cmd.args(["-p","--provider",&c.provider,"--model",&c.model,"--thinking",&c.thinking,"--mode","json","--no-session","--append-system-prompt",T2T_GENERAL_ASSISTANT_PROMPT,text])
+        .env("PATH", format!("{home_nvm}/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}", std::env::var("PATH").unwrap_or_default()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if std::path::Path::new(ca).exists(){ cmd.env("NODE_EXTRA_CA_CERTS",ca).env("SSL_CERT_FILE",ca); }
+    if let Some(ca) = c.ca_bundle.clone().or_else(|| std::env::var("NODE_EXTRA_CA_CERTS").ok()).or_else(|| std::env::var("SSL_CERT_FILE").ok()) {
+        if !ca.is_empty() {
+            cmd.env("NODE_EXTRA_CA_CERTS",&ca).env("SSL_CERT_FILE",&ca);
+        }
+    }
     let mut child=cmd.spawn().map_err(|e| format!("Failed to launch Pi: {e}"))?;
-    loop {
+    let stdout = child.stdout.take().ok_or("Pi stdout was not captured")?;
+    let stderr = child.stderr.take().ok_or("Pi stderr was not captured")?;
+    let app_for_stream = app.clone();
+    let stderr_thread = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut stderr = stderr;
+        let mut output = String::new();
+        let _ = stderr.read_to_string(&mut output);
+        output
+    });
+    let mut raw = String::new();
+    let mut response = String::new();
+    let reader = std::io::BufReader::new(stdout);
+    use std::io::BufRead;
+    for line in reader.lines() {
         if IS_CANCELLING.load(Ordering::SeqCst) {
             let _=child.kill();
             let _=child.wait();
             log_line("Pi agent cancelled and child process terminated");
             return Err("Pi response cancelled".into());
         }
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(40)),
-            Err(e) => return Err(format!("Failed while waiting for Pi: {e}")),
+        let line = line.map_err(|e| format!("Failed reading Pi output: {e}"))?;
+        raw.push_str(&line);
+        raw.push('\n');
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else { continue; };
+        let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+        let delta = event
+            .get("assistantMessageEvent")
+            .filter(|_| event_type == "message_update")
+            .and_then(|v| v.get("delta"))
+            .and_then(|v| v.as_str());
+        if let Some(delta) = delta {
+            response.push_str(delta);
+            let _ = app_for_stream.emit("pi-stream", serde_json::json!({"kind":"delta","text":delta}));
+        }
+        if event_type == "agent_start" {
+            let _ = app_for_stream.emit("pi-stream", serde_json::json!({"kind":"start"}));
         }
     }
-    let o=child.wait_with_output().map_err(|e| format!("Failed to collect Pi output: {e}"))?;
-    let out=String::from_utf8_lossy(&o.stdout).trim().to_string();
-    let err=String::from_utf8_lossy(&o.stderr).trim().to_string();
-    if !o.status.success(){return Err(format!("Pi agent exited {}: {}",o.status, if err.is_empty(){out}else{err}));}
-    if out.is_empty(){return Err("Pi agent returned an empty response".into());}
-    let _=save_history_entry(app.clone(),"agent".into(),serde_json::json!({"engine":"pi","provider":c.provider,"model":c.model,"transcript":text,"response":out,"success":true}));
-    Ok(out)
+    let status = child.wait().map_err(|e| format!("Failed waiting for Pi: {e}"))?;
+    let err = stderr_thread.join().unwrap_or_default().trim().to_string();
+    if !status.success(){return Err(format!("Pi agent exited {}: {}",status, if err.is_empty(){raw.trim()}else{err.as_str()}));}
+    if response.is_empty() {
+        return Err("Pi agent returned an empty response".into());
+    }
+    let _ = app.emit("pi-stream", serde_json::json!({"kind":"end","text":response}));
+    let _=save_history_entry(app.clone(),"agent".into(),serde_json::json!({"engine":"pi","provider":c.provider,"model":c.model,"transcript":text,"response":response,"success":true}));
+    Ok(response)
 }
 
 /// Format user message with optional screenshot for image generation models
@@ -1080,10 +1191,8 @@ fn read_tts_settings(app: &AppHandle) -> (bool, Option<String>) {
 fn set_speaking_ui(app: &AppHandle, speaking: bool) {
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let Some(w) = app_clone.get_webview_window("main") {
-            let js = format!("window.__setSpeaking && window.__setSpeaking({})", speaking);
-            let _ = w.eval(&js);
-        }
+        let js = format!("window.__setSpeaking && window.__setSpeaking({})", speaking);
+        eval_indicator_windows(&app_clone, &js);
     });
 }
 
@@ -1094,28 +1203,66 @@ fn speak_say(app: &AppHandle, text: &str, voice: Option<String>) {
     }
     cmd.arg(text);
     match cmd.spawn() {
-        Ok(mut child) => {
+        Ok(child) => {
+            let slot = TTS_CHILD.get_or_init(|| Mutex::new(None));
+            if let Ok(mut active) = slot.lock() {
+                if let Some(mut previous) = active.take() {
+                    let _ = previous.kill();
+                    let _ = previous.wait();
+                }
+                *active = Some(child);
+            }
             set_speaking_ui(app, true);
-            // Poll for exit on a background thread so we don't block agent flow.
+            // Poll the tracked child so global cancellation can terminate it.
             let app_for_thread = app.clone();
             std::thread::spawn(move || {
                 loop {
-                    match child.try_wait() {
-                        Ok(Some(_status)) => break,
-                        Ok(None) => {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                    let finished = if let Some(slot) = TTS_CHILD.get() {
+                        if let Ok(mut active) = slot.lock() {
+                            match active.as_mut() {
+                                Some(child) => match child.try_wait() {
+                                    Ok(Some(_)) => {
+                                        active.take();
+                                        true
+                                    }
+                                    Ok(None) => false,
+                                    Err(e) => {
+                                        log_line(&format!("speak_say: try_wait error: {}", e));
+                                        active.take();
+                                        true
+                                    }
+                                },
+                                None => true,
+                            }
+                        } else {
+                            true
                         }
-                        Err(e) => {
-                            log_line(&format!("speak_say: try_wait error: {}", e));
-                            break;
-                        }
+                    } else {
+                        true
+                    };
+                    if finished {
+                        break;
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
                 set_speaking_ui(&app_for_thread, false);
             });
         }
         Err(e) => {
             log_line(&format!("speak_say: failed to spawn say: {}", e));
+        }
+    }
+}
+
+fn cancel_active_work() {
+    IS_CANCELLING.store(true, Ordering::SeqCst);
+    if let Some(slot) = TTS_CHILD.get() {
+        if let Ok(mut active) = slot.lock() {
+            if let Some(mut child) = active.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+                log_line("Active macOS speech cancelled");
+            }
         }
     }
 }
@@ -1654,6 +1801,42 @@ mod macos_fn_key {
         });
     }
 
+    pub fn activate_app() {
+        unsafe {
+            let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            if !ns_app.is_null() {
+                let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+                log_line("Activated app for settings window");
+            }
+        }
+    }
+
+    pub fn start_escape_monitor() {
+        let Some(app) = APP_HANDLE.get().cloned() else {
+            log_line("Escape monitor: APP_HANDLE not set");
+            return;
+        };
+        let _ = app.run_on_main_thread(|| unsafe {
+            // NSEventMaskKeyDown = 1 << 10; Escape is virtual key code 53.
+            let mask: u64 = 1u64 << 10;
+            let handler = ConcreteBlock::new(move |event: *mut Object| {
+                if event.is_null() {
+                    return;
+                }
+                let key_code: u16 = msg_send![event, keyCode];
+                let tts_active = TTS_CHILD.get()
+                    .and_then(|slot| slot.lock().ok().map(|active| active.is_some()))
+                    .unwrap_or(false);
+                if key_code == 53 && (IS_PROCESSING.load(Ordering::SeqCst) || tts_active) {
+                    cancel_active_work();
+                    log_line("Global Escape pressed - cancelling processing");
+                }
+            }).copy();
+            let _ns_event: *mut Object = msg_send![class!(NSEvent), addGlobalMonitorForEventsMatchingMask:mask handler:&*handler];
+            log_line("Global Escape monitor installed.");
+        });
+    }
+
     fn start_nsevent_fn_monitor() {
         // Install a global monitor for flagsChanged events, and detect Fn via keyCode==63.
         // This is a best-effort fallback if IOHID is denied for Finder-launched apps.
@@ -1776,9 +1959,7 @@ mod macos_fn_key {
                     }
                     
                     // Start in "pending" state - frontend shows neutral color
-                    if let Some(w) = app_clone.get_webview_window("main") {
-                        let _ = w.eval("window.__setMode && window.__setMode('typing')");
-                    }
+                    eval_indicator_windows(&app_clone, "window.__setMode && window.__setMode('typing')");
                     
                     log_line("Captured AX focused element (best effort)");
                 });
@@ -1792,9 +1973,7 @@ mod macos_fn_key {
             if let Some(app) = APP_HANDLE.get().cloned() {
                 let app_clone = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    if let Some(w) = app_clone.get_webview_window("main") {
-                        let _ = w.eval("window.__setMode && window.__setMode('typing')");
-                    }
+                    eval_indicator_windows(&app_clone, "window.__setMode && window.__setMode('typing')");
                 });
             }
 
@@ -1826,9 +2005,7 @@ mod macos_fn_key {
                         if let Some(app) = APP_HANDLE.get().cloned() {
                             let app_clone = app.clone();
                             let _ = app.run_on_main_thread(move || {
-                                if let Some(w) = app_clone.get_webview_window("main") {
-                                    let _ = w.eval("window.__setMode && window.__setMode('agent')");
-                                }
+                                eval_indicator_windows(&app_clone, "window.__setMode && window.__setMode('agent')");
                             });
                         }
                     }
@@ -1851,9 +2028,7 @@ mod macos_fn_key {
             if let Some(app) = APP_HANDLE.get().cloned() {
                 let app2 = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    if let Some(w) = app2.get_webview_window("main") {
-                        let _ = w.eval("window.__setProcessing && window.__setProcessing(false)");
-                    }
+                    eval_indicator_windows(&app2, "window.__setProcessing && window.__setProcessing(false)");
                 });
             }
             if let Err(e) = start_native_recording() {
@@ -1867,13 +2042,12 @@ mod macos_fn_key {
             if let Some(app) = APP_HANDLE.get().cloned() {
                 let app2 = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    if let Some(w) = app2.get_webview_window("main") {
-                        let _ = w.eval("window.__setProcessing && window.__setProcessing(true)");
-                    }
+                    eval_indicator_windows(&app2, "window.__setProcessing && window.__setProcessing(true)");
                 });
             }
             // Reset cancellation flag when starting new processing
             IS_CANCELLING.store(false, Ordering::SeqCst);
+            IS_PROCESSING.store(true, Ordering::SeqCst);
             
             let app = APP_HANDLE.get().cloned();
             std::thread::spawn(move || {
@@ -1884,13 +2058,12 @@ mod macos_fn_key {
                         if let Some(app) = self.0.take() {
                             let app2 = app.clone();
                             let _ = app.run_on_main_thread(move || {
-                                if let Some(w) = app2.get_webview_window("main") {
-                                    let _ = w.eval("window.__setProcessing && window.__setProcessing(false)");
-                                }
+                                eval_indicator_windows(&app2, "window.__setProcessing && window.__setProcessing(false)");
                             });
                         }
-                        // Reset cancellation flag when processing ends
+                        // Reset cancellation and processing state when processing ends
                         IS_CANCELLING.store(false, Ordering::SeqCst);
+                        IS_PROCESSING.store(false, Ordering::SeqCst);
                     }
                 }
 
@@ -1976,6 +2149,8 @@ mod macos_fn_key {
                                     update_stats(app_unwrapped.clone(), text.clone(), dur_ms);
                                 }
                                 Err(e) => {
+                                    // Close the current voice turn even when Pi fails or is cancelled.
+                                    let _ = app_unwrapped.emit("pi-stream", serde_json::json!({"kind":"end"}));
                                     log_line(&format!("Pi Agent failed: {}", e));
                                     show_notification("t2t", &format!("Pi error: {}", e));
                                     speak_error(&app_unwrapped, "Pi agent failed. See the log.");
@@ -1994,15 +2169,8 @@ mod macos_fn_key {
             let app2 = app.clone();
             let js = format!("window.__{} && window.__{}()", action, action);
             let _ = app.run_on_main_thread(move || {
-                if let Some(window) = app2.get_webview_window("main") {
-                    // Do NOT steal focus. We want the user's current app/field to keep focus.
-                    match window.eval(&js) {
-                        Ok(_) => log_line(&format!("eval ok: {js}")),
-                        Err(e) => log_line(&format!("eval ERROR: {e} (js={js})")),
-                    }
-                } else {
-                    log_line("eval skipped: main window not found");
-                }
+                eval_indicator_windows(&app2, &js);
+                log_line(&format!("eval ok: {js}"));
             });
         }
     }
@@ -2060,10 +2228,8 @@ fn init_audio_thread() -> Result<(), String> {
                         let app2 = app.clone();
                         let level_val = level;
                         let _ = app.run_on_main_thread(move || {
-                            if let Some(w) = app2.get_webview_window("main") {
-                                let js = format!("window.__setLevel && window.__setLevel({})", level_val);
-                                let _ = w.eval(&js);
-                            }
+                            let js = format!("window.__setLevel && window.__setLevel({})", level_val);
+                            eval_indicator_windows(&app2, &js);
                         });
                     }
                     last_level = level;
@@ -2677,8 +2843,72 @@ fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
 // Cancel ongoing processing (called when user presses Escape during processing)
 #[tauri::command]
 fn cancel_processing() {
-    IS_CANCELLING.store(true, Ordering::SeqCst);
+    cancel_active_work();
     log_line("Processing cancellation requested (Escape key pressed)");
+}
+
+#[tauri::command]
+fn send_agent_prompt(app: AppHandle, text: String) -> Result<(), String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("Prompt cannot be empty".into());
+    }
+    if IS_PROCESSING.swap(true, Ordering::SeqCst) {
+        return Err("An agent turn is already in progress".into());
+    }
+    IS_CANCELLING.store(false, Ordering::SeqCst);
+    let app_for_ui = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        eval_indicator_windows(&app_for_ui, "window.__setMode && window.__setMode('agent'); window.__setProcessing && window.__setProcessing(true)");
+    });
+
+    std::thread::spawn(move || {
+        struct ClearAgentProcessing(Option<AppHandle>);
+        impl Drop for ClearAgentProcessing {
+            fn drop(&mut self) {
+                if let Some(app) = self.0.take() {
+                    let app_for_ui = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        eval_indicator_windows(&app_for_ui, "window.__setProcessing && window.__setProcessing(false)");
+                    });
+                }
+                IS_CANCELLING.store(false, Ordering::SeqCst);
+                IS_PROCESSING.store(false, Ordering::SeqCst);
+            }
+        }
+
+        let _clear = ClearAgentProcessing(Some(app.clone()));
+        let config = get_pi_agent_config(&app);
+        log_line(&format!("Text agent prompt: {}", text));
+        match call_pi_agent_local(&text, &config, &app) {
+            Ok(response) => {
+                log_line(&format!("Text Pi response: {}", response));
+                speak_tts(&app, &response);
+                show_notification("t2t", "Pi response spoken");
+            }
+            Err(error) => {
+                let _ = app.emit("pi-stream", serde_json::json!({"kind":"end"}));
+                log_line(&format!("Text Pi agent failed: {error}"));
+                show_notification("t2t", &format!("Pi error: {error}"));
+                speak_error(&app, "Pi agent failed. See the log.");
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn set_caption_interactivity(app: AppHandle, interactive: bool) -> Result<(), String> {
+    for (label, window) in app.webview_windows() {
+        if is_indicator_window(&label) {
+            window.set_ignore_cursor_events(!interactive)
+                .map_err(|e| format!("Failed to set caption pointer mode: {e}"))?;
+            window.set_focusable(interactive)
+                .map_err(|e| format!("Failed to set caption focus mode: {e}"))?;
+        }
+    }
+    log_line(&format!("Caption interactivity: {interactive}"));
+    Ok(())
 }
 
 // Save a history entry
@@ -3490,7 +3720,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_theme, set_theme, get_system_theme, cancel_processing, save_history_entry, get_history, search_history])
+        .invoke_handler(tauri::generate_handler![paste_text, transcribe, log_event, fetch_mcp_tools, get_theme, set_theme, get_system_theme, cancel_processing, send_agent_prompt, set_caption_interactivity, save_history_entry, get_history, search_history])
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
 
@@ -3504,28 +3734,11 @@ fn main() {
                 // This is what makes it behave like Wispr.
                 let _ = macos_fn_key::request_accessibility_prompt();
                 macos_fn_key::start_fn_listener();
+                macos_fn_key::start_escape_monitor();
             }
 
             if let Some(window) = app.get_webview_window("main") {
-                window.set_ignore_cursor_events(true).ok();
-                // Prevent our UI window from ever taking keyboard focus (so paste targets stay correct).
-                let _ = window.set_focusable(false);
-                
-                if let Ok(Some(monitor)) = window.primary_monitor() {
-                    let size = monitor.size();
-                    let scale = monitor.scale_factor();
-                    let (screen_w, screen_h) = (size.width as f64 / scale, size.height as f64 / scale);
-                    // Give the webview enough height so CSS glow/height animations aren't clipped.
-                    // The visible "bar" stays pinned to the bottom via CSS; the extra height is just headroom.
-                    let (win_w, win_h) = (screen_w, 24.0);
-                    use tauri::LogicalPosition;
-                    use tauri::LogicalSize;
-                    window.set_size(LogicalSize::new(win_w, win_h)).ok();
-                    window.set_position(LogicalPosition::new(
-                        0.0,
-                        screen_h - win_h,
-                    )).ok();
-                }
+                configure_indicator_windows(app, &window);
             }
 
             let settings = MenuItem::with_id(app, "settings", "View Settings", true, None::<&str>)?;
@@ -3591,8 +3804,11 @@ fn main() {
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "settings" => {
-                            // Change activation policy to Regular so it appears in Command+Tab
+                            // Change activation policy to Regular and explicitly activate the app;
+                            // tray-only accessory apps otherwise may show() without becoming visible.
                             let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                            #[cfg(target_os = "macos")]
+                            macos_fn_key::activate_app();
                             
                             // Show the settings window and bring to front
                             let w = app.get_webview_window("settings").or_else(|| {
@@ -3605,17 +3821,29 @@ fn main() {
                                 .inner_size(900.0, 700.0)
                                 .center()
                                 .skip_taskbar(false)
+                                .always_on_top(true)
+                                .decorations(true)
+                                .focused(true)
                                 .build()
                                 .ok()
                             });
                             if let Some(w) = w {
-                                let _ = w.set_skip_taskbar(false);
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_always_on_top(true);
-                                let _ = w.set_always_on_top(false);
-                                let _ = w.set_focus();
-                                log_line("tray: view settings");
+                                let center = w.center();
+                                // Keep Settings above the transparent indicator and the
+                                // previously focused app so a tray-only app cannot
+                                // appear to open behind another Space/window.
+                                let always_on_top = w.set_always_on_top(true);
+                                let focusable = w.set_focusable(true);
+                                let show = w.show();
+                                let unminimize = w.unminimize();
+                                let focus = w.set_focus();
+                                let skip_taskbar = w.set_skip_taskbar(false);
+                                let visible = w.is_visible();
+                                let position = w.outer_position();
+                                let size = w.outer_size();
+                                log_line(&format!("tray: view settings center={center:?} always_on_top={always_on_top:?} focusable={focusable:?} show={show:?} unminimize={unminimize:?} focus={focus:?} skip_taskbar={skip_taskbar:?} visible={visible:?} position={position:?} size={size:?}"));
+                            } else {
+                                log_line("tray: failed to find or create settings window");
                             }
                         }
                         "quit" => app.exit(0),

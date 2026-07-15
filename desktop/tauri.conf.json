@@ -36,10 +36,11 @@
         "height": 700,
         "visible": false,
         "resizable": true,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
         "center": true,
-        "skipTaskbar": false
+        "skipTaskbar": false,
+        "alwaysOnTop": true
       }
     ],
     "macOSPrivateApi": true

@@ -27,32 +27,16 @@
 - [`pi`](https://github.com/badlogic/pi-mono) or a compatible `pi` CLI on `PATH` for Fn+Ctrl agent mode
 - A Pi provider/model configuration
 
-## Recommended AI setup: Cloudflare AI Gateway
+## AI setup
 
-Pi already supports Cloudflare AI Gateway. Configure the provider outside t2t, then select it in t2t Settings:
-
-```bash
-export CLOUDFLARE_API_KEY=...
-export CLOUDFLARE_ACCOUNT_ID=...
-export CLOUDFLARE_GATEWAY_ID=...
-
-pi --provider cloudflare-ai-gateway --model gpt-5.4-mini -p "hello"
-```
-
-In **t2t → Settings**, use:
-
-- Pi binary: `pi`
-- Provider: `cloudflare-ai-gateway`
-- Model: any model available through your gateway
-
-### Cloudflare employee local mode
-
-Jordan's local setup uses the existing Pi/OpenCode provider:
+`t2t` delegates agent requests to the locally installed `pi` CLI, using the same local Pi authentication and provider configuration as a normal Pi session. The default configuration mirrors the local setup:
 
 - Provider: `cloudflare-ai-gateway`
 - Model: `gpt-5.6-luna`
+- Thinking: `medium`
+- Session mode: `--no-session`
 
-That setup is local/private configuration, not required by the public repo.
+Credentials are never stored in the t2t repository. They remain in Pi's local configuration. The settings screen allows overriding the binary, provider, model, thinking level, and optional CA bundle.
 
 ## Settings
 
