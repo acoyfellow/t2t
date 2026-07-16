@@ -86,6 +86,14 @@
   };
 
   type ActiveTab = "analytics" | "servers" | "history";
+  type HealthCheck = {
+    id: string;
+    label: string;
+    status: "ready" | "attention" | "unavailable";
+    detail: string;
+    repairAction: string | null;
+    repairLabel: string | null;
+  };
 
   let activeTab = $state<ActiveTab>("analytics");
   let loading = $state(true);
@@ -93,6 +101,11 @@
   let showAddDialog = $state(false);
   let editingId: string | null = $state(null);
   let deleteConfirmId: string | null = $state(null);
+  let permissionHealth = $state<HealthCheck[]>([]);
+  let permissionHealthLoading = $state(false);
+  let permissionHealthError = $state("");
+  let permissionHealthRepairing = $state<string | null>(null);
+  let permissionHealthRepairError = $state("");
 
   // Analytics state
   let totalWords = $state(0);
@@ -206,8 +219,40 @@
   let agentPromptActive = $state(false);
   let agentPromptResponse = $state("");
   let agentPromptError = $state("");
+  let liveAgentResponse = $state("");
+  let liveAgentStatus = $state("");
+  let liveAgentActive = $state(false);
+  let selectedContextEntryIds = $state<string[]>([]);
+  let includeCurrentAppSelection = $state(false);
+  let appSelectionCapture = $state<Promise<void> | null>(null);
 
+  const MAX_FOLLOW_UP_TURNS = 5;
   const HOUR_MS = 3600 * 1000;
+
+  function isEligiblePiTurn(entry: HistoryEntry): boolean {
+    return entry.type === "agent" &&
+      entry.data?.engine === "pi" &&
+      entry.data?.success === true &&
+      typeof entry.data?.transcript === "string" &&
+      typeof entry.data?.response === "string";
+  }
+
+  function toggleContextEntry(entry: HistoryEntry) {
+    if (!isEligiblePiTurn(entry)) return;
+    if (selectedContextEntryIds.includes(entry.id)) {
+      selectedContextEntryIds = selectedContextEntryIds.filter((id) => id !== entry.id);
+    } else if (selectedContextEntryIds.length < MAX_FOLLOW_UP_TURNS) {
+      selectedContextEntryIds = [...selectedContextEntryIds, entry.id];
+    }
+  }
+
+  function orderedContextEntryIds(): string[] {
+    return selectedContextEntryIds
+      .map((id) => historyEntries.find((entry) => entry.id === id))
+      .filter((entry): entry is HistoryEntry => entry !== undefined)
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      .map((entry) => entry.id);
+  }
 
   function buildLast48Hours(hourly: Array<[number, number]>): number[] {
     const nowHour = Math.floor(Date.now() / HOUR_MS);
@@ -282,6 +327,31 @@
       }));
     } catch (e) {
       console.error("Failed to load MCP data:", e);
+    }
+  }
+
+  async function loadPermissionHealth() {
+    permissionHealthLoading = true;
+    permissionHealthError = "";
+    try {
+      permissionHealth = (await invoke("get_permission_health")) as HealthCheck[];
+    } catch (e) {
+      permissionHealthError = String(e);
+    } finally {
+      permissionHealthLoading = false;
+    }
+  }
+
+  async function openHealthRepair(check: HealthCheck) {
+    if (!check.repairAction) return;
+    permissionHealthRepairing = check.id;
+    permissionHealthRepairError = "";
+    try {
+      await invoke("open_health_repair", { action: check.repairAction });
+    } catch (e) {
+      permissionHealthRepairError = String(e);
+    } finally {
+      permissionHealthRepairing = null;
     }
   }
 
@@ -360,6 +430,7 @@
       loadServers(),
       loadPiAgent(),
       loadTts(),
+      loadPermissionHealth(),
     ]);
     loading = false;
   }
@@ -655,21 +726,32 @@
 
     loadData();
 
-    const unlistenPrompt = listen<{ kind: string; text?: string }>("pi-stream", (event) => {
+    const unlistenPrompt = listen<{ kind: string; text?: string; prompt?: string; status?: string }>("pi-stream", (event) => {
       const payload = event.payload;
-      // Only a prompt submitted from this form owns this busy state. Voice
-      // turns elsewhere in the app must not disable this textarea.
-      if (!agentPromptActive) return;
       if (payload.kind === "start") {
-        agentPromptResponse = "";
-        agentPromptError = "";
-        agentPromptSending = true;
+        liveAgentResponse = "";
+        liveAgentStatus = "Thinking";
+        liveAgentActive = true;
+        if (agentPromptActive) {
+          agentPromptResponse = "";
+          agentPromptError = "";
+          agentPromptSending = true;
+        }
+      } else if (payload.kind === "activity") {
+        liveAgentStatus = payload.status || "Working";
       } else if (payload.kind === "delta" && payload.text) {
-        agentPromptResponse += payload.text;
+        liveAgentResponse += payload.text;
+        liveAgentStatus = "Responding";
+        if (agentPromptActive) agentPromptResponse += payload.text;
       } else if (payload.kind === "end") {
-        if (payload.text) agentPromptResponse = payload.text;
-        agentPromptSending = false;
-        agentPromptActive = false;
+        if (payload.text) liveAgentResponse = payload.text;
+        liveAgentStatus = "Complete";
+        liveAgentActive = false;
+        if (agentPromptActive) {
+          if (payload.text) agentPromptResponse = payload.text;
+          agentPromptSending = false;
+          agentPromptActive = false;
+        }
       }
     });
 
@@ -718,6 +800,13 @@
     }
   }
 
+  // Start the native AX read on pointer-down, before the click's submit path can
+  // bring T2T to the front. Rust keeps the result opaque and consumes it once.
+  function captureAppSelectionBeforeSubmit() {
+    if (!includeCurrentAppSelection || agentPromptSending) return;
+    appSelectionCapture = invoke("capture_current_app_selection") as Promise<void>;
+  }
+
   async function sendTextAgentPrompt() {
     const prompt = agentPrompt.trim();
     if (!prompt || agentPromptSending) return;
@@ -726,9 +815,26 @@
     agentPromptError = "";
     agentPromptResponse = "";
     try {
-      await invoke("send_agent_prompt", { text: prompt });
+      if (includeCurrentAppSelection) {
+        if (!appSelectionCapture) {
+          throw new Error("Selection capture did not start before submit; nothing was sent");
+        }
+        await appSelectionCapture;
+      }
+      const contextEntryIds = orderedContextEntryIds();
+      await invoke("send_agent_prompt", {
+        text: prompt,
+        contextEntryIds,
+        includeAppSelection: includeCurrentAppSelection,
+      });
       agentPrompt = "";
+      selectedContextEntryIds = [];
+      includeCurrentAppSelection = false;
+      appSelectionCapture = null;
     } catch (e) {
+      // Do not retain a preflight capture when submission is cancelled or fails.
+      invoke("discard_current_app_selection_capture").catch(() => {});
+      appSelectionCapture = null;
       agentPromptSending = false;
       agentPromptActive = false;
       agentPromptError = e instanceof Error ? e.message : String(e);
@@ -1066,6 +1172,56 @@
           </Toggle>
         </div>
 
+        <!-- Permission health -->
+        <section class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg space-y-4" aria-labelledby="permission-health-heading">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="permission-health-heading" class="text-sm font-medium text-foreground">Permission & setup health</h2>
+              <p class="text-xs text-muted-foreground mt-1">Read-only local checks. Refreshing never requests permissions, runs Pi, plays speech, downloads a model, or connects to MCP servers.</p>
+            </div>
+            <button
+              type="button"
+              onclick={loadPermissionHealth}
+              disabled={permissionHealthLoading}
+              class="h-8 w-8 shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground rounded transition-colors disabled:opacity-50"
+              title="Refresh permission and setup health"
+            >
+              <RefreshCw class="w-4 h-4 {permissionHealthLoading ? 'animate-spin' : ''}" />
+            </button>
+          </div>
+          {#if permissionHealthError}
+            <p class="text-xs text-destructive">Unable to read health: {permissionHealthError}</p>
+          {/if}
+          {#if permissionHealthRepairError}
+            <p class="text-xs text-destructive">Unable to open the requested location: {permissionHealthRepairError}</p>
+          {/if}
+          {#if !permissionHealthError && permissionHealthLoading && permissionHealth.length === 0}
+            <p class="text-xs text-muted-foreground">Checking local configuration…</p>
+          {:else}
+            <div class="grid gap-2 sm:grid-cols-2">
+              {#each permissionHealth as check (check.id)}
+                <div class="rounded-md border border-border/50 bg-background/40 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-foreground">{check.label}</span>
+                    <span class="text-xs font-medium {check.status === 'ready' ? 'text-green-600 dark:text-green-400' : check.status === 'attention' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}">{check.status === 'ready' ? 'Ready' : check.status === 'attention' ? 'Needs attention' : 'Unavailable'}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-muted-foreground break-words">{check.detail}</p>
+                  {#if check.repairAction && check.repairLabel}
+                    <button
+                      type="button"
+                      onclick={() => openHealthRepair(check)}
+                      disabled={permissionHealthRepairing !== null}
+                      class="mt-3 text-xs font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {permissionHealthRepairing === check.id ? "Opening…" : check.repairLabel}
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
         <!-- Pi Agent -->
         <div class="p-4 sm:p-6 bg-card/50 border border-border rounded-lg space-y-4">
           <div>
@@ -1332,6 +1488,16 @@
           </p>
         </div>
 
+        {#if liveAgentActive || liveAgentResponse}
+          <section class="rounded-lg border border-purple-400/30 bg-purple-500/5 p-4" aria-live="polite">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-sm font-semibold text-foreground">Live agent response</h3>
+              <span class="text-xs text-purple-300">{liveAgentStatus}</span>
+            </div>
+            <p class="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{liveAgentResponse || "Working…"}</p>
+          </section>
+        {/if}
+
         <!-- Text agent turn -->
         <form
           class="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3"
@@ -1341,8 +1507,32 @@
             <h3 class="text-sm font-semibold text-foreground">Talk to the agent</h3>
             <p class="text-xs text-muted-foreground mt-1">
               Type a prompt here to send one agent turn without using the microphone.
+              Select prior Pi turns below to explicitly include them as follow-up context.
             </p>
+            {#if selectedContextEntryIds.length > 0}
+              <p class="text-xs text-primary mt-2">
+                {selectedContextEntryIds.length} of {MAX_FOLLOW_UP_TURNS} prior Pi turns selected for this request only.
+              </p>
+            {/if}
           </div>
+          <label class="flex items-start gap-2 text-xs text-foreground">
+            <input
+              type="checkbox"
+              bind:checked={includeCurrentAppSelection}
+              onchange={() => {
+                appSelectionCapture = null;
+                if (!includeCurrentAppSelection) {
+                  invoke("discard_current_app_selection_capture").catch(() => {});
+                }
+              }}
+              disabled={agentPromptSending}
+              class="mt-0.5"
+            />
+            <span>
+              Include current app and selected text for this turn
+              <span class="block text-muted-foreground">Off by default. Requires macOS Accessibility and a readable selection. Only the app name and up to 2,000 characters of selected text are sent as untrusted context; no screenshot, URL, document contents, or history is saved.</span>
+            </span>
+          </label>
           <div class="flex gap-2 items-end">
             <textarea
               bind:value={agentPrompt}
@@ -1353,6 +1543,7 @@
             ></textarea>
             <button
               type="submit"
+              onpointerdown={captureAppSelectionBeforeSubmit}
               disabled={agentPromptSending || !agentPrompt.trim()}
               class="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -1402,9 +1593,21 @@
         {:else}
           <div class="space-y-2">
             {#each historyEntries as entry (entry.id)}
-              <button
-                type="button"
-                class="w-full bg-card/50 border border-border rounded-lg p-4 text-left hover:bg-card transition-colors"
+              <div class="relative">
+                {#if isEligiblePiTurn(entry)}
+                  <label class="absolute right-3 top-3 z-10 flex items-center gap-1.5 text-xs text-muted-foreground bg-card/90 px-1 rounded">
+                    <input
+                      type="checkbox"
+                      checked={selectedContextEntryIds.includes(entry.id)}
+                      disabled={!selectedContextEntryIds.includes(entry.id) && selectedContextEntryIds.length >= MAX_FOLLOW_UP_TURNS}
+                      onclick={(event) => { event.stopPropagation(); toggleContextEntry(entry); }}
+                    />
+                    Use as context
+                  </label>
+                {/if}
+                <button
+                  type="button"
+                  class="w-full bg-card/50 border border-border rounded-lg p-4 text-left hover:bg-card transition-colors pr-32"
                 onclick={() => {
                   expandedEntryId =
                     expandedEntryId === entry.id ? null : entry.id;
@@ -1498,7 +1701,8 @@
                     {/if}
                   </div>
                 {/if}
-              </button>
+                </button>
+              </div>
             {/each}
           </div>
         {/if}
