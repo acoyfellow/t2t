@@ -10,7 +10,7 @@
 
 [View all releases on GitHub →](https://github.com/acoyfellow/t2t/releases)
 
-> t2t is currently unsigned. After replacing the app, macOS may require you to re-enable **Accessibility** permission for `/Applications/t2t.app`.
+> t2t is currently ad-hoc signed for local development. Always run the installed app at `/Applications/t2t.app`; do not launch the copy inside `desktop/target`. After rebuilding, macOS may require you to re-enable **Accessibility**, **Microphone**, and **Input Monitoring** for `/Applications/t2t.app`.
 
 ## What it does
 
@@ -60,17 +60,77 @@ The Settings tab includes:
 
 ## Developer setup
 
+Use this workflow from the repository root. It keeps one canonical app location and avoids macOS granting permissions to a temporary build copy.
+
+### 1. Install dependencies and validate
+
 ```bash
-cd desktop
+cd /Users/jcoeyman/cloudflare/t2t/desktop
 bun install
 bun run check
+cargo check
+```
+
+### 2. Run local development
+
+Use this only for development work:
+
+```bash
+cd /Users/jcoeyman/cloudflare/t2t/desktop
 bunx tauri dev
 ```
 
-Build:
+The development process is not the same identity/path as the installed app, so macOS permissions granted to `/Applications/t2t.app` may not apply to it.
+
+### 3. Build, install, and launch the canonical app
+
+For normal local use, build and install through the repository script, then launch the installed app:
 
 ```bash
-cd desktop
+cd /Users/jcoeyman/cloudflare/t2t/desktop
+bun run macos:install
+open -a /Applications/t2t.app
+```
+
+`macos:install` builds the release app, replaces `/Applications/t2t.app`, and leaves the source checkout unchanged. Do not open `desktop/target/release/.../t2t.app` directly.
+
+### 4. Repair macOS permissions after a rebuild
+
+If Fn capture, dictation, paste, or microphone access stops working:
+
+```bash
+# Stop only T2T, if it is running.
+pkill -f '/Applications/t2t.app/Contents/MacOS/t2t' 2>/dev/null || true
+pkill -f '/Users/jcoeyman/cloudflare/t2t/desktop/target/release/bundle/macos/t2t.app/Contents/MacOS/t2t' 2>/dev/null || true
+
+# Reset only T2T's privacy grants. You will need to approve them again.
+tccutil reset Accessibility com.t2t.desktop
+tccutil reset Microphone com.t2t.desktop
+tccutil reset ListenEvent com.t2t.desktop
+
+# Open Privacy & Security and re-enable /Applications/t2t.app.
+open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+open 'x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent'
+
+open -a /Applications/t2t.app
+```
+
+In **System Settings → Privacy & Security**, approve `/Applications/t2t.app` under Accessibility and Microphone, and under Input Monitoring if it appears there. If permissions continue to reset between builds, install a stable Apple Developer signing identity; local builds are currently ad-hoc signed.
+
+### 5. Verify the canonical installation
+
+```bash
+ps -axo pid,args | grep '[t]2t.app/Contents/MacOS/t2t'
+ls -ld /Applications/t2t.app
+cd /Users/jcoeyman/cloudflare/t2t
+git diff --check
+```
+
+Build directly, without installing, when you only need an artifact:
+
+```bash
+cd /Users/jcoeyman/cloudflare/t2t/desktop
 bun run build
 ```
 
