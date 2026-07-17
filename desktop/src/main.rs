@@ -81,6 +81,25 @@ fn configure_indicator_windows(app: &tauri::App, main: &tauri::WebviewWindow) {
     };
     use tauri::{LogicalPosition, LogicalSize, WebviewUrl, WebviewWindowBuilder};
 
+    // macOS can briefly report a stale/partial display surface after a display
+    // disconnect. It has a normal-looking width but an unusably short height
+    // and otherwise creates a floating indicator above the real display.
+    let monitors: Vec<_> = monitors
+        .into_iter()
+        .filter(|monitor| {
+            let scale = monitor.scale_factor();
+            let logical_height = monitor.size().height as f64 / scale;
+            if logical_height < 700.0 {
+                log_line(&format!(
+                    "Ignoring partial display surface: logical height={logical_height:.1}"
+                ));
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+
     // Remove overlays left over from a previous display arrangement. Without
     // this, reconnecting a monitor can leave two transparent windows on one
     // display, making the response/caption surface appear duplicated.
