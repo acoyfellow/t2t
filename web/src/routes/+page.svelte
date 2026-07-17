@@ -174,8 +174,7 @@
             >
               fn
             </kbd>{" "}
-            anywhere. Your voice becomes text. Nearly 4x faster than typing. No apps.
-            No setup. No friction.
+            in any editable field. T2T records while you hold the key, transcribes the audio locally with Whisper, and inserts the result into the field you were using.
           </p>
         </div>
         <div class="order-1 lg:order-2 flex justify-center">
@@ -211,8 +210,7 @@
             >
               fn+ctrl
             </kbd>{" "}
-            to speak with a local Pi agent. Cloudflare AI Gateway recommended. Any model you configure. Local agent, zero
-            servers.
+            to send the transcript to the local <code class="font-mono text-purple-300">pi</code> CLI. Configure the provider, model, voice output, and MCP servers in Settings; the agent runs on your Mac.
           </p>
         </div>
       </div>
