@@ -34,6 +34,7 @@
   />
 </svelte:head>
 
+<div class="min-h-screen bg-black">
 <nav class="absolute w-full top-0 z-10">
   <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
     <a
@@ -300,6 +301,7 @@
       </div>
     </div>
   </footer>
+</div>
 </div>
 
 <style>
