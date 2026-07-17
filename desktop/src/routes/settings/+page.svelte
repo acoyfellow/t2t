@@ -365,8 +365,7 @@
       selectedModel = ((await store.get("model")) ?? selectedModel) as string;
       piThinking = ((await store.get("thinking")) ?? piThinking) as string;
       piCaBundle = ((await store.get("caBundle")) ?? piCaBundle) as string;
-      if ((piProvider === "cloudflare-ai-gateway" && selectedModel === "gpt-5.4-mini") ||
-          (piProvider === "cloudflare-ai-gateway" && selectedModel === "gpt-5.6-luna")) {
+      if (piProvider === "cloudflare-ai-gateway" && selectedModel === "gpt-5.4-mini") {
         piProvider = "cloudflare-ai-gateway";
         selectedModel = "gpt-5.6-luna";
         piThinking = "medium";

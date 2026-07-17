@@ -327,9 +327,7 @@ fn get_pi_agent_config(app: &AppHandle) -> PiAgentConfig {
     }
     // Migrate the shipped defaults that pointed at unavailable models. Keep
     // explicit user-selected provider/model pairs untouched.
-    if (c.provider == "cloudflare-ai-gateway" && c.model == "gpt-5.4-mini")
-        || (c.provider == "cloudflare-ai-gateway" && c.model == "gpt-5.6-luna")
-    {
+    if c.provider == "cloudflare-ai-gateway" && c.model == "gpt-5.4-mini" {
         c.provider = "cloudflare-ai-gateway".into();
         c.model = "gpt-5.6-luna".into();
         c.thinking = "medium".into();
