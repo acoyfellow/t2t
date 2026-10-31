@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..');
@@ -17,6 +17,23 @@ const record = (name, ok, detail) => {
 const getJson = async (url, init) => (await fetch(url, init)).json();
 const state = () => getJson(`${shell}/state`);
 const osa = (script) => execFileSync('osascript', ['-e', script], { encoding: 'utf8' }).trim();
+
+const redPixels = (png) => {
+  const bmp = `${png}.bmp`;
+  execFileSync('sips', ['-s', 'format', 'bmp', png, '--out', bmp], { stdio: 'ignore' });
+  const data = readFileSync(bmp);
+  const offset = data.readUInt32LE(10);
+  const bits = data.readUInt16LE(28);
+  const step = bits / 8;
+  let count = 0;
+  for (let i = offset; i + step <= data.length; i += step) {
+    const b = data[i];
+    const g = data[i + 1];
+    const r = data[i + 2];
+    if (r > 190 && g < 110 && b < 110) count++;
+  }
+  return count;
+};
 
 const signature = () => {
   const out = execFileSync('codesign', ['-d', '-r-', join(root, 'dist', 'T2T.app')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -51,7 +68,7 @@ const checkAgentTurnAndDraw = async () => {
   const text = `Draw a red box at x 200, y 200, width 500, height 300 labelled ${marker}, then say done.`;
   const blank = join(tmp, 'before.png');
   const after = join(tmp, 'after.png');
-  if (s.screenRecording) execFileSync('screencapture', ['-x', '-R200,200,500,300', blank]);
+  execFileSync('screencapture', ['-x', '-R200,200,500,300', blank]);
   await fetch(`${shell}/hold?mode=agent&seconds=0.3&text=${encodeURIComponent(text)}`);
   let turn;
   for (let i = 0; i < 25 && turn === undefined; i++) {
@@ -62,19 +79,13 @@ const checkAgentTurnAndDraw = async () => {
   const recorded = turn !== undefined && turn.status === 'done' && (turn.reply ?? '').length > 0;
   record('agent turn recorded in the Durable Object with a final reply', recorded, turn ? `${turn.status} "${turn.reply}" tools=${turn.tools.join(',')} $${turn.usd.toFixed(5)}` : 'no record');
   const drew = turn !== undefined && turn.draws.length > 0;
-  if (!s.screenRecording) {
-    record('draw event shows on the overlay (screenshot diff)', false, `agent drew ${turn?.draws.length ?? 0} shape(s); Screen Recording not granted, so the overlay cannot be captured`);
-    return;
-  }
   await pause(1500);
   execFileSync('screencapture', ['-x', '-R200,200,500,300', after]);
-  const a = readFileSync(blank);
-  const b = readFileSync(after);
-  let differing = 0;
-  const length = Math.min(a.length, b.length);
-  for (let i = 0; i < length; i++) if (a[i] !== b[i]) differing++;
-  const changed = drew && differing > length * 0.01;
-  record('draw event shows on the overlay (screenshot diff)', changed, `${turn?.draws.length ?? 0} shape(s), ${differing} of ${length} bytes differ`);
+  const redBefore = redPixels(blank);
+  const redAfter = redPixels(after);
+  for (const file of [blank, after, `${blank}.bmp`, `${after}.bmp`]) rmSync(file, { force: true });
+  const changed = drew && redAfter > 2000 && redAfter > redBefore * 4;
+  record('draw event shows on the overlay (screenshot diff)', changed, `${turn?.draws.length ?? 0} shape(s); red pixels ${redBefore} before, ${redAfter} after`);
 };
 
 const shellUp = await state().then(() => true, () => false);
