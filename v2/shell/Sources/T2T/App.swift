@@ -10,6 +10,9 @@ final class App: NSObject, NSApplicationDelegate {
     private let keys = Keys()
     private let dictation = Dictation()
     private let control = Control()
+    private let speaker = Speaker()
+    private var hits: HitRegions?
+    private lazy var settingsWindow = SettingsWindow(bridge: bridge)
     private var lastTranscript = ""
     private var lastPasted = ""
     private var forcedTranscript: String?
@@ -29,9 +32,10 @@ final class App: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = App.menuBarMark()
         let menu = NSMenu()
+        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Reload UI", action: #selector(reloadUI), keyEquivalent: "r")
         menu.addItem(withTitle: "Open log", action: #selector(openLog), keyEquivalent: "l")
         menu.addItem(.separator())
@@ -44,13 +48,29 @@ final class App: NSObject, NSApplicationDelegate {
             self?.lastPasted = text
             Paste.type(text)
         }
+        bridge.onSpeak = { [weak self] text in
+            guard let self else { return }
+            self.bridge.emit(["type": "speaking", "value": self.speaker.enabled])
+            self.speaker.speak(text)
+        }
+        bridge.onStopSpeaking = { [weak self] in self?.speaker.stop(); self?.bridge.emit(["type": "speaking", "value": false]) }
+        speaker.onFinish = { [weak self] in self?.bridge.emit(["type": "speaking", "value": false]) }
+        bridge.onOpenSettings = { [weak self] in self?.openSettings() }
+        bridge.settingsState = { [weak self] in self?.settingsState() ?? [:] }
+        bridge.onSetting = { [weak self] key, value in self?.applySetting(key, value) }
         let overlay = Overlay(bridge: bridge)
         overlay.load(uiURL)
         self.overlay = overlay
+        let hits = HitRegions(window: overlay.window)
+        bridge.onHitRegions = { rects in hits.set(rects) }
+        self.hits = hits
 
         keys.onStart = { [weak self] mode in self?.holdStarted(mode) }
         keys.onStop = { [weak self] mode in self?.holdStopped(mode) }
-        keys.onEscape = { [weak self] in self?.bridge.emit(["type": "escape"]) }
+        keys.onEscape = { [weak self] in
+            self?.speaker.stop()
+            self?.bridge.emit(["type": "escape"])
+        }
         keys.onRaw = { [weak self] line in self?.log(line) }
         dictation.log = { [weak self] line in self?.log(line) }
         dictation.onLevel = { [weak self] level in self?.bridge.emit(["type": "level", "value": level]) }
@@ -107,6 +127,11 @@ final class App: NSObject, NSApplicationDelegate {
                 "ui": redacted(uiURL),
                 "overlayLevel": overlay?.window.level.rawValue ?? 0,
                 "overlayVisible": overlay?.window.isVisible ?? false,
+                "statusItem": [
+                    "frame": NSStringFromRect(status?.button?.window?.frame ?? .zero),
+                    "visible": status?.isVisible ?? false,
+                    "hasImage": status?.button?.image != nil,
+                ],
             ]
             return json(payload)
         case "/hold":
@@ -134,11 +159,50 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     static func menuBarMark() -> NSImage? {
-        guard let url = Bundle.main.url(forResource: "mark", withExtension: "svg"),
+        guard let url = Bundle.main.url(forResource: "logo", withExtension: "svg"),
               let image = NSImage(contentsOf: url) else { return nil }
-        image.size = NSSize(width: 16, height: 16)
+        image.size = NSSize(width: 26, height: 14)
         image.isTemplate = true
         return image
+    }
+
+    private func settingsState() -> [String: Any] {
+        [
+            "speak": speaker.enabled,
+            "voice": speaker.voice ?? "",
+            "mcp": McpConfig.servers(),
+            "mcpPath": McpConfig.path.path,
+            "permissions": [
+                "inputMonitoring": Keys.inputMonitoringGranted(prompt: false),
+                "accessibility": Paste.trusted(prompt: false),
+                "screenRecording": CGPreflightScreenCaptureAccess(),
+                "keys": keysListening,
+            ],
+        ]
+    }
+
+    private func applySetting(_ key: String, _ value: Any) {
+        switch key {
+        case "speak":
+            speaker.enabled = value as? Bool ?? true
+            if !speaker.enabled { speaker.stop() }
+        case "voice":
+            let voice = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
+            speaker.voice = voice
+            UserDefaults.standard.set(voice, forKey: "voice")
+        case "mcp":
+            if let entry = value as? [String: Any], let name = entry["name"] as? String, let enabled = entry["enabled"] as? Bool {
+                McpConfig.setEnabled(name, enabled)
+            }
+        default:
+            log("unknown setting \(key)")
+        }
+    }
+
+    @objc private func openSettings() {
+        var components = URLComponents(url: uiURL, resolvingAgainstBaseURL: false)
+        components?.path = "/settings.html"
+        if let url = components?.url { settingsWindow.show(url) }
     }
 
     @objc private func reloadUI() {

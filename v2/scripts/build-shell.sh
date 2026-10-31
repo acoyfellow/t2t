@@ -7,7 +7,7 @@ APP="$ROOT/dist/T2T.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp shell/.build/release/T2T "$APP/Contents/MacOS/T2T"
-cp shell/Resources/AppIcon.icns shell/Resources/mark.svg "$APP/Contents/Resources/"
+cp shell/Resources/AppIcon.icns shell/Resources/mark.svg shell/Resources/logo.svg "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -4,7 +4,14 @@ import WebKit
 @MainActor
 final class Bridge: NSObject, WKScriptMessageHandler {
     weak var overlay: WKWebView?
+    weak var settings: WKWebView?
     var onPaste: (String) -> Void = { _ in }
+    var onSpeak: (String) -> Void = { _ in }
+    var onStopSpeaking: () -> Void = {}
+    var onHitRegions: ([[String: Double]]) -> Void = { _ in }
+    var onOpenSettings: () -> Void = {}
+    var settingsState: () -> [String: Any] = { [:] }
+    var onSetting: (String, Any) -> Void = { _, _ in }
     var log: (String) -> Void = { _ in }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -12,6 +19,21 @@ final class Bridge: NSObject, WKScriptMessageHandler {
         switch command {
         case "paste":
             if let text = body["text"] as? String { onPaste(text) }
+        case "speak":
+            if let text = body["text"] as? String { onSpeak(text) }
+        case "stopSpeaking":
+            onStopSpeaking()
+        case "hitRegions":
+            onHitRegions((body["rects"] as? [[String: Double]]) ?? [])
+        case "openSettings":
+            onOpenSettings()
+        case "settings":
+            send(["type": "settings", "value": settingsState()], to: message.webView)
+        case "set":
+            if let key = body["key"] as? String, let value = body["value"] {
+                onSetting(key, value)
+                broadcastSettings()
+            }
         case "log":
             if let line = body["line"] as? String { log("ui: \(line)") }
         default:
@@ -19,9 +41,21 @@ final class Bridge: NSObject, WKScriptMessageHandler {
         }
     }
 
+    func broadcastSettings() {
+        let event: [String: Any] = ["type": "settings", "value": settingsState()]
+        send(event, to: overlay)
+        send(event, to: settings)
+    }
+
     func emit(_ event: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: event),
+        send(event, to: overlay)
+        send(event, to: settings)
+    }
+
+    private func send(_ event: [String: Any], to view: WKWebView?) {
+        guard let view,
+              let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
-        overlay?.evaluateJavaScript("window.t2t && window.t2t.receive(\(json))", completionHandler: nil)
+        view.evaluateJavaScript("window.t2t && window.t2t.receive(\(json))", completionHandler: nil)
     }
 }

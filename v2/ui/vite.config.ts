@@ -6,5 +6,9 @@ export default defineConfig({
   root: import.meta.dirname,
   plugins: [svelte(), tailwindcss()],
   server: { host: '127.0.0.1', port: 5197, strictPort: true },
-  build: { outDir: '../dist/ui', emptyOutDir: true },
+  build: {
+    outDir: '../dist/ui',
+    emptyOutDir: true,
+    rollupOptions: { input: { overlay: 'index.html', settings: 'settings.html' } },
+  },
 });

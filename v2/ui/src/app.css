@@ -14,3 +14,6 @@ html, body { background: transparent; margin: 0; overflow: hidden; user-select: 
 }
 .t2t-agent-thinking { transform-origin: bottom center; animation: t2t-agent-thinking 0.72s ease-in-out infinite; }
 .t2t-agent-speaking { transform-origin: bottom center; animation: t2t-agent-speaking 0.48s ease-in-out infinite; }
+@keyframes t2t-spin { to { transform: rotate(360deg); } }
+.t2t-spin { animation: t2t-spin 0.9s linear infinite; }
+html.settings, html.settings body { background: #0b0b0f; color: #e8e8ee; overflow: auto; user-select: text; }
