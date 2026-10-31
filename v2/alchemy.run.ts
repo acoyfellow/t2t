@@ -7,6 +7,7 @@ import * as Redacted from 'effect/Redacted';
 import type { Agent } from './worker/src/agent.ts';
 
 const key = readFileSync(join(import.meta.dirname, '.secrets', 'key'), 'utf8').trim();
+const gatewayToken = readFileSync(join(import.meta.dirname, '.secrets', 'opencode.token'), 'utf8').trim();
 
 export default Alchemy.Stack(
   't2t-v2',
@@ -22,7 +23,9 @@ export default Alchemy.Stack(
         AGENT: Cloudflare.DurableObject<Agent>('Agent'),
         AI: Cloudflare.Workers.AI('AI'),
         GATEWAY: 'default',
-        MODEL: '@cf/moonshotai/kimi-k2.6',
+        MODEL: 'claude-opus-5-5',
+        LLM_GATEWAY_URL: '<gateway url from .secrets/gateway.url>',
+        LLM_GATEWAY_TOKEN: Redacted.make(gatewayToken),
         T2T_KEY: Redacted.make(key),
       },
     });

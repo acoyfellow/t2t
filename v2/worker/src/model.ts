@@ -1,8 +1,7 @@
-import type { Api, Model, Provider, ProviderStreams } from '@earendil-works/pi-ai';
-import { CLOUDFLARE_GATEWAY_BINDING_AUTH_SENTINEL, createAiBindingFetch } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
+import type { Provider } from '@earendil-works/pi-ai';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
 import { createProvider } from '@earendil-works/pi-ai/models';
-import { CLOUDFLARE_AI_GATEWAY_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models';
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -53,42 +52,29 @@ export const routeWorkersAIThroughBinding = (ai: Ai, gateway: string): void => {
     CHAT_COMPLETIONS.test(urlOf(input)) ? Effect.runPromise(answer(current.run, new Request(input, init))) : original(input, init);
 };
 
-export const GATEWAY_PROVIDER = 't2t-gateway';
+export const GATEWAY_PROVIDER = 't2t-opencode';
 
-const BINDING_HEADERS = {
-  'cf-aig-authorization': `Bearer ${CLOUDFLARE_GATEWAY_BINDING_AUTH_SENTINEL}`,
-  Authorization: null,
-  'x-api-key': null,
-};
+export type GatewayEnv = { readonly LLM_GATEWAY_URL: string; readonly LLM_GATEWAY_TOKEN: string };
 
-const isAnthropic = (model: Model<Api>): model is Model<'anthropic-messages'> => model.api === 'anthropic-messages';
+const anthropicBase = (url: string) => url.replace(/\/openai\/?$/, '/anthropic').replace(/\/$/, '');
 
-const anthropicModels = (gateway: string): Model<'anthropic-messages'>[] =>
-  Object.values(CLOUDFLARE_AI_GATEWAY_MODELS as Record<string, Model<Api>>)
-    .filter(isAnthropic)
-    .filter((model) => model.id.startsWith('claude-'))
-    .map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl: `https://workers-binding.ai/ai-gateway/gateways/${gateway}/anthropic` }));
-
-const throughBinding = (ai: Ai): ProviderStreams => {
-  const inner = anthropicMessagesApi();
-  const fetch = createAiBindingFetch(ai);
-  return {
-    stream: (model, transcript, options) => inner.stream(model, transcript, { ...options, fetch, headers: { ...options?.headers, ...BINDING_HEADERS } }),
-    streamSimple: (model, transcript, options) =>
-      inner.streamSimple(model, transcript, { ...options, fetch, headers: { ...options?.headers, ...BINDING_HEADERS } }),
+export const gatewayProvider = (env: GatewayEnv): Provider => {
+  const baseUrl = anthropicBase(env.LLM_GATEWAY_URL);
+  const headers = {
+    'cf-access-token': env.LLM_GATEWAY_TOKEN,
+    authorization: `Bearer ${env.LLM_GATEWAY_TOKEN}`,
+    'X-Requested-With': 'xmlhttprequest',
   };
-};
-
-export const gatewayProvider = (ai: Ai, gateway: string): Provider =>
-  createProvider({
+  const wanted = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
+  return createProvider({
     id: GATEWAY_PROVIDER,
-    name: 'Anthropic through AI Gateway and the Workers AI binding',
-    auth: {
-      apiKey: {
-        name: 'Workers AI binding',
-        resolve: async () => ({ auth: { apiKey: CLOUDFLARE_GATEWAY_BINDING_AUTH_SENTINEL }, source: 'AI binding' }),
-      },
-    },
-    models: anthropicModels(gateway),
-    api: { 'anthropic-messages': throughBinding(ai) },
+    name: 'OpenCode Cloudflare gateway',
+    baseUrl,
+    auth: { apiKey: { name: 'opencode gateway', resolve: async () => ({ auth: { headers }, source: 'gateway' }) } },
+    models: anthropicProvider()
+      .getModels()
+      .filter((model) => wanted.has(model.id))
+      .map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl })),
+    api: anthropicMessagesApi(),
   });
+};

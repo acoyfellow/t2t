@@ -27,9 +27,9 @@ import {
   TurnRecordsJson,
   type TurnRequest,
 } from '../../shared/protocol';
-import { bindingAuthContext, GATEWAY_PROVIDER, gatewayProvider, routeWorkersAIThroughBinding } from './model';
+import { bindingAuthContext, GATEWAY_PROVIDER, type GatewayEnv, gatewayProvider, routeWorkersAIThroughBinding } from './model';
 
-export type AgentEnv = { readonly AI: Ai; readonly MODEL: string; readonly GATEWAY: string };
+export type AgentEnv = GatewayEnv & { readonly AI: Ai; readonly MODEL: string; readonly GATEWAY: string };
 
 const CONTEXT = BACKGROUND_CONTEXT;
 
@@ -200,7 +200,7 @@ export class Agent extends DurableObject<AgentEnv> {
           const models = createModels({ authContext: bindingAuthContext });
           const workersAI = cloudflareWorkersAIProvider();
           models.setProvider(workersAI);
-          models.setProvider(gatewayProvider(this.env.AI, this.env.GATEWAY));
+          models.setProvider(gatewayProvider(this.env));
           const provider = this.env.MODEL.startsWith('claude-') ? { id: GATEWAY_PROVIDER } : workersAI;
           const registry = createRegistry();
           registry.install(
