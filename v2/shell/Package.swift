@@ -13,7 +13,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("WebKit"),
                 .linkedFramework("AVFoundation"),
-                .linkedFramework("Speech"),
+                
                 .linkedFramework("ApplicationServices"),
             ]
         )

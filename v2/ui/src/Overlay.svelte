@@ -9,6 +9,11 @@
     return 'bg-transparent';
   });
 
+  const glowColor = $derived(overlay.phase === 'listening' && overlay.mode === 'dictate' ? '0,255,163' : '194,122,255');
+  const barHeight = $derived(overlay.phase === 'listening' ? 6 + overlay.level * 30 : 6);
+  const glowSize = $derived(overlay.phase === 'listening' ? 18 + overlay.level * 90 : 0);
+  const glowAlpha = $derived(0.35 + overlay.level * 0.45);
+
   const palette: Record<string, string> = { red: '#ef4444', blue: '#3b82f6', green: '#22c55e', yellow: '#eab308' };
   const colorOf = (name: string | undefined) => (name && palette[name]) || name || '#f97316';
 </script>
@@ -41,7 +46,11 @@
     {/if}
   {/each}
 
-  <div data-indicator class="absolute bottom-0 left-0 h-1.5 w-full transition-[background-color] duration-300 ease-out {bar}"></div>
+  <div
+    data-indicator
+    class="absolute bottom-0 left-0 w-full transition-[background-color] duration-300 ease-out {bar}"
+    style="height:{barHeight}px;box-shadow:0 0 {glowSize}px rgba({glowColor},{overlay.phase === 'idle' ? 0 : glowAlpha});transition-property:background-color,height,box-shadow;transition-duration:300ms,60ms,60ms"
+  ></div>
 
   {#if overlay.reply || overlay.lastError || overlay.phase === 'thinking'}
     <div class="absolute bottom-8 left-1/2 flex max-w-xl -translate-x-1/2 items-center gap-3 rounded-2xl bg-black/85 px-4 py-2.5 text-white shadow-2xl">

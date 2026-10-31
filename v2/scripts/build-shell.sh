@@ -22,7 +22,6 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>t2t records your voice while you hold Fn.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>t2t turns your voice into text on this Mac.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST

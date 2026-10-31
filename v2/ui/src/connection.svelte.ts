@@ -6,6 +6,7 @@ type ShellEvent =
   | { type: 'hold'; mode: 'dictate' | 'agent' }
   | { type: 'release'; mode: 'dictate' | 'agent' }
   | { type: 'transcript'; mode: 'dictate' | 'agent'; text: string; screen: { width: number; height: number } }
+  | { type: 'level'; value: number }
   | { type: 'escape' };
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -31,6 +32,7 @@ export const overlay = $state({
   connected: false,
   turnId: '',
   lastError: '',
+  level: 0,
 });
 
 const shell = (body: Record<string, unknown>) => window.webkit?.messageHandlers?.t2t?.postMessage(body);
@@ -89,10 +91,16 @@ const sendTurn = (text: string, screen: { width: number; height: number }) => {
 };
 
 const receive = (event: ShellEvent) => {
+  if (event.type === 'level') {
+    const attack = event.value > overlay.level ? 0.6 : 0.25;
+    overlay.level += (event.value - overlay.level) * attack;
+    return;
+  }
   if (event.type === 'hold') {
     overlay.mode = event.mode;
     overlay.phase = 'listening';
   }
+  if (event.type === 'release') overlay.level = 0;
   if (event.type === 'release') overlay.phase = event.mode === 'agent' ? 'thinking' : 'idle';
   if (event.type === 'transcript') {
     if (event.mode === 'dictate') {

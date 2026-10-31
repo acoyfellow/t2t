@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import IOKit.hid
 
 enum HoldMode: String {
     case dictate
@@ -14,6 +15,13 @@ final class Keys {
     var onStart: (HoldMode) -> Void = { _ in }
     var onStop: (HoldMode) -> Void = { _ in }
     var onEscape: () -> Void = {}
+    var onRaw: (String) -> Void = { _ in }
+
+    static func inputMonitoringGranted(prompt: Bool) -> Bool {
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted { return true }
+        if prompt { _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) }
+        return false
+    }
 
     func start() -> Bool {
         let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue)
@@ -53,6 +61,7 @@ final class Keys {
         guard type == .flagsChanged else { return }
         let fn = flags.contains(.maskSecondaryFn)
         let control = flags.contains(.maskControl)
+        onRaw("flags key=\(keyCode) fn=\(fn) ctrl=\(control)")
         if let mode = holding {
             if !fn {
                 holding = nil

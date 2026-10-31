@@ -51,6 +51,11 @@ final class App: NSObject, NSApplicationDelegate {
         keys.onStart = { [weak self] mode in self?.holdStarted(mode) }
         keys.onStop = { [weak self] mode in self?.holdStopped(mode) }
         keys.onEscape = { [weak self] in self?.bridge.emit(["type": "escape"]) }
+        keys.onRaw = { [weak self] line in self?.log(line) }
+        dictation.log = { [weak self] line in self?.log(line) }
+        dictation.onLevel = { [weak self] level in self?.bridge.emit(["type": "level", "value": level]) }
+        let inputMonitoring = Keys.inputMonitoringGranted(prompt: true)
+        log("input monitoring granted=\(inputMonitoring)")
         keysListening = keys.start()
         log("started; keys listening=\(keysListening) accessibility=\(Paste.trusted(prompt: false)) ui=\(redacted(uiURL))")
         if !Paste.trusted(prompt: false) { _ = Paste.trusted(prompt: true) }
@@ -63,6 +68,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     private func holdStarted(_ mode: HoldMode) {
+        log("hold start \(mode.rawValue)")
         bridge.emit(["type": "hold", "mode": mode.rawValue])
         if forcedTranscript != nil { return }
         do { try dictation.start() } catch { log("dictation start failed: \(error)") }
@@ -93,6 +99,7 @@ final class App: NSObject, NSApplicationDelegate {
         case "/state":
             let payload: [String: Any] = [
                 "keys": keysListening,
+                "inputMonitoring": Keys.inputMonitoringGranted(prompt: false),
                 "accessibility": Paste.trusted(prompt: false),
                 "screenRecording": CGPreflightScreenCaptureAccess(),
                 "lastTranscript": lastTranscript,
