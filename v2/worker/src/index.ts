@@ -20,7 +20,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/health') return Response.json({ ok: true });
     if (!timingSafeEqual(keyOf(request, url), env.T2T_KEY)) return new Response('unauthorized', { status: 401 });
-    if (url.pathname === '/agent' || url.pathname === '/agent/turns') {
+    if (url.pathname === '/agent' || url.pathname === '/agent/turns' || url.pathname === '/agent/gateway-token') {
       return env.AGENT.get(env.AGENT.idFromName('me')).fetch(request);
     }
     return new Response('not found', { status: 404 });

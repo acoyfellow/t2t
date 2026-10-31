@@ -12,6 +12,7 @@ final class App: NSObject, NSApplicationDelegate {
     private let control = Control()
     private let speaker = Speaker()
     private let mcpHost = McpHost()
+    private let gateway = GatewayToken()
     private var hits: HitRegions?
     private lazy var settingsWindow = SettingsWindow(bridge: bridge)
     private var lastTranscript = ""
@@ -91,6 +92,9 @@ final class App: NSObject, NSApplicationDelegate {
         mcpHost.log = { [weak self] line in self?.log(line) }
         if let key = URLComponents(url: uiURL, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "key" })?.value {
             mcpHost.start(key: key)
+            gateway.log = { [weak self] line in self?.log(line) }
+            gateway.onStatus = { [weak self] _ in self?.bridge.broadcastSettings() }
+            gateway.start(key: key, agentBase: URL(string: UserDefaults.standard.string(forKey: "agentURL") ?? "https://t2t-v2.customer0.dev")!)
         }
 
         control.handle = { [weak self] path, query in self?.route(path, query) ?? "{}" }
@@ -222,6 +226,7 @@ final class App: NSObject, NSApplicationDelegate {
             "voice": speaker.voice ?? "",
             "mcp": McpConfig.servers(),
             "mcpPath": McpConfig.path.path,
+            "gateway": gateway.status,
             "permissions": [
                 "inputMonitoring": Keys.inputMonitoringGranted(prompt: false),
                 "accessibility": Paste.trusted(prompt: false),
@@ -238,6 +243,8 @@ final class App: NSObject, NSApplicationDelegate {
             if !speaker.enabled { speaker.stop() }
         case "streamDictation":
             UserDefaults.standard.set(value as? Bool ?? true, forKey: "streamDictation")
+        case "refreshGateway":
+            gateway.refresh(interactive: value as? Bool ?? false)
         case "voice":
             let voice = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
             speaker.voice = voice

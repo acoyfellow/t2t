@@ -98,6 +98,34 @@
         </label>
       </section>
 
+      <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
+        <h2 class="mb-4 text-sm font-medium text-white/80">Model</h2>
+        <div class="flex items-center justify-between gap-4 text-sm">
+          <span>Claude Opus 5.5 <span class="text-white/40">· the opencode gateway</span></span>
+          <div class="flex items-center gap-3">
+            {#if settings.gateway.state === 'ok'}
+              <span class="rounded-full bg-[#00ffa3]/15 px-2 py-0.5 text-xs text-[#00ffa3]">Signed in · {settings.gateway.hoursLeft}h left</span>
+            {:else if settings.gateway.state === 'refreshing'}
+              <span class="flex items-center gap-2 text-xs text-white/60"><Mark spinning class="h-3.5 w-3.5 text-[#c27aff]" /> Refreshing…</span>
+            {:else if settings.gateway.state === 'login-needed'}
+              <span class="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-300">Sign-in needed</span>
+            {:else if settings.gateway.state === 'push-failed'}
+              <span class="rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-300" title={settings.gateway.error}>Could not reach agent</span>
+            {:else}
+              <span class="text-xs text-white/40">Checking…</span>
+            {/if}
+            <button
+              type="button"
+              class="rounded-md border border-white/10 px-2.5 py-1 text-xs hover:bg-white/10"
+              onclick={() => setSetting('refreshGateway', settings.gateway.state === 'login-needed')}
+            >{settings.gateway.state === 'login-needed' ? 'Sign in' : 'Refresh'}</button>
+          </div>
+        </div>
+        {#if settings.gateway.error && settings.gateway.state !== 'ok'}
+          <p class="mt-2 truncate font-mono text-xs text-white/40">{settings.gateway.error}</p>
+        {/if}
+      </section>
+
       <section class="rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Permissions</h2>
         <div class="grid gap-3">

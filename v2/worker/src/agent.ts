@@ -27,7 +27,7 @@ import {
   TurnRecordsJson,
   type TurnRequest,
 } from '../../shared/protocol';
-import { bindingAuthContext, GATEWAY_PROVIDER, type GatewayEnv, gatewayProvider, routeWorkersAIThroughBinding } from './model';
+import { bindingAuthContext, GATEWAY_PROVIDER, type GatewayEnv, gatewayProvider, tokenExpiry, routeWorkersAIThroughBinding } from './model';
 
 export type AgentEnv = GatewayEnv & { readonly AI: Ai; readonly MODEL: string; readonly GATEWAY: string };
 
@@ -118,6 +118,17 @@ export class Agent extends DurableObject<AgentEnv> {
     routeWorkersAIThroughBinding(env.AI, env.GATEWAY);
   }
 
+  private gatewayToken(): string {
+    const stored = this.ctx.storage.kv.get<string>('gatewayToken');
+    const candidates = [stored, this.env.LLM_GATEWAY_TOKEN].filter((token): token is string => token !== undefined && token !== '');
+    return candidates.sort((left, right) => (tokenExpiry(right) ?? 0) - (tokenExpiry(left) ?? 0))[0] ?? '';
+  }
+
+  private gatewayStatus() {
+    const expires = tokenExpiry(this.gatewayToken());
+    return { expiresAt: expires ?? null, hoursLeft: expires === undefined ? null : Math.round((expires - Date.now()) / 36e5) };
+  }
+
   private broadcast(frame: ServerFrame): void {
     const encoded = encodeFrame(frame);
     for (const socket of this.ctx.getWebSockets()) socket.send(encoded);
@@ -200,7 +211,7 @@ export class Agent extends DurableObject<AgentEnv> {
           const models = createModels({ authContext: bindingAuthContext });
           const workersAI = cloudflareWorkersAIProvider();
           models.setProvider(workersAI);
-          models.setProvider(gatewayProvider(this.env));
+          models.setProvider(gatewayProvider(this.env, () => this.gatewayToken()));
           const provider = this.env.MODEL.startsWith('claude-') ? { id: GATEWAY_PROVIDER } : workersAI;
           const registry = createRegistry();
           registry.install(
@@ -333,6 +344,15 @@ export class Agent extends DurableObject<AgentEnv> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.endsWith('/gateway-token')) {
+      if (request.method === 'PUT') {
+        const token = (await request.text()).trim();
+        const expires = tokenExpiry(token);
+        if (expires === undefined || expires < Date.now()) return Response.json({ ok: false, error: 'token is not a live JWT' }, { status: 400 });
+        if (expires > (tokenExpiry(this.gatewayToken()) ?? 0)) this.ctx.storage.kv.put('gatewayToken', token);
+      }
+      return Response.json({ ok: true, ...this.gatewayStatus() });
+    }
     if (url.pathname.endsWith('/turns')) {
       return new Response(encodeRecords(this.records().slice().reverse()), { headers: { 'content-type': 'application/json' } });
     }

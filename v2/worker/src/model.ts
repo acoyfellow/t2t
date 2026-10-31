@@ -58,19 +58,30 @@ export type GatewayEnv = { readonly LLM_GATEWAY_URL: string; readonly LLM_GATEWA
 
 const anthropicBase = (url: string) => url.replace(/\/openai\/?$/, '/anthropic').replace(/\/$/, '');
 
-export const gatewayProvider = (env: GatewayEnv): Provider => {
+export const tokenExpiry = (token: string): number | undefined => {
+  const payload = token.split('.')[1];
+  if (payload === undefined) return undefined;
+  try {
+    const claims: unknown = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    const exp = typeof claims === 'object' && claims !== null ? Reflect.get(claims, 'exp') : undefined;
+    return typeof exp === 'number' ? exp * 1000 : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const gatewayProvider = (env: GatewayEnv, currentToken: () => string): Provider => {
   const baseUrl = anthropicBase(env.LLM_GATEWAY_URL);
-  const headers = {
-    'cf-access-token': env.LLM_GATEWAY_TOKEN,
-    authorization: `Bearer ${env.LLM_GATEWAY_TOKEN}`,
-    'X-Requested-With': 'xmlhttprequest',
+  const headers = () => {
+    const token = currentToken();
+    return { 'cf-access-token': token, authorization: `Bearer ${token}`, 'X-Requested-With': 'xmlhttprequest' };
   };
   const wanted = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
   return createProvider({
     id: GATEWAY_PROVIDER,
     name: 'OpenCode Cloudflare gateway',
     baseUrl,
-    auth: { apiKey: { name: 'opencode gateway', resolve: async () => ({ auth: { headers }, source: 'gateway' }) } },
+    auth: { apiKey: { name: 'opencode gateway', resolve: async () => ({ auth: { headers: headers() }, source: 'gateway' }) } },
     models: anthropicProvider()
       .getModels()
       .filter((model) => wanted.has(model.id))
