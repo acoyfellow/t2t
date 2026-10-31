@@ -72,7 +72,7 @@
       <Mark spinning={overlay.phase === 'thinking'} class="mt-0.5 h-5 w-5 shrink-0 text-[#c27aff]" />
       <span class="max-h-48 overflow-y-auto pt-0.5 text-sm leading-relaxed" class:text-red-300={overlay.lastError}>
         {#if overlay.lastError}{overlay.lastError}
-        {:else if overlay.phase === 'thinking' && !overlay.reply}Thinking…
+        {:else if overlay.phase === 'thinking' && !overlay.reply}{overlay.activity ? `Using ${overlay.activity}…` : 'Thinking…'}
         {:else}{overlay.reply}{/if}
       </span>
       {#if overlay.talking}

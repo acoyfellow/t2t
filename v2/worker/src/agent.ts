@@ -20,6 +20,7 @@ import * as Schema from 'effect/Schema';
 import {
   ClientFrameJson,
   type DrawShape,
+  type McpTool,
   type ServerFrame,
   ServerFrameJson,
   type TurnRecord,
@@ -33,12 +34,15 @@ export type AgentEnv = { readonly AI: Ai; readonly MODEL: string; readonly GATEW
 const CONTEXT = BACKGROUND_CONTEXT;
 
 const RECORD_LIMIT = 200;
+const MCP_CALL_TIMEOUT_MS = 75_000;
 
 const PROMPT = [
   'You are the voice assistant inside t2t on a Mac. The user speaks, you answer briefly.',
   'You can draw on top of the user screen with the draw tool. Coordinates are screen points from the top-left corner.',
   'Use draw to point at things, show layouts, or sketch an answer. Use clear_screen to remove your drawings.',
   'Answer in one or two short spoken sentences. No markdown.',
+  'The user may have local MCP tools on their Mac. They are listed with each request. Call mcp_describe to read a tool input schema, then mcp_call to run it.',
+  'Only call MCP tools the request needs. Say plainly what a tool returned. If a tool needs a login, tell the user which command to run.',
 ].join('\n');
 
 export class HarnessFailed extends Schema.TaggedError<HarnessFailed>()('HarnessFailed', { step: Schema.String, reason: Schema.String }) {}
@@ -76,6 +80,25 @@ const replyOf = (events: readonly AgentEvent[]): Option.Option<string> => {
 export class Agent extends DurableObject<AgentEnv> {
   private live: Option.Option<Promise<Live>> = Option.none();
   private active: Option.Option<Active> = Option.none();
+  private catalog: readonly McpTool[] = [];
+  private pendingCalls = new Map<string, (result: { ok: boolean; text: string }) => void>();
+
+  private callLocal(server: string, tool: string, args: unknown): Promise<{ ok: boolean; text: string }> {
+    const turnId = Option.match(this.active, { onNone: () => 'none', onSome: (active) => active.turnId });
+    const callId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingCalls.delete(callId);
+        resolve({ ok: false, text: `The Mac did not answer the ${server}.${tool} call in time.` });
+      }, MCP_CALL_TIMEOUT_MS);
+      this.pendingCalls.set(callId, (result) => {
+        clearTimeout(timer);
+        this.pendingCalls.delete(callId);
+        resolve(result);
+      });
+      this.broadcast({ type: 'mcp_call', turnId, callId, server, tool, arguments: args });
+    });
+  }
 
   constructor(ctx: DurableObjectState, env: AgentEnv) {
     super(ctx, env);
@@ -118,6 +141,29 @@ export class Agent extends DurableObject<AgentEnv> {
           Option.map(this.active, (active) => active.draws.push(shape));
           this.broadcast({ type: 'draw', turnId, shape });
           return text(`Drew ${args.kind} at ${args.x},${args.y}.`);
+        },
+      }),
+      defineTool({
+        name: 'mcp_describe',
+        description: 'Read the description and JSON input schema of one local MCP tool before calling it.',
+        parameters: Type.Object({ server: Type.String(), tool: Type.String() }),
+        replay: 'safe',
+        execute: async ({ server, tool }) => {
+          const found = this.catalog.find((entry) => entry.server === server && entry.name === tool);
+          if (found === undefined) return text(`No tool ${tool} on ${server}. Available: ${this.catalog.map((entry) => `${entry.server}.${entry.name}`).join(', ')}`);
+          return text(`${found.description}\n\nInput schema:\n${JSON.stringify(found.inputSchema)}`);
+        },
+      }),
+      defineTool({
+        name: 'mcp_call',
+        description: 'Run one local MCP tool on the user Mac. arguments must match the tool input schema.',
+        parameters: Type.Object({ server: Type.String(), tool: Type.String(), arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())) }),
+        replay: 'unsafe',
+        execute: async ({ server, tool, arguments: args }) => {
+          Option.map(this.active, (active) => active.tools.push(`${server}.${tool}`));
+          const result = await this.callLocal(server, tool, args ?? {});
+          const body = result.text.length > 12000 ? `${result.text.slice(0, 12000)}\n[truncated]` : result.text;
+          return text(result.ok ? body : `Tool error: ${body}`);
         },
       }),
       defineTool({
@@ -186,8 +232,14 @@ export class Agent extends DurableObject<AgentEnv> {
         }
       });
       const screen = request.screen === undefined ? '' : `\n\n(Screen is ${request.screen.width}x${request.screen.height} points.)`;
+      this.catalog = request.tools ?? [];
+      const firstSentence = (value: string) => value.split(/(?<=[.!?])\s/)[0]?.slice(0, 160) ?? '';
+      const toolList =
+        this.catalog.length === 0
+          ? ''
+          : `\n\n(Local MCP tools: ${this.catalog.map((entry) => `${entry.server}.${entry.name} — ${firstSentence(entry.description)}`).join('; ')})`;
       const submission = yield* pi('submit', () =>
-        conversation.submit({ type: 'input', content: `${request.text}${screen}`, requestId: request.turnId }, CONTEXT),
+        conversation.submit({ type: 'input', content: `${request.text}${screen}${toolList}`, requestId: request.turnId }, CONTEXT),
       );
       const settled = yield* pi('wait', () => submission.wait(CONTEXT));
       yield* Effect.promise(() => stream.stop());
@@ -263,5 +315,6 @@ export class Agent extends DurableObject<AgentEnv> {
     const value = frame.value;
     if (value.type === 'turn') this.ctx.waitUntil(Effect.runPromise(this.runTurn(value)));
     if (value.type === 'cancel') await Effect.runPromise(this.cancel(value.turnId));
+    if (value.type === 'mcp_result') this.pendingCalls.get(value.callId)?.({ ok: value.ok, text: value.text });
   }
 }

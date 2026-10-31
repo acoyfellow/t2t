@@ -11,6 +11,7 @@ final class App: NSObject, NSApplicationDelegate {
     private let dictation = Dictation()
     private let control = Control()
     private let speaker = Speaker()
+    private let mcpHost = McpHost()
     private var hits: HitRegions?
     private lazy var settingsWindow = SettingsWindow(bridge: bridge)
     private var lastTranscript = ""
@@ -83,8 +84,17 @@ final class App: NSObject, NSApplicationDelegate {
             Task { @MainActor in self.log("speech+mic granted=\(granted)") }
         }
 
+        mcpHost.log = { [weak self] line in self?.log(line) }
+        if let key = URLComponents(url: uiURL, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "key" })?.value {
+            mcpHost.start(key: key)
+        }
+
         control.handle = { [weak self] path, query in self?.route(path, query) ?? "{}" }
         control.start(port: 5198)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        mcpHost.stop()
     }
 
     private func holdStarted(_ mode: HoldMode) {

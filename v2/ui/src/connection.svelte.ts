@@ -35,6 +35,33 @@ const decodeFrame = Schema.decodeUnknownOption(ServerFrameJson);
 const params = new URLSearchParams(location.search);
 const agentBase = params.get('agent') ?? import.meta.env.VITE_T2T_AGENT ?? 'wss://t2t-v2.customer0.dev';
 const agentKey = params.get('key') ?? import.meta.env.VITE_T2T_KEY ?? '';
+const mcpHost = params.get('mcp') ?? 'http://127.0.0.1:5196';
+
+type McpToolEntry = { server: string; name: string; description: string; inputSchema: unknown };
+
+const mcpPost = async <A>(path: string, body: unknown): Promise<A> => {
+  const response = await fetch(`${mcpHost}${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${agentKey}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return response.json() as Promise<A>;
+};
+
+const enabledServers = () => overlay.settings?.mcp.filter((server) => server.enabledInT2T).map((server) => server.name) ?? [];
+
+const localTools = async (): Promise<McpToolEntry[]> => {
+  const names = enabledServers();
+  if (names.length === 0) return [];
+  try {
+    const { servers } = await mcpPost<{ servers: { server: string; ok: boolean; error?: string; tools?: Omit<McpToolEntry, 'server'>[] }[] }>('/tools', { servers: names });
+    for (const failed of servers.filter((entry) => !entry.ok)) shell({ command: 'log', line: `mcp ${failed.server} unavailable: ${failed.error}` });
+    return servers.flatMap((entry) => (entry.tools ?? []).map((tool) => ({ ...tool, server: entry.server })));
+  } catch (error) {
+    shell({ command: 'log', line: `mcp host unreachable: ${error}` });
+    return [];
+  }
+};
 
 export const overlay = $state({
   phase: 'idle' as Phase,
@@ -46,6 +73,7 @@ export const overlay = $state({
   lastError: '',
   level: 0,
   talking: false,
+  activity: '',
   settings: undefined as Settings | undefined,
   transcript: [] as TranscriptLine[],
 });
@@ -92,6 +120,13 @@ const connect = () => {
     const frame = decodeFrame(event.data);
     if (Option.isNone(frame)) return;
     const value = frame.value;
+    if (value.type === 'mcp_call') {
+      overlay.activity = `${value.server} · ${value.tool}`;
+      mcpPost<{ ok: boolean; text: string }>('/call', { server: value.server, tool: value.tool, arguments: value.arguments })
+        .catch((error) => ({ ok: false, text: `The t2t MCP host on this Mac is not reachable: ${error}` }))
+        .then((result) => send({ type: 'mcp_result', callId: value.callId, ok: result.ok, text: result.text }));
+      return;
+    }
     if (value.turnId !== overlay.turnId && value.turnId !== 'none') return;
     if (value.type === 'text') {
       overlay.phase = 'speaking';
@@ -100,6 +135,7 @@ const connect = () => {
     if (value.type === 'draw') overlay.shapes = [...overlay.shapes, value.shape];
     if (value.type === 'clear') overlay.shapes = [];
     if (value.type === 'done') {
+      overlay.activity = '';
       overlay.reply = value.reply;
       overlay.phase = 'idle';
       remember({ mode: 'agent', role: 'agent', text: value.reply });
@@ -113,13 +149,16 @@ const connect = () => {
   };
 };
 
-const sendTurn = (text: string, screen: { width: number; height: number }) => {
+const sendTurn = async (text: string, screen: { width: number; height: number }) => {
   const turnId = crypto.randomUUID();
   overlay.turnId = turnId;
   overlay.reply = '';
   overlay.lastError = '';
+  overlay.activity = '';
   overlay.phase = 'thinking';
-  send({ type: 'turn', turnId, text, screen });
+  const tools = await localTools();
+  if (overlay.turnId !== turnId) return;
+  send({ type: 'turn', turnId, text, screen, tools });
 };
 
 const receive = (event: ShellEvent) => {

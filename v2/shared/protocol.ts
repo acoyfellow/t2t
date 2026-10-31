@@ -12,15 +12,26 @@ export const DrawShape = Schema.Struct({
 });
 export type DrawShape = typeof DrawShape.Type;
 
+export const McpTool = Schema.Struct({
+  server: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  inputSchema: Schema.Unknown,
+});
+export type McpTool = typeof McpTool.Type;
+
+export const McpResult = Schema.Struct({ type: Schema.Literal('mcp_result'), callId: Schema.String, ok: Schema.Boolean, text: Schema.String });
+
 export const TurnRequest = Schema.Struct({
   type: Schema.Literal('turn'),
   turnId: Schema.String,
   text: Schema.String,
   screen: Schema.optional(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  tools: Schema.optional(Schema.Array(McpTool)),
 });
 export type TurnRequest = typeof TurnRequest.Type;
 
-export const ClientFrame = Schema.Union([TurnRequest, Schema.Struct({ type: Schema.Literal('cancel'), turnId: Schema.String })]);
+export const ClientFrame = Schema.Union([TurnRequest, Schema.Struct({ type: Schema.Literal('cancel'), turnId: Schema.String }), McpResult]);
 export type ClientFrame = typeof ClientFrame.Type;
 
 export const ServerFrame = Schema.Union([
@@ -28,6 +39,14 @@ export const ServerFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal('draw'), turnId: Schema.String, shape: DrawShape }),
   Schema.Struct({ type: Schema.Literal('clear'), turnId: Schema.String }),
   Schema.Struct({ type: Schema.Literal('tool'), turnId: Schema.String, name: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal('mcp_call'),
+    turnId: Schema.String,
+    callId: Schema.String,
+    server: Schema.String,
+    tool: Schema.String,
+    arguments: Schema.Unknown,
+  }),
   Schema.Struct({ type: Schema.Literal('done'), turnId: Schema.String, reply: Schema.String, usd: Schema.Number }),
   Schema.Struct({ type: Schema.Literal('failed'), turnId: Schema.String, step: Schema.String, reason: Schema.String }),
 ]);
