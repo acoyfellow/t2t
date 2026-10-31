@@ -30,7 +30,7 @@ final class App: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.title = "◉"
+        item.button?.image = App.menuBarMark()
         let menu = NSMenu()
         menu.addItem(withTitle: "Reload UI", action: #selector(reloadUI), keyEquivalent: "r")
         menu.addItem(withTitle: "Open log", action: #selector(openLog), keyEquivalent: "l")
@@ -124,6 +124,14 @@ final class App: NSObject, NSApplicationDelegate {
     private func json(_ value: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    static func menuBarMark() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "mark", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 16, height: 16)
+        image.isTemplate = true
+        return image
     }
 
     @objc private func reloadUI() {

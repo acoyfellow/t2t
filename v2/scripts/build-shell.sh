@@ -7,6 +7,7 @@ APP="$ROOT/dist/T2T.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp shell/.build/release/T2T "$APP/Contents/MacOS/T2T"
+cp shell/Resources/AppIcon.icns shell/Resources/mark.svg "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -14,6 +15,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.coey.t2t</string>
 <key>CFBundleName</key><string>t2t</string>
 <key>CFBundleExecutable</key><string>T2T</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>2.0.0</string>
 <key>CFBundleVersion</key><string>1</string>

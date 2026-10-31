@@ -1,5 +1,13 @@
 <script lang="ts">
   import { overlay } from './connection.svelte';
+  import mark from './mark.svg?raw';
+
+  const bar = $derived.by(() => {
+    if (overlay.phase === 'listening') return overlay.mode === 'agent' ? 'bg-[#c27aff]/80' : 'bg-[#00ffa3]/80';
+    if (overlay.phase === 'speaking') return 'bg-[#a855f7]/90 t2t-agent-speaking';
+    if (overlay.phase === 'thinking') return overlay.mode === 'agent' ? 'bg-[#c27aff]/80 t2t-agent-thinking' : 'bg-amber-500/80';
+    return 'bg-transparent';
+  });
 
   const palette: Record<string, string> = { red: '#ef4444', blue: '#3b82f6', green: '#22c55e', yellow: '#eab308' };
   const colorOf = (name: string | undefined) => (name && palette[name]) || name || '#f97316';
@@ -33,19 +41,14 @@
     {/if}
   {/each}
 
-  {#if overlay.phase !== 'idle' || overlay.reply || overlay.lastError}
-    <div class="absolute bottom-10 left-1/2 flex max-w-xl -translate-x-1/2 items-center gap-3 rounded-2xl bg-black/85 px-5 py-3 text-white shadow-2xl">
-      <span
-        class="h-3 w-3 shrink-0 rounded-full"
-        class:bg-red-500={overlay.phase === 'listening'}
-        class:animate-pulse={overlay.phase !== 'idle'}
-        class:bg-amber-400={overlay.phase === 'thinking'}
-        class:bg-emerald-400={overlay.phase === 'speaking' || overlay.phase === 'idle'}
-      ></span>
+  <div data-indicator class="absolute bottom-0 left-0 h-1.5 w-full transition-[background-color] duration-300 ease-out {bar}"></div>
+
+  {#if overlay.reply || overlay.lastError || overlay.phase === 'thinking'}
+    <div class="absolute bottom-8 left-1/2 flex max-w-xl -translate-x-1/2 items-center gap-3 rounded-2xl bg-black/85 px-4 py-2.5 text-white shadow-2xl">
+      <span class="h-5 w-5 shrink-0 text-[#c27aff]" class:t2t-agent-thinking={overlay.phase === 'thinking'}>{@html mark}</span>
       <span class="text-sm">
         {#if overlay.lastError}{overlay.lastError}
-        {:else if overlay.phase === 'listening'}{overlay.mode === 'agent' ? 'Listening for the agent…' : 'Listening…'}
-        {:else if overlay.phase === 'thinking'}Thinking…
+        {:else if overlay.phase === 'thinking' && !overlay.reply}Thinking…
         {:else}{overlay.reply}{/if}
       </span>
     </div>
