@@ -134,15 +134,17 @@ const connect = () => {
     if (value.type === 'text') {
       overlay.phase = 'speaking';
       overlay.reply += value.text;
+      speakReadySentences(false);
     }
     if (value.type === 'draw') overlay.shapes = [...overlay.shapes, value.shape];
     if (value.type === 'clear') overlay.shapes = [];
     if (value.type === 'done') {
       overlay.activity = '';
+      if (!value.reply.startsWith(overlay.reply)) spokenUpTo = Math.min(spokenUpTo, value.reply.length);
       overlay.reply = value.reply;
       overlay.phase = 'idle';
       remember({ mode: 'agent', role: 'agent', text: value.reply });
-      shell({ command: 'speak', text: value.reply });
+      speakReadySentences(true);
     }
     if (value.type === 'failed') {
       overlay.lastError = `${value.step}: ${value.reason}`;
@@ -152,6 +154,24 @@ const connect = () => {
   };
 };
 
+let spokenUpTo = 0;
+
+const sentenceEnd = /[.!?…](?=\s|$)|[\n]/g;
+
+const speakReadySentences = (final: boolean) => {
+  const pending = overlay.reply.slice(spokenUpTo);
+  let cut = -1;
+  for (const match of pending.matchAll(sentenceEnd)) {
+    const end = (match.index ?? 0) + match[0].length;
+    if (end >= 12 || final) cut = end;
+  }
+  if (final) cut = pending.length;
+  if (cut <= 0) return;
+  const chunk = pending.slice(0, cut).trim();
+  spokenUpTo += cut;
+  if (chunk !== '') shell({ command: 'speakChunk', text: chunk });
+};
+
 const sendTurn = async (text: string, screen: { width: number; height: number }) => {
   const turnId = crypto.randomUUID();
   overlay.turnId = turnId;
@@ -159,6 +179,8 @@ const sendTurn = async (text: string, screen: { width: number; height: number })
   overlay.lastError = '';
   overlay.activity = '';
   overlay.phase = 'thinking';
+  spokenUpTo = 0;
+  shell({ command: 'stopSpeaking' });
   const tools = await localTools();
   if (overlay.turnId !== turnId) return;
   send({ type: 'turn', turnId, text, screen, tools });

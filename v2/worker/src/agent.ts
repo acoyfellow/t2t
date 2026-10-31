@@ -27,7 +27,7 @@ import {
   TurnRecordsJson,
   type TurnRequest,
 } from '../../shared/protocol';
-import { bindingAuthContext, routeWorkersAIThroughBinding } from './model';
+import { bindingAuthContext, GATEWAY_PROVIDER, gatewayProvider, routeWorkersAIThroughBinding } from './model';
 
 export type AgentEnv = { readonly AI: Ai; readonly MODEL: string; readonly GATEWAY: string };
 
@@ -75,6 +75,19 @@ const replyOf = (events: readonly AgentEvent[]): Option.Option<string> => {
   if (last === undefined) return Option.none();
   const said = last.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
   return said === '' ? Option.none() : Option.some(said);
+};
+
+const textOfMessage = (message: { content: readonly { type: string; text?: string }[] } | undefined) =>
+  message === undefined ? undefined : message.content.flatMap((block) => (block.type === 'text' && block.text !== undefined ? [block.text] : [])).join('');
+
+const streamedTextOf = (event: AgentEvent): string | undefined => {
+  if (event.type === 'snapshot') return textOfMessage(event.generation?.message);
+  if (event.type === 'message_start') return event.message.role === 'assistant' ? textOfMessage(event.message) : undefined;
+  if (event.type === 'message_update') {
+    const whole = event.changes.findLast((change) => change.type === 'message');
+    return whole?.type === 'message' ? textOfMessage(whole.message) : undefined;
+  }
+  return undefined;
 };
 
 export class Agent extends DurableObject<AgentEnv> {
@@ -185,8 +198,10 @@ export class Agent extends DurableObject<AgentEnv> {
       const opening = Effect.runPromise(
         Effect.gen({ self: this }, function* () {
           const models = createModels({ authContext: bindingAuthContext });
-          const provider = cloudflareWorkersAIProvider();
-          models.setProvider(provider);
+          const workersAI = cloudflareWorkersAIProvider();
+          models.setProvider(workersAI);
+          models.setProvider(gatewayProvider(this.env.AI, this.env.GATEWAY));
+          const provider = this.env.MODEL.startsWith('claude-') ? { id: GATEWAY_PROVIDER } : workersAI;
           const registry = createRegistry();
           registry.install(
             defineExtension({ name: 't2t', sections: [section('preamble', () => PROMPT, { tag: false })], tools: this.tools() }),
@@ -196,6 +211,7 @@ export class Agent extends DurableObject<AgentEnv> {
           const conversation = yield* pi('root', () =>
             harness.root(CONTEXT, { agent: { model: { provider: provider.id, modelId: this.env.MODEL } } }),
           );
+          yield* pi('configure', () => conversation.configure({ model: { provider: provider.id, modelId: this.env.MODEL } }, CONTEXT));
           harness.resume();
           return { harness, conversation };
         }),
@@ -216,6 +232,8 @@ export class Agent extends DurableObject<AgentEnv> {
       this.saveRecord({ turnId: request.turnId, startedAt: started, input: request.text, status: 'running', tools: [], draws: [], usd: 0 });
       const { harness, conversation } = yield* pi('open', () => this.open());
       const seen: AgentEvent[] = [];
+      let streamedSoFar = '';
+      let broadcastLength = 0;
       const stream = yield* pi('watch', () => watchEvents(harness, conversation.id, CONTEXT));
       stream.start(async (events) => {
         seen.push(...events);
@@ -224,9 +242,25 @@ export class Agent extends DurableObject<AgentEnv> {
             active.tools.push(event.toolName);
             this.broadcast({ type: 'tool', turnId: request.turnId, name: event.toolName });
           }
-          if (event.type === 'message_update') {
-            for (const change of event.changes) {
-              if (change.type === 'text_delta') this.broadcast({ type: 'text', turnId: request.turnId, text: change.delta });
+          if (event.type === 'message_end') {
+            streamedSoFar = '';
+            broadcastLength = 0;
+            continue;
+          }
+          const known = streamedTextOf(event);
+          if (known !== undefined && known.length > broadcastLength && known.startsWith(streamedSoFar.slice(0, broadcastLength))) {
+            this.broadcast({ type: 'text', turnId: request.turnId, text: known.slice(broadcastLength) });
+            streamedSoFar = known;
+            broadcastLength = known.length;
+          } else if (event.type === 'message_update') {
+            const deltas = event.changes.flatMap((change) =>
+              change.type === 'text_delta' ? [change.delta] : change.type === 'text_start' && change.block.type === 'text' ? [change.block.text] : [],
+            );
+            const appended = deltas.join('');
+            if (appended !== '') {
+              streamedSoFar += appended;
+              this.broadcast({ type: 'text', turnId: request.turnId, text: appended });
+              broadcastLength = streamedSoFar.length;
             }
           }
         }

@@ -7,6 +7,7 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     weak var settings: WKWebView?
     var onPaste: (String) -> Void = { _ in }
     var onSpeak: (String) -> Void = { _ in }
+    var onSpeakChunk: (String) -> Void = { _ in }
     var onStopSpeaking: () -> Void = {}
     var onHitRegions: ([[String: Double]]) -> Void = { _ in }
     var onOpenSettings: () -> Void = {}
@@ -21,6 +22,8 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             if let text = body["text"] as? String { onPaste(text) }
         case "speak":
             if let text = body["text"] as? String { onSpeak(text) }
+        case "speakChunk":
+            if let text = body["text"] as? String { onSpeakChunk(text) }
         case "stopSpeaking":
             onStopSpeaking()
         case "hitRegions":

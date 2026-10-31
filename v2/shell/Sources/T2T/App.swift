@@ -53,13 +53,12 @@ final class App: NSObject, NSApplicationDelegate {
             self?.lastPasted = text
             Paste.type(text)
         }
-        bridge.onSpeak = { [weak self] text in
-            guard let self else { return }
-            self.bridge.emit(["type": "speaking", "value": self.speaker.enabled])
-            self.speaker.speak(text)
-        }
-        bridge.onStopSpeaking = { [weak self] in self?.speaker.stop(); self?.bridge.emit(["type": "speaking", "value": false]) }
+        bridge.onSpeak = { [weak self] text in self?.speaker.speak(text) }
+        bridge.onSpeakChunk = { [weak self] text in self?.speaker.enqueue(text) }
+        bridge.onStopSpeaking = { [weak self] in self?.speaker.stop() }
+        speaker.onStart = { [weak self] in self?.bridge.emit(["type": "speaking", "value": true]) }
         speaker.onFinish = { [weak self] in self?.bridge.emit(["type": "speaking", "value": false]) }
+        speaker.log = { [weak self] line in self?.log(line) }
         bridge.onOpenSettings = { [weak self] in self?.openSettings() }
         bridge.settingsState = { [weak self] in self?.settingsState() ?? [:] }
         bridge.onSetting = { [weak self] key, value in self?.applySetting(key, value) }
