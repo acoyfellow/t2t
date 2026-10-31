@@ -63,6 +63,12 @@
     style="height:{barHeight}px;box-shadow:0 0 {glowSize}px rgba({glowColor},{overlay.phase === 'idle' ? 0 : glowAlpha});transition-property:background-color,height,box-shadow;transition-duration:300ms,60ms,60ms"
   ></div>
 
+  {#if overlay.phase === 'listening' && overlay.mode === 'agent' && overlay.heard}
+    <div class="absolute bottom-10 left-1/2 max-w-xl -translate-x-1/2 rounded-xl bg-black/70 px-4 py-2 text-sm text-white/80 shadow-xl">
+      {overlay.heard}
+    </div>
+  {/if}
+
   {#if overlay.reply || overlay.lastError || overlay.phase === 'thinking'}
     <div
       bind:this={bubble}

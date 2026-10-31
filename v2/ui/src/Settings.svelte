@@ -74,6 +74,14 @@
       </section>
 
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
+        <h2 class="mb-4 text-sm font-medium text-white/80">Dictation</h2>
+        <label class="flex items-center justify-between text-sm">
+          <span>Type as I talk <span class="text-white/40">(paste each phrase at a pause, not only at the end)</span></span>
+          <input type="checkbox" class="h-4 w-4 accent-[#c27aff]" checked={settings.streamDictation} onchange={(event) => setSetting('streamDictation', event.currentTarget.checked)} />
+        </label>
+      </section>
+
+      <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Voice reply</h2>
         <label class="mb-4 flex items-center justify-between text-sm">
           <span>Speak agent replies aloud</span>

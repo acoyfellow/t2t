@@ -5,7 +5,8 @@ import { type DrawShape, ServerFrameJson } from '../../shared/protocol';
 type ShellEvent =
   | { type: 'hold'; mode: 'dictate' | 'agent' }
   | { type: 'release'; mode: 'dictate' | 'agent' }
-  | { type: 'transcript'; mode: 'dictate' | 'agent'; text: string; screen: { width: number; height: number } }
+  | { type: 'transcript'; mode: 'dictate' | 'agent'; text: string; streamed?: boolean; screen: { width: number; height: number } }
+  | { type: 'partial'; mode: 'dictate' | 'agent'; text: string }
   | { type: 'level'; value: number }
   | { type: 'speaking'; value: boolean }
   | { type: 'settings'; value: Settings }
@@ -16,6 +17,7 @@ type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 export type McpServer = { name: string; transport: 'http' | 'stdio'; target: string; enabledInPi: boolean; enabledInT2T: boolean };
 export type Settings = {
   speak: boolean;
+  streamDictation: boolean;
   voice: string;
   mcp: McpServer[];
   mcpPath: string;
@@ -74,6 +76,7 @@ export const overlay = $state({
   level: 0,
   talking: false,
   activity: '',
+  heard: '',
   settings: undefined as Settings | undefined,
   transcript: [] as TranscriptLine[],
 });
@@ -175,7 +178,12 @@ const receive = (event: ShellEvent) => {
     overlay.settings = event.value;
     return;
   }
+  if (event.type === 'partial') {
+    overlay.heard += event.text;
+    return;
+  }
   if (event.type === 'hold') {
+    overlay.heard = '';
     overlay.mode = event.mode;
     overlay.phase = 'listening';
   }
@@ -189,7 +197,8 @@ const receive = (event: ShellEvent) => {
     remember({ mode: event.mode, role: 'you', text: event.text });
     if (event.mode === 'dictate') {
       overlay.phase = 'idle';
-      shell({ command: 'paste', text: event.text });
+      overlay.heard = '';
+      if (!event.streamed) shell({ command: 'paste', text: event.text });
     } else sendTurn(event.text, event.screen);
   }
   if (event.type === 'escape') dismiss();

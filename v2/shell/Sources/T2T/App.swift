@@ -17,7 +17,11 @@ final class App: NSObject, NSApplicationDelegate {
     private var lastTranscript = ""
     private var lastPasted = ""
     private var forcedTranscript: String?
+    private var query_streamPieces: [String] = []
     private var keysListening = false
+    private var holdMode: HoldMode = .dictate
+    private var streamedPaste = false
+    private var segmentTimes: [Date] = []
     private let logURL: URL = {
         let env = ProcessInfo.processInfo.environment["T2T_LOG"]
         let saved = UserDefaults.standard.string(forKey: "logPath")
@@ -74,6 +78,7 @@ final class App: NSObject, NSApplicationDelegate {
         }
         keys.onRaw = { [weak self] line in self?.log(line) }
         dictation.log = { [weak self] line in self?.log(line) }
+        dictation.onSegment = { [weak self] piece in self?.segmentReady(piece) }
         dictation.onLevel = { [weak self] level in self?.bridge.emit(["type": "level", "value": level]) }
         let inputMonitoring = Keys.inputMonitoringGranted(prompt: true)
         log("input monitoring granted=\(inputMonitoring)")
@@ -97,7 +102,21 @@ final class App: NSObject, NSApplicationDelegate {
         mcpHost.stop()
     }
 
+    private var streamDictation: Bool { UserDefaults.standard.object(forKey: "streamDictation") as? Bool ?? true }
+
+    private func segmentReady(_ piece: String) {
+        segmentTimes.append(Date())
+        bridge.emit(["type": "partial", "mode": holdMode.rawValue, "text": piece])
+        guard holdMode == .dictate, streamDictation else { return }
+        streamedPaste = true
+        lastPasted += piece
+        Paste.type(piece)
+    }
+
     private func holdStarted(_ mode: HoldMode) {
+        holdMode = mode
+        streamedPaste = false
+        lastPasted = ""
         log("hold start \(mode.rawValue)")
         bridge.emit(["type": "hold", "mode": mode.rawValue])
         if forcedTranscript != nil { return }
@@ -112,12 +131,18 @@ final class App: NSObject, NSApplicationDelegate {
             self.log("transcript (\(mode.rawValue)): \(text)")
             let screen = NSScreen.main?.frame.size ?? .zero
             self.bridge.emit([
-                "type": "transcript", "mode": mode.rawValue, "text": text,
+                "type": "transcript", "mode": mode.rawValue, "text": text, "streamed": self.streamedPaste,
                 "screen": ["width": screen.width, "height": screen.height],
             ])
         }
         if let forced = forcedTranscript {
             forcedTranscript = nil
+            if mode == .dictate, streamDictation, query_streamPieces.isEmpty == false {
+                for piece in query_streamPieces { segmentReady(piece) }
+                query_streamPieces = []
+                deliver(lastPasted)
+                return
+            }
             deliver(forced)
             return
         }
@@ -134,6 +159,7 @@ final class App: NSObject, NSApplicationDelegate {
                 "screenRecording": CGPreflightScreenCaptureAccess(),
                 "lastTranscript": lastTranscript,
                 "lastPasted": lastPasted,
+                "segments": segmentTimes.count,
                 "ui": redacted(uiURL),
                 "overlayLevel": overlay?.window.level.rawValue ?? 0,
                 "overlayVisible": overlay?.window.isVisible ?? false,
@@ -147,7 +173,21 @@ final class App: NSObject, NSApplicationDelegate {
         case "/hold":
             let mode = HoldMode(rawValue: query["mode"] ?? "dictate") ?? .dictate
             forcedTranscript = query["text"]
+            query_streamPieces = (query["pieces"] ?? "").split(separator: "|").map { String($0) }.enumerated().map { $0.offset == 0 ? $0.element : " " + $0.element }
             keys.simulate(mode, seconds: Double(query["seconds"] ?? "0.4") ?? 0.4)
+            return json(["ok": true])
+        case "/replay":
+            guard let path = query["file"] else { return json(["error": "file required"]) }
+            holdMode = .dictate
+            streamedPaste = false
+            lastPasted = ""
+            segmentTimes = []
+            let started = Date()
+            dictation.replay(URL(fileURLWithPath: path)) { [weak self] text in
+                guard let self else { return }
+                self.lastTranscript = text
+                self.log("replay transcript: \(text) segments=\(self.segmentTimes.map { String(format: "%.1f", $0.timeIntervalSince(started)) })")
+            }
             return json(["ok": true])
         case "/reload":
             reloadUI()
@@ -179,6 +219,7 @@ final class App: NSObject, NSApplicationDelegate {
     private func settingsState() -> [String: Any] {
         [
             "speak": speaker.enabled,
+            "streamDictation": streamDictation,
             "voice": speaker.voice ?? "",
             "mcp": McpConfig.servers(),
             "mcpPath": McpConfig.path.path,
@@ -196,6 +237,8 @@ final class App: NSObject, NSApplicationDelegate {
         case "speak":
             speaker.enabled = value as? Bool ?? true
             if !speaker.enabled { speaker.stop() }
+        case "streamDictation":
+            UserDefaults.standard.set(value as? Bool ?? true, forKey: "streamDictation")
         case "voice":
             let voice = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
             speaker.voice = voice
