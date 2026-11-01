@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "do": {
+      "command": "bun",
+      "args": ["run", "/Users/jcoeyman/cloudflare/do/src/mcp.ts"]
+    }
+  }
+}

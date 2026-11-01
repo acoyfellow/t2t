@@ -48,6 +48,20 @@ final class AgentWindows: NSObject, NSWindowDelegate {
         window.close()
     }
 
+    private(set) var evalResults: [String: String] = [:]
+
+    func evaluate(id: String, script: String) {
+        guard let webView = windows[id]?.contentView as? WKWebView else {
+            evalResults[id] = "no window"
+            return
+        }
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            MainActor.assumeIsolated {
+                self?.evalResults[id] = error.map { "error: \($0.localizedDescription)" } ?? String(describing: value ?? "nil")
+            }
+        }
+    }
+
     func closeAsUser(id: String) {
         windows[id]?.performClose(nil)
     }

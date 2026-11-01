@@ -23,7 +23,15 @@ const summary = (name) => {
   return { server: name, state: parked.has(name) ? 'disconnected' : entry.state, error: entry.error, tools: entry.tools ?? [], at: entry.at };
 };
 
-const readServers = () => JSON.parse(readFileSync(configPath, 'utf8')).mcpServers ?? {};
+const localConfigPath = join(import.meta.dirname, 'mcp.local.json');
+const readConfig = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')).mcpServers ?? {};
+  } catch {
+    return {};
+  }
+};
+const readServers = () => ({ ...readConfig(configPath), ...readConfig(localConfigPath) });
 
 const withTimeout = (promise, ms, what) =>
   Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms))]);

@@ -201,6 +201,10 @@ final class App: NSObject, NSApplicationDelegate {
                 return ["id": id, "frame": [frame.origin.x, frame.origin.y, frame.width, frame.height]]
             }
             return json(["windows": open])
+        case "/window-eval":
+            guard let id = query["id"] else { return json(["error": "id required"]) }
+            if let script = query["js"] { agentWindows.evaluate(id: id, script: script) }
+            return json(["result": agentWindows.evalResults[id] ?? ""])
         case "/window-close":
             guard let id = query["id"] else { return json(["error": "id required"]) }
             agentWindows.closeAsUser(id: id)

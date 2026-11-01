@@ -5,10 +5,19 @@ enum McpConfig {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/mcp.json")
     }
 
+    static var localPath: URL? {
+        guard let script = UserDefaults.standard.string(forKey: "mcpHostScript") else { return nil }
+        return URL(fileURLWithPath: script).deletingLastPathComponent().appendingPathComponent("mcp.local.json")
+    }
+
+    private static func read(_ url: URL?) -> [String: Any] {
+        guard let url, let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return root["mcpServers"] as? [String: Any] ?? [:]
+    }
+
     static func servers() -> [[String: Any]] {
-        guard let data = try? Data(contentsOf: path),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let servers = root["mcpServers"] as? [String: Any] else { return [] }
+        let servers = read(path).merging(read(localPath)) { _, local in local }
         let enabledForT2T = Set(UserDefaults.standard.stringArray(forKey: "mcpEnabled") ?? [])
         return servers.keys.sorted().compactMap { name in
             guard let definition = servers[name] as? [String: Any] else { return nil }
