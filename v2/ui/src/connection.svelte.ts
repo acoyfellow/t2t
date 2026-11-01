@@ -133,15 +133,18 @@ const connect = () => {
   socket = new WebSocket(`${agentBase}/agent?key=${encodeURIComponent(agentKey)}`);
   socket.onopen = () => {
     overlay.connected = true;
+    lastFrameAt = Date.now();
     retryMs = 250;
     while (pending.length > 0) socket?.send(pending.shift() ?? '');
   };
   socket.onclose = () => {
     overlay.connected = false;
+    socket = undefined;
     setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, 8000);
   };
   socket.onmessage = (event) => {
+    lastFrameAt = Date.now();
     const frame = decodeFrame(event.data);
     if (Option.isNone(frame)) return;
     const value = frame.value;
@@ -241,7 +244,38 @@ const sendTurn = async (text: string, screen: { width: number; height: number })
   shell({ command: 'stopSpeaking' });
   const tools = await localTools();
   if (overlay.turnId !== turnId) return;
+  if (Date.now() - lastFrameAt > STALE_SOCKET_MS) {
+    shell({ command: 'log', line: 'socket idle, reconnecting before the turn' });
+    freshSocket();
+  }
   send({ type: 'turn', turnId, text, screen, tools });
+  watchTurn(turnId);
+};
+
+const FIRST_FRAME_MS = 20000;
+const STALE_SOCKET_MS = 45000;
+let lastFrameAt = Date.now();
+let turnWatch: ReturnType<typeof setTimeout> | undefined;
+const freshSocket = () => {
+  const stale = socket;
+  if (stale) {
+    stale.onclose = null;
+    stale.onmessage = null;
+    stale.close();
+  }
+  socket = undefined;
+  connect();
+};
+const watchTurn = (turnId: string) => {
+  clearTimeout(turnWatch);
+  const sentAt = Date.now();
+  turnWatch = setTimeout(() => {
+    if (overlay.turnId !== turnId || overlay.phase !== 'thinking' || lastFrameAt > sentAt) return;
+    shell({ command: 'log', line: `turn ${turnId.slice(0, 8)}: no answer in ${FIRST_FRAME_MS / 1000}s` });
+    overlay.phase = 'idle';
+    overlay.lastError = 'The agent did not answer. Try again.';
+    freshSocket();
+  }, FIRST_FRAME_MS);
 };
 
 const receive = (event: ShellEvent) => {

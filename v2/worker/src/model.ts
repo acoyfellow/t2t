@@ -52,6 +52,7 @@ export const routeWorkersAIThroughBinding = (ai: Ai, gateway: string): void => {
     CHAT_COMPLETIONS.test(urlOf(input)) ? Effect.runPromise(answer(current.run, new Request(input, init))) : original(input, init);
 };
 
+export const VOICE_CONTEXT_TOKENS = 64000;
 export const GATEWAY_PROVIDER = 't2t-opencode';
 
 export type GatewayEnv = { readonly LLM_GATEWAY_URL: string; readonly LLM_GATEWAY_TOKEN: string };
@@ -85,7 +86,7 @@ export const gatewayProvider = (env: GatewayEnv, currentToken: () => string): Pr
     models: anthropicProvider()
       .getModels()
       .filter((model) => wanted.has(model.id))
-      .map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl })),
+      .map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl, contextWindow: Math.min(model.contextWindow, VOICE_CONTEXT_TOKENS) })),
     api: anthropicMessagesApi(),
   });
 };
