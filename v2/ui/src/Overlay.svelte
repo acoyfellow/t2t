@@ -1,15 +1,19 @@
 <script lang="ts">
-  import { dismiss, overlay, shell } from './connection.svelte';
+  import { answerConfirm, dismiss, overlay, shell } from './connection.svelte';
   import Mark from './lib/Mark.svelte';
 
   let bubble: HTMLElement | undefined = $state();
+  let confirmCard: HTMLElement | undefined = $state();
 
   $effect(() => {
     void overlay.reply;
     void overlay.lastError;
     void overlay.phase;
-    const rect = bubble?.getBoundingClientRect();
-    const rects = rect ? [{ x: rect.x, y: rect.y, w: rect.width, h: rect.height }] : [];
+    void overlay.confirm;
+    const rects = [bubble, confirmCard]
+      .map((element) => element?.getBoundingClientRect())
+      .filter((rect): rect is DOMRect => rect !== undefined)
+      .map((rect) => ({ x: rect.x, y: rect.y, w: rect.width, h: rect.height }));
     shell({ command: 'hitRegions', rects });
   });
 
@@ -102,6 +106,21 @@
       >
         <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
+    </div>
+  {/if}
+
+  {#if overlay.confirm}
+    <div
+      bind:this={confirmCard}
+      data-confirm
+      class="pointer-events-auto absolute bottom-24 left-1/2 w-[28rem] -translate-x-1/2 rounded-2xl bg-black/90 p-4 text-white shadow-2xl ring-1 ring-[#c27aff]/40 backdrop-blur"
+    >
+      <div class="mb-1 text-sm">The agent wants to run <span class="font-mono text-[#c27aff]">{overlay.confirm.server}.{overlay.confirm.tool}</span></div>
+      <pre class="mb-3 max-h-32 overflow-auto rounded bg-white/5 p-2 font-mono text-[11px] text-white/60">{JSON.stringify(overlay.confirm.arguments, null, 1)}</pre>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-deny class="rounded-md px-3 py-1 text-xs text-white/60 hover:bg-white/10" onclick={() => answerConfirm(false)}>Deny (Esc)</button>
+        <button type="button" data-allow class="rounded-md bg-[#c27aff] px-3 py-1 text-xs font-medium text-black hover:bg-[#d49bff]" onclick={() => answerConfirm(true)}>Allow</button>
+      </div>
     </div>
   {/if}
 

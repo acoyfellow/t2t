@@ -10,6 +10,9 @@ type ShellEvent =
   | { type: 'level'; value: number }
   | { type: 'speaking'; value: boolean }
   | { type: 'settings'; value: Settings }
+  | { type: 'windowClosed'; id: string }
+  | { type: 'section'; value: string }
+  | { type: 'confirmAnswer'; callId: string; allow: boolean }
   | { type: 'escape' };
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -18,6 +21,7 @@ export type McpServer = { name: string; transport: 'http' | 'stdio'; target: str
 export type Settings = {
   speak: boolean;
   streamDictation: boolean;
+  confirmMcp: boolean;
   voice: string;
   mcp: McpServer[];
   mcpPath: string;
@@ -79,6 +83,8 @@ export const overlay = $state({
   activity: '',
   heard: '',
   settings: undefined as Settings | undefined,
+  confirm: undefined as { callId: string; server: string; tool: string; arguments: unknown } | undefined,
+  section: '',
   transcript: [] as TranscriptLine[],
 });
 
@@ -126,9 +132,27 @@ const connect = () => {
     const value = frame.value;
     if (value.type === 'mcp_call') {
       overlay.activity = `${value.server} · ${value.tool}`;
-      mcpPost<{ ok: boolean; text: string }>('/call', { server: value.server, tool: value.tool, arguments: value.arguments })
-        .catch((error) => ({ ok: false, text: `The t2t MCP host on this Mac is not reachable: ${error}` }))
-        .then((result) => send({ type: 'mcp_result', callId: value.callId, ok: result.ok, text: result.text }));
+      const run = () =>
+        mcpPost<{ ok: boolean; text: string }>('/call', { server: value.server, tool: value.tool, arguments: value.arguments })
+          .catch((error) => ({ ok: false, text: `The t2t MCP host on this Mac is not reachable: ${error}` }))
+          .then((result) => send({ type: 'mcp_result', callId: value.callId, ok: result.ok, text: result.text }));
+      if (overlay.settings?.confirmMcp) {
+        overlay.confirm = { callId: value.callId, server: value.server, tool: value.tool, arguments: value.arguments };
+        pendingConfirms.set(value.callId, run);
+        shell({ command: 'log', line: `confirm requested ${value.server}.${value.tool}` });
+      } else run();
+      return;
+    }
+    if (value.type === 'window') {
+      shell({ command: 'window', window: value.window });
+      return;
+    }
+    if (value.type === 'window_close') {
+      shell({ command: 'windowClose', id: value.id });
+      return;
+    }
+    if (value.type === 'windows') {
+      shell({ command: 'windows', windows: value.windows });
       return;
     }
     if (value.turnId !== overlay.turnId && value.turnId !== 'none') return;
@@ -148,12 +172,30 @@ const connect = () => {
       speakReadySentences(true);
     }
     if (value.type === 'failed') {
-      overlay.lastError = `${value.step}: ${value.reason}`;
+      overlay.lastError = gatewayHint(`${value.step}: ${value.reason}`);
       overlay.phase = 'idle';
       remember({ mode: 'agent', role: 'error', text: overlay.lastError });
     }
   };
 };
+
+const pendingConfirms = new Map<string, () => void>();
+
+export const answerConfirm = (allow: boolean) => {
+  const current = overlay.confirm;
+  if (current === undefined) return;
+  overlay.confirm = undefined;
+  const run = pendingConfirms.get(current.callId);
+  pendingConfirms.delete(current.callId);
+  shell({ command: 'log', line: `confirm ${allow ? 'allowed' : 'denied'} ${current.server}.${current.tool}` });
+  if (allow) run?.();
+  else send({ type: 'mcp_result', callId: current.callId, ok: false, text: 'The user denied this tool call.' });
+};
+
+const authFailure = new RegExp('401|403|unauthori[sz]ed|forbidden|cloudflare access|sign.?in|<html', 'i');
+
+const gatewayHint = (message: string) =>
+  authFailure.test(message) ? `Opus sign-in expired. Open Settings, General, Model and press Sign in. (${message.slice(0, 160)})` : message;
 
 let spokenUpTo = 0;
 
@@ -224,7 +266,13 @@ const receive = (event: ShellEvent) => {
       if (!event.streamed) shell({ command: 'paste', text: event.text });
     } else sendTurn(event.text, event.screen);
   }
-  if (event.type === 'escape') dismiss();
+  if (event.type === 'windowClosed') send({ type: 'window_closed', id: event.id });
+  if (event.type === 'section') overlay.section = event.value;
+  if (event.type === 'confirmAnswer' && overlay.confirm && (event.callId === '' || overlay.confirm.callId === event.callId)) answerConfirm(event.allow);
+  if (event.type === 'escape') {
+    if (overlay.confirm) return answerConfirm(false);
+    dismiss();
+  }
 };
 
 export const dismiss = () => {
@@ -241,3 +289,9 @@ export const setSetting = (key: string, value: unknown) => shell({ command: 'set
 window.t2t = { receive };
 shell({ command: 'settings' });
 if (!location.pathname.startsWith('/settings')) connect();
+
+export type McpState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
+export type McpStatus = { server: string; state: McpState; error?: string; tools: { name: string; description: string }[]; at?: string };
+
+export const mcpStatus = (servers: string[], warm: boolean) => mcpPost<{ servers: McpStatus[] }>('/status', { servers, warm });
+export const mcpAction = (action: 'refresh' | 'disconnect' | 'connect', server: string) => mcpPost<McpStatus>(`/${action}`, { server });

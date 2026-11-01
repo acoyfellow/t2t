@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { makeChecks } from './gate-checks.mjs';
 
 const root = join(import.meta.dirname, '..');
 const tmp = join(root, '.tmp', 'gate');
@@ -93,13 +94,18 @@ if (!shellUp) {
   console.log('FAIL shell not running at 127.0.0.1:5198 (open dist/T2T.app)');
   process.exit(1);
 }
-checkSignature();
+if (process.env.ONLY === undefined) checkSignature();
 execFileSync('pkill', ['-f', 'T2T.app/Contents/MacOS/T2T']);
 execFileSync('open', [join(root, 'dist', 'T2T.app')]);
 for (let i = 0; i < 20 && !(await state().then(() => true, () => false)); i++) await pause(500);
 await pause(2500);
-await checkDictation();
-await checkAgentTurnAndDraw();
+if (process.env.ONLY === undefined) {
+  await checkDictation();
+  await checkAgentTurnAndDraw();
+}
+const more = makeChecks({ root, tmp, key, agent, shell, pause, record, getJson, state, osa });
+const only = (process.env.ONLY ?? '').split(',').filter(Boolean);
+for (const [name, check] of Object.entries(more)) if (only.length === 0 || only.includes(name)) await check();
 writeFileSync(join(tmp, 'result.json'), JSON.stringify({ at: new Date().toISOString(), results }, null, 1));
 const passed = results.filter((r) => r.ok).length;
 console.log(`${passed}/${results.length} checks pass`);

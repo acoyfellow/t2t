@@ -11,6 +11,9 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     var onStopSpeaking: () -> Void = {}
     var onHitRegions: ([[String: Double]]) -> Void = { _ in }
     var onOpenSettings: () -> Void = {}
+    var onWindow: ([String: Any]) -> Void = { _ in }
+    var onWindowClose: (String) -> Void = { _ in }
+    var onWindows: ([[String: Any]]) -> Void = { _ in }
     var settingsState: () -> [String: Any] = { [:] }
     var onSetting: (String, Any) -> Void = { _, _ in }
     var log: (String) -> Void = { _ in }
@@ -28,6 +31,12 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             onStopSpeaking()
         case "hitRegions":
             onHitRegions((body["rects"] as? [[String: Double]]) ?? [])
+        case "window":
+            if let window = body["window"] as? [String: Any] { onWindow(window) }
+        case "windowClose":
+            if let id = body["id"] as? String { onWindowClose(id) }
+        case "windows":
+            onWindows((body["windows"] as? [[String: Any]]) ?? [])
         case "openSettings":
             onOpenSettings()
         case "settings":

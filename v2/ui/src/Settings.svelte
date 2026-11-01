@@ -1,9 +1,14 @@
 <script lang="ts">
   import { loadTranscript, overlay, setSetting, type TranscriptLine } from './connection.svelte';
   import Mark from './lib/Mark.svelte';
+  import McpPanel from './McpPanel.svelte';
 
   type Section = 'general' | 'tools' | 'transcript';
-  let section: Section = $state('general');
+  const initialSection = new URLSearchParams(location.search).get('section');
+  let section: Section = $state(initialSection === 'tools' || initialSection === 'transcript' ? initialSection : 'general');
+  $effect(() => {
+    if (overlay.section === 'general' || overlay.section === 'tools' || overlay.section === 'transcript') section = overlay.section;
+  });
   let transcript: TranscriptLine[] = $state(loadTranscript());
 
   const refreshTranscript = () => (transcript = loadTranscript());
@@ -138,30 +143,7 @@
         </div>
       </section>
     {:else if section === 'tools'}
-      <h1 class="mb-2 text-xl font-semibold">Agent tools</h1>
-      <p class="mb-6 text-sm text-white/50">MCP servers from <code class="text-white/70">{settings.mcpPath}</code>. Turn a server on to offer it to the agent.</p>
-      <div class="overflow-hidden rounded-xl border border-white/5">
-        {#each settings.mcp as server (server.name)}
-          <label class="flex items-center gap-4 border-b border-white/5 bg-white/[0.03] px-5 py-3 last:border-b-0 hover:bg-white/[0.05]">
-            <input
-              type="checkbox"
-              class="h-4 w-4 accent-[#c27aff]"
-              checked={server.enabledInT2T}
-              onchange={(event) => setSetting('mcp', { name: server.name, enabled: event.currentTarget.checked })}
-            />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 text-sm font-medium">
-                {server.name}
-                <span class="rounded bg-white/10 px-1.5 py-px text-[10px] uppercase tracking-wider text-white/50">{server.transport}</span>
-                {#if !server.enabledInPi}<span class="text-[10px] uppercase tracking-wider text-amber-300/80">off in pi</span>{/if}
-              </div>
-              <div class="truncate font-mono text-xs text-white/40">{server.target}</div>
-            </div>
-          </label>
-        {:else}
-          <div class="p-5 text-sm text-white/50">No MCP servers found.</div>
-        {/each}
-      </div>
+      <McpPanel servers={settings.mcp} path={settings.mcpPath} confirmMcp={settings.confirmMcp} />
     {:else}
       <div class="mb-6 flex items-center justify-between">
         <h1 class="text-xl font-semibold">Transcript</h1>

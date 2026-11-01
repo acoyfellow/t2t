@@ -23,6 +23,7 @@ import {
   type McpTool,
   type ServerFrame,
   ServerFrameJson,
+  type AgentWindow,
   type TurnRecord,
   TurnRecordsJson,
   type TurnRequest,
@@ -144,8 +145,89 @@ export class Agent extends DurableObject<AgentEnv> {
     this.ctx.storage.kv.put('turns', encodeRecords([...rest, record].slice(-RECORD_LIMIT)));
   }
 
+  private windows(): AgentWindow[] {
+    return this.ctx.storage.kv.get<AgentWindow[]>('windows') ?? [];
+  }
+
+  private saveWindows(next: AgentWindow[]): void {
+    this.ctx.storage.kv.put('windows', next);
+  }
+
+  private currentTurnId(): string {
+    return Option.match(this.active, { onNone: () => 'none', onSome: (active) => active.turnId });
+  }
+
+  private windowTools() {
+    return [
+      defineTool({
+        name: 'window_open',
+        description:
+          'Open or replace a floating window on the user Mac that shows a complete HTML document you write. Use it for anything visual that should stay: canvases, three.js scenes (load from https://unpkg.com or https://esm.sh), charts, notes, dashboards. The window stays open across restarts until the user or you close it. Reusing an id replaces that window.',
+        parameters: Type.Object({
+          id: Type.Optional(Type.String({ description: 'Short stable id such as "solar-system". Omit to create a new one.' })),
+          title: Type.String(),
+          html: Type.String({ description: 'A full HTML document. Inline CSS and JS. External scripts over https are allowed.' }),
+          width: Type.Optional(Type.Number()),
+          height: Type.Optional(Type.Number()),
+        }),
+        replay: 'safe',
+        execute: async ({ id, title, html, width, height }) => {
+          const existing = this.windows();
+          const windowId = id ?? `w-${crypto.randomUUID().slice(0, 8)}`;
+          const previous = existing.find((entry) => entry.id === windowId);
+          const next: AgentWindow = {
+            id: windowId,
+            title,
+            html,
+            width: width ?? previous?.width ?? 640,
+            height: height ?? previous?.height ?? 480,
+            updatedAt: Date.now(),
+          };
+          this.saveWindows([...existing.filter((entry) => entry.id !== windowId), next]);
+          Option.map(this.active, (active) => active.tools.push(`window_open:${windowId}`));
+          this.broadcast({ type: 'window', turnId: this.currentTurnId(), window: next });
+          return text(`${previous ? 'Replaced' : 'Opened'} window ${windowId} (${next.width}x${next.height}).`);
+        },
+      }),
+      defineTool({
+        name: 'window_list',
+        description: 'List the windows you have open on the user Mac, with ids, titles and sizes.',
+        parameters: Type.Object({}),
+        replay: 'safe',
+        execute: async () => {
+          const open = this.windows();
+          return text(open.length === 0 ? 'No windows open.' : open.map((entry) => `${entry.id} "${entry.title}" ${entry.width}x${entry.height} (${entry.html.length} chars)`).join('\n'));
+        },
+      }),
+      defineTool({
+        name: 'window_read',
+        description: 'Read the current HTML of one of your windows, to edit it with window_open.',
+        parameters: Type.Object({ id: Type.String() }),
+        replay: 'safe',
+        execute: async ({ id }) => {
+          const found = this.windows().find((entry) => entry.id === id);
+          return text(found ? found.html : `No window ${id}.`);
+        },
+      }),
+      defineTool({
+        name: 'window_close',
+        description: 'Close one of your windows on the user Mac.',
+        parameters: Type.Object({ id: Type.String() }),
+        replay: 'safe',
+        execute: async ({ id }) => {
+          const existing = this.windows();
+          if (!existing.some((entry) => entry.id === id)) return text(`No window ${id}.`);
+          this.saveWindows(existing.filter((entry) => entry.id !== id));
+          this.broadcast({ type: 'window_close', turnId: this.currentTurnId(), id });
+          return text(`Closed window ${id}.`);
+        },
+      }),
+    ];
+  }
+
   private tools() {
     return [
+      ...this.windowTools(),
       defineTool({
         name: 'draw',
         description: 'Draw a shape on top of the user screen. kind is box, arrow, text or highlight. x, y, w, h are screen points.',
@@ -359,6 +441,7 @@ export class Agent extends DurableObject<AgentEnv> {
     if (request.headers.get('upgrade') !== 'websocket') return new Response('expected websocket', { status: 426 });
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    pair[1].send(JSON.stringify({ type: 'windows', turnId: 'none', windows: this.windows() }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -369,6 +452,7 @@ export class Agent extends DurableObject<AgentEnv> {
     const value = frame.value;
     if (value.type === 'turn') this.ctx.waitUntil(Effect.runPromise(this.runTurn(value)));
     if (value.type === 'cancel') await Effect.runPromise(this.cancel(value.turnId));
+    if (value.type === 'window_closed') this.saveWindows(this.windows().filter((entry) => entry.id !== value.id));
     if (value.type === 'mcp_result') this.pendingCalls.get(value.callId)?.({ ok: value.ok, text: value.text });
   }
 }

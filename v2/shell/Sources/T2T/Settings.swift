@@ -10,8 +10,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         self.bridge = bridge
     }
 
-    func show(_ url: URL) {
+    func show(_ url: URL, reload: Bool = false) {
         if let window {
+            if reload, let webView = window.contentView as? WKWebView { webView.load(URLRequest(url: url)) }
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return

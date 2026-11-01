@@ -13,6 +13,7 @@ final class App: NSObject, NSApplicationDelegate {
     private let speaker = Speaker()
     private let mcpHost = McpHost()
     private let gateway = GatewayToken()
+    private let agentWindows = AgentWindows()
     private var hits: HitRegions?
     private lazy var settingsWindow = SettingsWindow(bridge: bridge)
     private var lastTranscript = ""
@@ -61,6 +62,20 @@ final class App: NSObject, NSApplicationDelegate {
         speaker.onFinish = { [weak self] in self?.bridge.emit(["type": "speaking", "value": false]) }
         speaker.log = { [weak self] line in self?.log(line) }
         bridge.onOpenSettings = { [weak self] in self?.openSettings() }
+        bridge.onWindow = { [weak self] entry in
+            guard let id = entry["id"] as? String else { return }
+            self?.agentWindows.show(
+                id: id,
+                title: entry["title"] as? String ?? id,
+                html: entry["html"] as? String ?? "",
+                width: entry["width"] as? Double ?? 640,
+                height: entry["height"] as? Double ?? 480
+            )
+        }
+        bridge.onWindowClose = { [weak self] id in self?.agentWindows.close(id: id) }
+        bridge.onWindows = { [weak self] entries in self?.agentWindows.sync(entries) }
+        agentWindows.log = { [weak self] line in self?.log(line) }
+        agentWindows.onUserClosed = { [weak self] id in self?.bridge.emit(["type": "windowClosed", "id": id]) }
         bridge.settingsState = { [weak self] in self?.settingsState() ?? [:] }
         bridge.onSetting = { [weak self] key, value in self?.applySetting(key, value) }
         let overlay = Overlay(bridge: bridge)
@@ -166,6 +181,7 @@ final class App: NSObject, NSApplicationDelegate {
                 "ui": redacted(uiURL),
                 "overlayLevel": overlay?.window.level.rawValue ?? 0,
                 "overlayVisible": overlay?.window.isVisible ?? false,
+                "gateway": gateway.status,
                 "statusItem": [
                     "frame": NSStringFromRect(status?.button?.window?.frame ?? .zero),
                     "visible": status?.isVisible ?? false,
@@ -178,6 +194,28 @@ final class App: NSObject, NSApplicationDelegate {
             forcedTranscript = query["text"]
             query_streamPieces = (query["pieces"] ?? "").split(separator: "|").map { String($0) }.enumerated().map { $0.offset == 0 ? $0.element : " " + $0.element }
             keys.simulate(mode, seconds: Double(query["seconds"] ?? "0.4") ?? 0.4)
+            return json(["ok": true])
+        case "/windows":
+            let open = agentWindows.openIds.map { id -> [String: Any] in
+                let frame = agentWindows.frame(of: id) ?? .zero
+                return ["id": id, "frame": [frame.origin.x, frame.origin.y, frame.width, frame.height]]
+            }
+            return json(["windows": open])
+        case "/window-close":
+            guard let id = query["id"] else { return json(["error": "id required"]) }
+            agentWindows.closeAsUser(id: id)
+            return json(["ok": true])
+        case "/confirm":
+            bridge.emit(["type": "confirmAnswer", "callId": query["callId"] ?? "", "allow": query["allow"] == "1"])
+            return json(["ok": true])
+        case "/set":
+            guard let key = query["key"], let raw = query["value"] else { return json(["error": "key and value required"]) }
+            let value: Any = raw == "true" ? true as Any : raw == "false" ? false as Any : raw as Any
+            applySetting(key, value)
+            bridge.broadcastSettings()
+            return json(["ok": true])
+        case "/settings-open":
+            openSettingsSection(query["section"])
             return json(["ok": true])
         case "/replay":
             guard let path = query["file"] else { return json(["error": "file required"]) }
@@ -223,6 +261,7 @@ final class App: NSObject, NSApplicationDelegate {
         [
             "speak": speaker.enabled,
             "streamDictation": streamDictation,
+            "confirmMcp": UserDefaults.standard.bool(forKey: "confirmMcp"),
             "voice": speaker.voice ?? "",
             "mcp": McpConfig.servers(),
             "mcpPath": McpConfig.path.path,
@@ -241,6 +280,8 @@ final class App: NSObject, NSApplicationDelegate {
         case "speak":
             speaker.enabled = value as? Bool ?? true
             if !speaker.enabled { speaker.stop() }
+        case "confirmMcp":
+            UserDefaults.standard.set(value as? Bool ?? false, forKey: "confirmMcp")
         case "streamDictation":
             UserDefaults.standard.set(value as? Bool ?? true, forKey: "streamDictation")
         case "refreshGateway":
@@ -259,9 +300,18 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
+        openSettingsSection(nil)
+    }
+
+    private func openSettingsSection(_ section: String?) {
         var components = URLComponents(url: uiURL, resolvingAgainstBaseURL: false)
         components?.path = "/settings.html"
-        if let url = components?.url { settingsWindow.show(url) }
+        if let section {
+            let kept = (components?.queryItems ?? []).filter { $0.name != "section" }
+            components?.queryItems = kept + [URLQueryItem(name: "section", value: section)]
+        }
+        guard let url = components?.url else { return }
+        settingsWindow.show(url, reload: section != nil)
     }
 
     @objc private func reloadUI() {

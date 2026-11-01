@@ -13,6 +13,15 @@ const connectTimeoutMs = 20000;
 const callTimeoutMs = 60000;
 
 const clients = new Map();
+const status = new Map();
+const parked = new Set();
+
+const setStatus = (name, next) => status.set(name, { ...(status.get(name) ?? {}), ...next, at: new Date().toISOString() });
+
+const summary = (name) => {
+  const entry = status.get(name) ?? { state: 'idle' };
+  return { server: name, state: parked.has(name) ? 'disconnected' : entry.state, error: entry.error, tools: entry.tools ?? [], at: entry.at };
+};
 
 const readServers = () => JSON.parse(readFileSync(configPath, 'utf8')).mcpServers ?? {};
 
@@ -34,6 +43,7 @@ const transportFor = (definition) => {
 };
 
 const connect = async (name) => {
+  if (parked.has(name)) throw new Error(`${name} is disconnected in t2t settings`);
   const existing = clients.get(name);
   if (existing) return existing;
   const definition = readServers()[name];
@@ -41,17 +51,28 @@ const connect = async (name) => {
   const pending = (async () => {
     const client = new Client({ name: 't2t', version: '2.0.0' });
     const transport = transportFor(definition);
-    transport.onclose = () => clients.delete(name);
+    transport.onclose = () => {
+      clients.delete(name);
+      if (status.get(name)?.state === 'connected') setStatus(name, { state: 'error', error: 'connection closed' });
+    };
     await withTimeout(client.connect(transport), connectTimeoutMs, `connecting to ${name}`);
     const { tools } = await withTimeout(client.listTools(), connectTimeoutMs, `listing ${name} tools`);
     return { client, tools };
   })();
   clients.set(name, pending);
-  pending.catch(() => clients.delete(name));
+  setStatus(name, { state: 'connecting', error: undefined });
+  pending.then(
+    ({ tools }) => setStatus(name, { state: 'connected', error: undefined, tools: tools.map((tool) => ({ name: tool.name, description: tool.description ?? '' })) }),
+    (error) => {
+      clients.delete(name);
+      setStatus(name, { state: 'error', error: String(error?.message ?? error), tools: [] });
+    },
+  );
   return pending;
 };
 
 const toolsFor = async (names) => {
+  names = names.filter((name) => !parked.has(name));
   const settled = await Promise.allSettled(names.map(async (name) => ({ name, ...(await connect(name)) })));
   return settled.map((result, index) =>
     result.status === 'fulfilled'
@@ -62,6 +83,32 @@ const toolsFor = async (names) => {
         }
       : { server: names[index], ok: false, error: String(result.reason?.message ?? result.reason) },
   );
+};
+
+const disconnect = async (name) => {
+  const pending = clients.get(name);
+  clients.delete(name);
+  if (pending) await pending.then(({ client }) => client.close(), () => undefined);
+};
+
+const refresh = async (name) => {
+  parked.delete(name);
+  await disconnect(name);
+  status.delete(name);
+  await connect(name).catch(() => undefined);
+  return summary(name);
+};
+
+const park = async (name) => {
+  parked.add(name);
+  await disconnect(name);
+  setStatus(name, { state: 'disconnected', error: undefined });
+  return summary(name);
+};
+
+const statusFor = (names, warm) => {
+  if (warm) for (const name of names) if (!parked.has(name) && !clients.has(name) && status.get(name)?.state !== 'error') connect(name).catch(() => undefined);
+  return names.map(summary);
 };
 
 const flatten = (content) =>
@@ -95,6 +142,10 @@ createServer(async (request, response) => {
     const body = request.method === 'POST' ? JSON.parse((await readBody(request)) || '{}') : {};
     if (request.url === '/health') return reply(response, 200, { ok: true, connected: [...clients.keys()] });
     if (request.url === '/tools') return reply(response, 200, { servers: await toolsFor(body.servers ?? []) });
+    if (request.url === '/status') return reply(response, 200, { servers: statusFor(body.servers ?? [], body.warm === true) });
+    if (request.url === '/refresh') return reply(response, 200, await refresh(body.server));
+    if (request.url === '/disconnect') return reply(response, 200, await park(body.server));
+    if (request.url === '/connect') return reply(response, 200, await refresh(body.server));
     if (request.url === '/call') return reply(response, 200, await call(body.server, body.tool, body.arguments));
     return reply(response, 404, { error: 'not found' });
   } catch (error) {
