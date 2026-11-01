@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJson, state, osa }) => {
@@ -57,10 +57,72 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     record('MCP server connected with its tool list', deja.state === 'connected' && deja.tools.length > 0, `deja ${deja.state}, ${deja.tools.length} tools (${deja.tools.slice(0, 3).map((t) => t.name).join(', ')})`);
   };
 
+  const localConfig = join(root, 'bridge', 'mcp.local.json');
   const mcpErrorState = async () => {
-    const porch = await mcp('refresh', { server: 'porch' });
-    record('MCP server that cannot connect shows error with reason', porch.state === 'error' && (porch.error ?? '').length > 0, `porch ${porch.state}: ${(porch.error ?? '').slice(0, 70)}`);
+    const original = readFileSync(localConfig, 'utf8');
+    const config = JSON.parse(original);
+    config.mcpServers['gate-dead'] = { url: 'http://127.0.0.1:9/mcp' };
+    writeFileSync(localConfig, JSON.stringify(config, null, 2));
+    try {
+      const dead = await mcp('refresh', { server: 'gate-dead' });
+      record('MCP server that cannot connect shows error with reason', dead.state === 'error' && (dead.error ?? '').length > 0, `gate-dead ${dead.state}: ${(dead.error ?? '').slice(0, 70)}`);
+    } finally {
+      writeFileSync(localConfig, original);
+    }
   };
+
+  const accessMcp = async () => {
+    const porch = await mcp('refresh', { server: 'porch' });
+    record('MCP server behind Cloudflare Access connects with !command headers', porch.state === 'connected' && (porch.tools ?? []).length > 0, `porch ${porch.state} tools=${(porch.tools ?? []).length} ${(porch.error ?? '').slice(0, 60)}`);
+  };
+
+  const hostPid = () => {
+    try { return execFileSync('lsof', ['-tiTCP:5196', '-sTCP:LISTEN'], { encoding: 'utf8' }).trim(); } catch { return ''; }
+  };
+  const mcpHostRestarts = async () => {
+    const before = hostPid();
+    try { execFileSync('kill', [before]); } catch {}
+    let after = '';
+    let back = false;
+    for (let i = 0; i < 20 && !back; i++) {
+      await pause(500);
+      after = hostPid();
+      back = after !== '' && after !== before && (await mcp('tools', { servers: ['do'] }).then((r) => r.servers?.[0]?.ok === true, () => false));
+    }
+    record('MCP host restarts itself after it dies', back, `pid ${before} → ${after}`);
+  };
+
+  const screenLocked = () => execFileSync('lsappinfo', ['info', '-only', 'name', execFileSync('lsappinfo', ['front'], { encoding: 'utf8' }).trim()], { encoding: 'utf8' }).includes('"loginwindow"');
+  const frontApp = async () => {
+    if (screenLocked()) return record('do names the app in front', false, 'screen is locked; run the gate unlocked');
+    const result = await mcp('call', { server: 'do', tool: 'apps', arguments: {} });
+    const front = osa('tell application "System Events" to get name of first process whose frontmost is true');
+    const line = (result.text ?? '').split('\n')[0];
+    record('do names the app in front', result.ok && line.toLowerCase() === `in front: ${front}`.toLowerCase(), `${line} | System Events: ${front}`);
+  };
+
+  let actionMark = 0;
+  const markActions = async () => {
+    actionMark = (await fetch('http://127.0.0.1:5196/actions?since=0', { headers: { authorization: `Bearer ${key}` } }).then((r) => r.json())).seq;
+  };
+  const cursorEvents = async () => {
+    const after = await fetch(`http://127.0.0.1:5196/actions?since=${actionMark}`, { headers: { authorization: `Bearer ${key}` } }).then((r) => r.json());
+    const named = after.events.filter((event) => typeof event.agent === 'string' && event.agent.length > 0);
+    const paired = named.some((event) => event.phase === 'before') && named.some((event) => event.phase === 'after');
+    record('do actions reach the cursor feed with agent name, before and after', paired, `${named.length} event(s) since the do checks began: ${named.slice(0, 4).map((e) => `${e.agent}:${e.phase}:${e.action}`).join(' ')}`);
+  };
+
+  const noSilentHang = async () => {
+    const source = readFileSync(join(root, 'ui', 'src', 'connection.svelte.ts'), 'utf8');
+    const marker = `hang-${Date.now()}`;
+    const start = Date.now();
+    await ask(`${marker}. Reply with one word: ok`);
+    const turn = await waitTurn(marker, 40);
+    const seconds = (Date.now() - start) / 1000;
+    const guarded = source.includes('FIRST_FRAME_MS') && source.includes('STALE_SOCKET_MS');
+    record('agent answers a short turn fast; idle-socket and no-answer guards present', guarded && turn?.status === 'done' && seconds < 20, `${turn?.status} in ${seconds}s usd=${turn?.usd?.toFixed(3)}`);
+  };
+
 
   const mcpDisconnectReconnect = async () => {
     const off = await mcp('disconnect', { server: 'deja' });
@@ -240,5 +302,5 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     record('Deny in MCP confirm stops the do action', asked && count === '0' && /denied/i.test(turn?.reply ?? ''), `asked=${asked} deleted=${count} reply="${(turn?.reply ?? '').slice(0, 60)}"`);
   };
 
-  return { doServer, doTypesIntoTextEdit, doBlocksDestructive, doDenyStops, inputMonitoring, gateway, mcpStatusAndTools, mcpErrorState, mcpDisconnectReconnect, mcpPanelUi, mcpConfirm, opusMcpAndDraw, windows, userCloseForgets };
+  return { noSilentHang, frontApp, accessMcp, mcpHostRestarts, markActions, doServer, doTypesIntoTextEdit, doBlocksDestructive, doDenyStops, cursorEvents, inputMonitoring, gateway, mcpStatusAndTools, mcpErrorState, mcpDisconnectReconnect, mcpPanelUi, mcpConfirm, opusMcpAndDraw, windows, userCloseForgets };
 };

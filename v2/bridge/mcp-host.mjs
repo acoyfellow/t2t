@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -47,9 +48,13 @@ const withTimeout = (promise, ms, what) =>
 const certificateNames = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'];
 const certificateEnvironment = () => Object.fromEntries(certificateNames.filter((name) => process.env[name]).map((name) => [name, process.env[name]]));
 
+const resolveValue = (value) =>
+  typeof value === 'string' && value.startsWith('!') ? execSync(value.slice(1), { encoding: 'utf8', timeout: 10000 }).trim() : value;
+const resolveHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, resolveValue(value)]));
+
 const transportFor = (definition) => {
   if (definition.url) {
-    const headers = definition.headers ?? {};
+    const headers = resolveHeaders(definition.headers ?? {});
     return new StreamableHTTPClientTransport(new URL(definition.url), { requestInit: { headers } });
   }
   return new StdioClientTransport({

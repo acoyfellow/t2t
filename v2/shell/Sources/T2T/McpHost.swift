@@ -35,7 +35,16 @@ final class McpHost {
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.log("mcp host exited \(status)") } }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.process === finished else { return }
+                    self.log("mcp host exited \(status), restarting in 1s")
+                    self.process = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        MainActor.assumeIsolated { if self.process == nil { self.start(key: key) } }
+                    }
+                }
+            }
         }
         do {
             try process.run()

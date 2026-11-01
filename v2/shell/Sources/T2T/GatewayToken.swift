@@ -65,7 +65,8 @@ struct MintedToken: Sendable {
 nonisolated func mintToken(app: String, interactive: Bool) -> MintedToken {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    let command = interactive ? "cloudflared access login \"$APP\" >/dev/null 2>&1; cloudflared access token -app \"$APP\"" : "cloudflared access token -app \"$APP\""
+    let clearCache = "rm -f ~/.cloudflared/${APP#https://}-*-token"
+    let command = interactive ? "\(clearCache); cloudflared access login \"$APP\" >/dev/null 2>&1; cloudflared access token -app \"$APP\"" : "cloudflared access token -app \"$APP\""
     process.arguments = ["-lc", command]
     var environment = ProcessInfo.processInfo.environment
     environment["APP"] = app
