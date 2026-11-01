@@ -1,5 +1,6 @@
 <script lang="ts">
   import { answerConfirm, dismiss, overlay, shell } from './connection.svelte';
+  import AgentCursors from './lib/AgentCursors.svelte';
   import Mark from './lib/Mark.svelte';
 
   let bubble: HTMLElement | undefined = $state();
@@ -34,6 +35,7 @@
 </script>
 
 <div class="pointer-events-none fixed inset-0">
+  <AgentCursors />
   {#each overlay.shapes as shape (shape.id)}
     {#if shape.kind === 'box' || shape.kind === 'highlight'}
       <div

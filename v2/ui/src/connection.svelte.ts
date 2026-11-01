@@ -1,6 +1,7 @@
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import { type DrawShape, ServerFrameJson } from '../../shared/protocol';
+import { type ActionEvent, applyAction, hideIdle } from './cursors.svelte';
 
 type ShellEvent =
   | { type: 'hold'; mode: 'dictate' | 'agent' }
@@ -69,6 +70,20 @@ const localTools = async (): Promise<McpToolEntry[]> => {
     return [];
   }
 };
+
+let actionSeq = -1;
+const pollActions = async () => {
+  try {
+    const response = await fetch(`${mcpHost}/actions?since=${Math.max(actionSeq, 0)}`, { headers: { authorization: `Bearer ${agentKey}` } });
+    const body = (await response.json()) as { seq: number; events: ActionEvent[] };
+    if (actionSeq >= 0) for (const event of body.events) applyAction(event);
+    actionSeq = body.seq;
+  } catch {
+    return;
+  }
+  hideIdle();
+};
+if (!location.pathname.startsWith('/settings')) setInterval(() => void pollActions(), 100);
 
 export const overlay = $state({
   phase: 'idle' as Phase,

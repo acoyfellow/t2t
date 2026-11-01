@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -13,6 +14,13 @@ const connectTimeoutMs = 20000;
 const callTimeoutMs = 60000;
 
 const clients = new Map();
+const actionEvents = [];
+let actionSequence = 0;
+const rememberAction = (server, data) => {
+  actionSequence += 1;
+  actionEvents.push({ seq: actionSequence, server, at: Date.now(), ...data });
+  if (actionEvents.length > 200) actionEvents.splice(0, actionEvents.length - 200);
+};
 const status = new Map();
 const parked = new Set();
 
@@ -61,6 +69,9 @@ const connect = async (name) => {
   if (!definition) throw new Error(`no MCP server named ${name} in ${configPath}`);
   const pending = (async () => {
     const client = new Client({ name: 't2t', version: '2.0.0' });
+    client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+      if (notification.params.logger === 'do.action' && typeof notification.params.data === 'object') rememberAction(name, notification.params.data);
+    });
     const transport = transportFor(definition);
     transport.onclose = () => {
       clients.delete(name);
@@ -153,6 +164,10 @@ createServer(async (request, response) => {
     const body = request.method === 'POST' ? JSON.parse((await readBody(request)) || '{}') : {};
     if (request.url === '/health') return reply(response, 200, { ok: true, connected: [...clients.keys()] });
     if (request.url === '/tools') return reply(response, 200, { servers: await toolsFor(body.servers ?? []) });
+    if (request.url?.startsWith('/actions')) {
+      const since = Number(new URL(request.url, 'http://x').searchParams.get('since') ?? 0);
+      return reply(response, 200, { seq: actionSequence, events: actionEvents.filter((event) => event.seq > since) });
+    }
     if (request.url === '/status') return reply(response, 200, { servers: statusFor(body.servers ?? [], body.warm === true) });
     if (request.url === '/refresh') return reply(response, 200, await refresh(body.server));
     if (request.url === '/disconnect') return reply(response, 200, await park(body.server));
