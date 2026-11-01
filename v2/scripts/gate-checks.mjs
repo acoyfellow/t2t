@@ -173,6 +173,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
   };
 
   const doTypesIntoTextEdit = async () => {
+    osaText('tell application "TextEdit" to close every document saving no');
     osaText('tell application "TextEdit" to make new document');
     await pause(800);
     const marker = `${Date.now()}`;
