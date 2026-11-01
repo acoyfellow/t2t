@@ -36,6 +36,9 @@ const readServers = () => ({ ...readConfig(configPath), ...readConfig(localConfi
 const withTimeout = (promise, ms, what) =>
   Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms))]);
 
+const certificateNames = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'];
+const certificateEnvironment = () => Object.fromEntries(certificateNames.filter((name) => process.env[name]).map((name) => [name, process.env[name]]));
+
 const transportFor = (definition) => {
   if (definition.url) {
     const headers = definition.headers ?? {};
@@ -44,7 +47,7 @@ const transportFor = (definition) => {
   return new StdioClientTransport({
     command: definition.command,
     args: definition.args ?? [],
-    env: { ...getDefaultEnvironment(), PATH: process.env.PATH, HOME: homedir(), ...(definition.env ?? {}) },
+    env: { ...getDefaultEnvironment(), ...certificateEnvironment(), PATH: process.env.PATH, HOME: homedir(), ...(definition.env ?? {}) },
     cwd: definition.cwd,
     stderr: 'pipe',
   });

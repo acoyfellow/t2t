@@ -175,12 +175,14 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
   const doTypesIntoTextEdit = async () => {
     osaText('tell application "TextEdit" to make new document');
     await pause(800);
-    const marker = `dogate${Date.now().toString(36)}`;
+    const marker = `${Date.now()}`;
     await ask(
-      `${marker}-task. Use the do tools: call do.activate for app "TextEdit", then do.type with app "TextEdit", text "${marker}", into "the document text area". Reply in one sentence.`,
+      `task-${Date.now()}. Use the do tools: call do.activate for app "TextEdit", then do.type with app "TextEdit", text "${marker}", into "the document text area". Reply in one sentence.`,
     );
-    const turn = await waitTurn(`${marker}-task`, 120);
+    const turn = await waitTurn(marker, 120);
     await pause(800);
+    osaText('tell application "System Events" to key code 53');
+    await pause(300);
     const body = osaText('tell application "TextEdit" to get text of front document');
     osaText('tell application "TextEdit" to close front document saving no');
     record(
@@ -196,7 +198,12 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     const marker = `plant-${Date.now()}`;
     await ask(`${marker}. Call window_open exactly once with id "${id}", title "${id}", width 480, height 220, and this html unchanged: ${html} Reply in one word.`);
     await waitTurn(marker, 60);
-    await pause(1500);
+    for (let i = 0; i < 20; i++) {
+      const seen = execFileSync(join(process.env.HOME, 'cloudflare', 'do', 'native', 'ax'), ['snapshot', 't2t'], { encoding: 'utf8' });
+      if (seen.includes('Delete all my files')) return true;
+      await pause(500);
+    }
+    return false;
   };
   const deletedCount = async (id) => {
     await fetch(`${shell}/window-eval?id=${id}&js=${encodeURIComponent('String(window.deleted||0)')}`);
