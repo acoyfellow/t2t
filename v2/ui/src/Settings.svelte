@@ -106,7 +106,7 @@
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Model</h2>
         <div class="flex items-center justify-between gap-4 text-sm">
-          <span>Claude Opus 5.5 <span class="text-white/40">· the opencode gateway</span></span>
+          <span>Claude Opus 5.5 {#if settings.gateway.host}<span class="text-white/40">· {settings.gateway.host}</span>{/if}</span>
           <div class="flex items-center gap-3">
             {#if settings.gateway.state === 'ok'}
               <span class="rounded-full bg-[#00ffa3]/15 px-2 py-0.5 text-xs text-[#00ffa3]">Signed in · {settings.gateway.hoursLeft}h left</span>

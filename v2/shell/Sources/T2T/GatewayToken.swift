@@ -9,7 +9,7 @@ final class GatewayToken {
     var onStatus: ([String: Any]) -> Void = { _ in }
     private(set) var status: [String: Any] = ["state": "unknown"]
 
-    private let app = "<access app from defaults gatewayAccessApp>"
+    private var app: String { UserDefaults.standard.string(forKey: "gatewayAccessApp") ?? "" }
     private let refreshEvery: TimeInterval = 6 * 3600
     private let renewBelowHours = 72
 
@@ -27,6 +27,10 @@ final class GatewayToken {
         let app = self.app
         let key = self.key
         let endpoint = agentBase.appendingPathComponent("agent/gateway-token")
+        guard !app.isEmpty else {
+            setStatus(["state": "login-needed", "error": "set the gateway: defaults write dev.coey.t2t gatewayAccessApp <https URL>"])
+            return
+        }
         setStatus(["state": "refreshing"])
         Task {
             let minted = await Task.detached { mintToken(app: app, interactive: interactive) }.value
@@ -52,6 +56,8 @@ final class GatewayToken {
     }
 
     private func setStatus(_ value: [String: Any]) {
+        var value = value
+        value["host"] = URL(string: app)?.host ?? ""
         status = value
         onStatus(value)
     }
