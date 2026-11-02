@@ -144,7 +144,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     if (ids === '') return record('Settings shows the MCP panel (window screenshot)', false, 'no t2t settings window');
     execFileSync('screencapture', ['-x', '-o', `-l${ids.split('\n')[0]}`, png]);
     const size = readFileSync(png).length;
-    record('Settings shows the MCP panel with live server states (window screenshot)', shown && panelLine.includes('porch=error') && size > 20000, `${panelLine.replace(/.*mcp panel /, '')} · ${png}`);
+    record('Settings shows the MCP panel with live server states (window screenshot)', shown && panelLine.includes('do=connected') && size > 20000, `${panelLine.replace(/.*mcp panel /, '')} · ${png}`);
   };
 
   const mcpConfirm = async () => {
