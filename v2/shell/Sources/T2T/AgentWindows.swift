@@ -4,6 +4,7 @@ import WebKit
 @MainActor
 final class AgentWindows: NSObject, NSWindowDelegate {
     private var windows: [String: NSWindow] = [:]
+    private var sources: [String: String] = [:]
     private var closingByAgent: Set<String> = []
     var onUserClosed: (String) -> Void = { _ in }
     var log: (String) -> Void = { _ in }
@@ -11,10 +12,10 @@ final class AgentWindows: NSObject, NSWindowDelegate {
     var openIds: [String] { windows.keys.sorted() }
 
     func show(id: String, title: String, html: String, width: Double, height: Double) {
+        sources[id] = html
         if let window = windows[id], let webView = window.contentView as? WKWebView {
             window.title = title
             webView.loadHTMLString(html, baseURL: URL(string: "https://t2t.local/"))
-            window.orderFrontRegardless()
             log("window \(id) updated")
             return
         }
@@ -31,14 +32,14 @@ final class AgentWindows: NSObject, NSWindowDelegate {
         window.title = title
         window.contentView = webView
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.level = .normal
+        window.collectionBehavior = [.managed]
         window.delegate = self
         window.setFrameAutosaveName("t2t-window-\(id)")
         if !window.setFrameUsingName("t2t-window-\(id)") { window.center() }
         webView.loadHTMLString(html, baseURL: URL(string: "https://t2t.local/"))
         windows[id] = window
-        window.orderFrontRegardless()
+        window.orderFront(nil)
         log("window \(id) opened")
     }
 
@@ -81,6 +82,30 @@ final class AgentWindows: NSObject, NSWindowDelegate {
         }
     }
 
+    private(set) var lastRecording: [String: String] = [:]
+
+    private var recorders: [String: OffscreenRecorder] = [:]
+
+    func record(id: String, seconds: Double, path: String) {
+        guard let webView = windows[id]?.contentView as? WKWebView else {
+            log("record \(id): no window")
+            return
+        }
+        let size = webView.bounds.size
+        let output = (path as NSString).expandingTildeInPath
+        lastRecording[id] = "recording"
+        log("record \(id): \(Int(seconds))s offscreen \(Int(size.width))x\(Int(size.height)) → \(output)")
+        guard let html = sources[id] else { return }
+        let recorder = OffscreenRecorder(html: html, size: size, seconds: seconds, output: output) { [weak self] result in
+            self?.lastRecording[id] = result
+            self?.recorders[id] = nil
+            self?.log("record \(id): \(result)")
+        }
+        recorder.trace = { [weak self] line in self?.log("record \(id): \(line)") }
+        recorders[id] = recorder
+        recorder.start()
+    }
+
     func frame(of id: String) -> CGRect? {
         windows[id]?.frame
     }
@@ -96,4 +121,15 @@ final class AgentWindows: NSObject, NSWindowDelegate {
             log("window \(id) closed by agent")
         }
     }
+}
+
+nonisolated private func run(_ path: String, _ arguments: [String]) -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = arguments
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return -1 }
+    process.waitUntilExit()
+    return process.terminationStatus
 }

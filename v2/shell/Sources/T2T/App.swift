@@ -6,12 +6,14 @@ import CoreGraphics
 final class App: NSObject, NSApplicationDelegate {
     private var status: NSStatusItem?
     private let bridge = Bridge()
+    private let jobs = Jobs()
     private var overlay: Overlay?
     private let keys = Keys()
     private let dictation = Dictation()
     private let control = Control()
     private let speaker = Speaker()
     private let mcpHost = McpHost()
+    private let outputMute = OutputMute()
     private let gateway = GatewayToken()
     private let agentWindows = AgentWindows()
     private var hits: HitRegions?
@@ -73,11 +75,21 @@ final class App: NSObject, NSApplicationDelegate {
             )
         }
         bridge.onWindowClose = { [weak self] id in self?.agentWindows.close(id: id) }
+        bridge.onWindowRecord = { [weak self] id, seconds, path in self?.agentWindows.record(id: id, seconds: seconds, path: path) }
         bridge.onWindows = { [weak self] entries in self?.agentWindows.sync(entries) }
         agentWindows.log = { [weak self] line in self?.log(line) }
         agentWindows.onUserClosed = { [weak self] id in self?.bridge.emit(["type": "windowClosed", "id": id]) }
         bridge.settingsState = { [weak self] in self?.settingsState() ?? [:] }
         bridge.onSetting = { [weak self] key, value in self?.applySetting(key, value) }
+        jobs.log = { [weak self] line in self?.log(line) }
+        bridge.jobsState = { [weak self] in self?.jobs.list() ?? [:] }
+        bridge.jobLog = { [weak self] name, lines in self?.jobs.tail(name, lines: lines) ?? "" }
+        bridge.onJobRun = { [weak self] name in
+            self?.jobs.run(name) { [weak self] in
+                guard let self else { return }
+                self.bridge.emit(["type": "jobs", "value": self.jobs.list()])
+            }
+        }
         let overlay = Overlay(bridge: bridge)
         overlay.load(uiURL)
         self.overlay = overlay
@@ -136,12 +148,15 @@ final class App: NSObject, NSApplicationDelegate {
         streamedPaste = false
         lastPasted = ""
         log("hold start \(mode.rawValue)")
+        speaker.stop()
+        outputMute.begin()
         bridge.emit(["type": "hold", "mode": mode.rawValue])
         if forcedTranscript != nil { return }
         do { try dictation.start() } catch { log("dictation start failed: \(error)") }
     }
 
     private func holdStopped(_ mode: HoldMode) {
+        outputMute.end()
         bridge.emit(["type": "release", "mode": mode.rawValue])
         let deliver: (String) -> Void = { [weak self] text in
             guard let self else { return }
@@ -205,6 +220,16 @@ final class App: NSObject, NSApplicationDelegate {
             guard let id = query["id"] else { return json(["error": "id required"]) }
             if let script = query["js"] { agentWindows.evaluate(id: id, script: script) }
             return json(["result": agentWindows.evalResults[id] ?? ""])
+        case "/window-open":
+            guard let id = query["id"], let file = query["file"], let html = try? String(contentsOfFile: file, encoding: .utf8) else { return json(["error": "id and readable file required"]) }
+            agentWindows.show(id: id, title: query["title"] ?? id, html: html, width: Double(query["width"] ?? "1200") ?? 1200, height: Double(query["height"] ?? "760") ?? 760)
+            return json(["ok": true])
+        case "/window-record":
+            guard let id = query["id"] else { return json(["error": "id required"]) }
+            if let path = query["path"] {
+                agentWindows.record(id: id, seconds: Double(query["seconds"] ?? "6") ?? 6, path: path)
+            }
+            return json(["status": agentWindows.lastRecording[id] ?? "none"])
         case "/window-close":
             guard let id = query["id"] else { return json(["error": "id required"]) }
             agentWindows.closeAsUser(id: id)
@@ -234,6 +259,16 @@ final class App: NSObject, NSApplicationDelegate {
                 self.log("replay transcript: \(text) segments=\(self.segmentTimes.map { String(format: "%.1f", $0.timeIntervalSince(started)) })")
             }
             return json(["ok": true])
+        case "/jobs":
+            return json(jobs.list())
+        case "/job-log":
+            return json(["text": jobs.tail(query["name"] ?? "", lines: Int(query["lines"] ?? "40") ?? 40)])
+        case "/job-run":
+            let error = jobs.run(query["name"] ?? "") { [weak self] in
+                guard let self else { return }
+                self.bridge.emit(["type": "jobs", "value": self.jobs.list()])
+            }
+            return json(error.map { ["error": $0] } ?? ["ok": true])
         case "/reload":
             reloadUI()
             return json(["ok": true])
@@ -265,6 +300,8 @@ final class App: NSObject, NSApplicationDelegate {
         [
             "speak": speaker.enabled,
             "streamDictation": streamDictation,
+            "pastePauseSeconds": dictation.pauseSeconds,
+            "muteWhileTalking": outputMute.enabled,
             "confirmMcp": UserDefaults.standard.bool(forKey: "confirmMcp"),
             "voice": speaker.voice ?? "",
             "mcp": McpConfig.servers(),
@@ -286,6 +323,12 @@ final class App: NSObject, NSApplicationDelegate {
             if !speaker.enabled { speaker.stop() }
         case "confirmMcp":
             UserDefaults.standard.set(value as? Bool ?? false, forKey: "confirmMcp")
+        case "muteWhileTalking":
+            outputMute.enabled = value as? Bool ?? true
+            if !outputMute.enabled { outputMute.end() }
+        case "pastePauseSeconds":
+            let seconds = (value as? Double) ?? Double(value as? String ?? "") ?? 0.55
+            UserDefaults.standard.set(min(max(seconds, 0.2), 3.0), forKey: "pastePauseSeconds")
         case "streamDictation":
             UserDefaults.standard.set(value as? Bool ?? true, forKey: "streamDictation")
         case "refreshGateway":

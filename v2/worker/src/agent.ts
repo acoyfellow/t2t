@@ -1,3 +1,4 @@
+import { KIT_SOURCE } from './kit.generated.ts';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { Type } from '@earendil-works/pi-ai';
 import { createModels } from '@earendil-works/pi-ai/models';
@@ -35,15 +36,60 @@ export type AgentEnv = GatewayEnv & { readonly AI: Ai; readonly MODEL: string; r
 const CONTEXT = BACKGROUND_CONTEXT;
 
 const RECORD_LIMIT = 200;
+
+const UNANSWERED_MEANING: Readonly<Record<string, string>> = {
+  model_error: 'the model call failed',
+  aborted: 'the turn was cancelled',
+  overflow: 'the conversation is too long for the model',
+  no_model: 'no model is configured',
+  restart_limit: 'the agent restarted too many times',
+  stale: 'the turn waited too long and expired',
+  faulted: 'the agent crashed',
+};
+
+const unansweredReason = (settled: { status: string; reason?: string; detail?: unknown }) => {
+  const reason = settled.reason ?? 'unknown';
+  const meaning = UNANSWERED_MEANING[reason] ?? reason;
+  const detail = settled.detail === undefined ? '' : `: ${typeof settled.detail === 'string' ? settled.detail : JSON.stringify(settled.detail)}`;
+  return `${meaning} (${reason})${detail}`.slice(0, 400);
+};
+
+const clip = (value: string, limit: number) => (value.length > limit ? `${value.slice(0, limit)}…` : value);
+
+const traceArgs = (event: { args?: unknown }) => clip(JSON.stringify(event.args ?? {}), 240);
+
+const traceResult = (event: { entry?: unknown; result?: unknown }) => {
+  const messages = (event.entry as { model?: { content?: { type: string; text?: string }[]; isError?: boolean }[] } | undefined)?.model ?? [];
+  const message = messages.at(-1);
+  const fromEntry = message?.content?.map((part) => part.text ?? `[${part.type}]`).join(' ');
+  const output = (event.result as { output?: unknown } | undefined)?.output;
+  const body = fromEntry ?? (typeof output === 'string' ? output : JSON.stringify(output ?? ''));
+  return `${message?.isError ? 'error: ' : ''}${clip(body.replace(/\s+/g, ' '), 300)}`;
+};
 const MCP_CALL_TIMEOUT_MS = 75_000;
+
+const DEMO_BRIEF = [
+  'When the user asks to show, explain, visualise or demo how something works, call scene_open. Write only the scene: regions, boxes, wires and 3 to 6 steps. The kit draws it in a polished, consistent style and animates it.',
+  'Scene rules: lowercase, short, true. Box label is 1 to 3 words; kicker is a 1 to 2 word role. Captions are one plain sentence. Place boxes on a grid inside a 1100x470 canvas: boxes 160 to 200 wide, 76 tall, at least 50 apart. Use regions for places (your mac, cloudflare, browser). Each step lights the boxes that act and flows the wires that carry data. Wire ids default to "from>to".',
+  'If the user asks for a video, call window_record on the scene id with seconds equal to the total step time (2.2s per step, 3.6s for the last, unless you set ms).',
+  'Use window_open only for things the kit cannot show, such as charts, tables, forms or 3d.',
+  '',
+  'Every window you make is saved. Each request lists past windows that may match. Before you build anything, check them:',
+  '- If one already answers the request, call window_reopen. Do not rebuild it.',
+  '- If one is close, call window_read, change only what differs, and save it with the same id.',
+  '- Build from scratch only when nothing fits. Say in your reply when you reused or changed an old window.',
+  'Use window_search when the user refers to earlier work ("the auth diagram", "that chart from yesterday").',
+].join('\n');
 
 const PROMPT = [
   'You are the voice assistant inside t2t on a Mac. The user speaks, you answer briefly.',
   'You can draw on top of the user screen with the draw tool. Coordinates are screen points from the top-left corner.',
   'Use draw to point at things, show layouts, or sketch an answer. Use clear_screen to remove your drawings.',
-  'Answer in one or two short spoken sentences. No markdown.',
+  'Answer in one or two short spoken sentences. No markdown. Windows you open can be as long and detailed as they need to be.',
   'The user may have local MCP tools on their Mac. They are listed with each request. Call mcp_describe to read a tool input schema, then mcp_call to run it.',
   'Only call MCP tools the request needs. Say plainly what a tool returned. If a tool needs a login, tell the user which command to run.',
+  '',
+  DEMO_BRIEF,
 ].join('\n');
 
 export class HarnessFailed extends Schema.TaggedError<HarnessFailed>()('HarnessFailed', { step: Schema.String, reason: Schema.String }) {}
@@ -60,7 +106,46 @@ const decodeRecords = Schema.decodeUnknownOption(TurnRecordsJson);
 
 type Live = { readonly harness: Harness; readonly conversation: Conversation };
 
-type Active = { turnId: string; draws: DrawShape[]; tools: string[] };
+type Active = { turnId: string; ask: string; draws: DrawShape[]; tools: string[] };
+
+type LibraryEntry = {
+  id: string;
+  title: string;
+  kind: 'scene' | 'html';
+  summary: string;
+  ask: string;
+  width: number;
+  height: number;
+  createdAt: number;
+  updatedAt: number;
+  opens: number;
+  bytes: number;
+};
+
+const LIBRARY_LIMIT = 300;
+const RECALL_LIMIT = 5;
+
+const wordsOf = (value: string) => new Set(value.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+
+const relevance = (entry: LibraryEntry, query: Set<string>) => {
+  const words = wordsOf(`${entry.title} ${entry.summary} ${entry.ask} ${entry.id.replace(/-/g, ' ')}`);
+  return [...query].filter((word) => words.has(word)).length;
+};
+
+const ago = (at: number) => {
+  const minutes = Math.round((Date.now() - at) / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+};
+
+const describeEntry = (entry: LibraryEntry) => `${entry.id} [${entry.kind}] "${entry.title}" — ${entry.summary} (${ago(entry.updatedAt)}, ${entry.bytes} chars)`;
+
+const sceneSummary = (scene: { subtitle?: string; boxes: readonly { label: string }[]; steps: readonly { label: string }[] }) =>
+  [scene.subtitle, `boxes: ${scene.boxes.map((box) => box.label).join(', ')}`, `steps: ${scene.steps.map((step) => step.label).join(' → ')}`].filter(Boolean).join('; ');
+
+const htmlSummary = (html: string) =>
+  html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
 
 const assistantMessages = (events: readonly AgentEvent[]) =>
   events.flatMap((event) => (event.type === 'message_end' ? (event.entry.model ?? []) : [])).flatMap((message) =>
@@ -80,6 +165,16 @@ const replyOf = (events: readonly AgentEvent[]): Option.Option<string> => {
 
 const textOfMessage = (message: { content: readonly { type: string; text?: string }[] } | undefined) =>
   message === undefined ? undefined : message.content.flatMap((block) => (block.type === 'text' && block.text !== undefined ? [block.text] : [])).join('');
+
+const thinkingOfMessage = (message: { content: readonly { type: string; thinking?: string }[] } | undefined) =>
+  message?.content.flatMap((block) => (block.type === 'thinking' && block.thinking !== undefined ? [block.thinking] : [])).join('\n\n');
+
+const thinkingOf = (event: AgentEvent): string | undefined => {
+  if (event.type === 'message_start') return event.message.role === 'assistant' ? thinkingOfMessage(event.message) : undefined;
+  if (event.type !== 'message_update') return undefined;
+  const whole = event.changes.findLast((change) => change.type === 'message');
+  return whole?.type === 'message' ? thinkingOfMessage(whole.message) : undefined;
+};
 
 const streamedTextOf = (event: AgentEvent): string | undefined => {
   if (event.type === 'snapshot') return textOfMessage(event.generation?.message);
@@ -153,6 +248,81 @@ export class Agent extends DurableObject<AgentEnv> {
     this.ctx.storage.kv.put('windows', next);
   }
 
+  private library(): LibraryEntry[] {
+    return this.ctx.storage.kv.get<LibraryEntry[]>('library') ?? this.seedLibrary();
+  }
+
+  private seedLibrary(): LibraryEntry[] {
+    const seeded = this.windows().map((window) => this.entryFor(window, 'html', htmlSummary(window.html), '', undefined));
+    for (const window of this.windows()) this.ctx.storage.kv.put(`library:${window.id}:html`, window.html);
+    this.ctx.storage.kv.put('library', seeded);
+    return seeded;
+  }
+
+  private entryFor(window: AgentWindow, kind: LibraryEntry['kind'], summary: string, ask: string, previous: LibraryEntry | undefined): LibraryEntry {
+    return {
+      id: window.id,
+      title: window.title,
+      kind,
+      summary,
+      ask: ask || previous?.ask || '',
+      width: window.width,
+      height: window.height,
+      createdAt: previous?.createdAt ?? window.updatedAt,
+      updatedAt: window.updatedAt,
+      opens: (previous?.opens ?? 0) + 1,
+      bytes: window.html.length,
+    };
+  }
+
+  private remember(window: AgentWindow, kind: LibraryEntry['kind'], summary: string, source: string): void {
+    const existing = this.library();
+    const previous = existing.find((entry) => entry.id === window.id);
+    const ask = Option.match(this.active, { onNone: () => '', onSome: (active) => active.ask });
+    const entry = this.entryFor(window, kind, summary, ask, previous);
+    const next = [...existing.filter((candidate) => candidate.id !== window.id), entry].sort((left, right) => right.updatedAt - left.updatedAt);
+    for (const dropped of next.slice(LIBRARY_LIMIT)) {
+      this.ctx.storage.kv.delete(`library:${dropped.id}:html`);
+      this.ctx.storage.kv.delete(`library:${dropped.id}:source`);
+    }
+    this.ctx.storage.kv.put('library', next.slice(0, LIBRARY_LIMIT));
+    this.ctx.storage.kv.put(`library:${window.id}:html`, window.html);
+    this.ctx.storage.kv.put(`library:${window.id}:source`, source);
+  }
+
+  private reopen(id: string): AgentWindow | undefined {
+    const entry = this.library().find((candidate) => candidate.id === id);
+    const html = this.ctx.storage.kv.get<string>(`library:${id}:html`);
+    if (entry === undefined || html === undefined) return undefined;
+    const window: AgentWindow = { id, title: entry.title, html, width: entry.width, height: entry.height, updatedAt: Date.now() };
+    this.saveWindows([...this.windows().filter((open) => open.id !== id), window]);
+    this.ctx.storage.kv.put('library', this.library().map((candidate) => (candidate.id === id ? { ...candidate, opens: candidate.opens + 1, updatedAt: window.updatedAt } : candidate)));
+    this.broadcast({ type: 'window', turnId: this.currentTurnId(), window });
+    return window;
+  }
+
+  private forget(id: string): boolean {
+    const existing = this.library();
+    if (!existing.some((entry) => entry.id === id)) return false;
+    this.ctx.storage.kv.put('library', existing.filter((entry) => entry.id !== id));
+    this.ctx.storage.kv.delete(`library:${id}:html`);
+    this.ctx.storage.kv.delete(`library:${id}:source`);
+    return true;
+  }
+
+  private recall(ask: string): string {
+    const entries = this.library();
+    if (entries.length === 0) return '';
+    const query = wordsOf(ask);
+    const ranked = entries
+      .map((entry) => ({ entry, score: relevance(entry, query) }))
+      .sort((left, right) => right.score - left.score || right.entry.updatedAt - left.entry.updatedAt);
+    const matches = ranked.filter((candidate) => candidate.score > 0).slice(0, RECALL_LIMIT);
+    const picked = matches.length > 0 ? matches : ranked.slice(0, 3);
+    const heading = matches.length > 0 ? 'Past windows that may match' : 'Most recent past windows';
+    return `\n\n(${heading}, ${entries.length} saved in all: ${picked.map(({ entry }) => describeEntry(entry)).join('; ')})`;
+  }
+
   private currentTurnId(): string {
     return Option.match(this.active, { onNone: () => 'none', onSome: (active) => active.turnId });
   }
@@ -184,6 +354,7 @@ export class Agent extends DurableObject<AgentEnv> {
             updatedAt: Date.now(),
           };
           this.saveWindows([...existing.filter((entry) => entry.id !== windowId), next]);
+          this.remember(next, 'html', htmlSummary(html), html);
           Option.map(this.active, (active) => active.tools.push(`window_open:${windowId}`));
           this.broadcast({ type: 'window', turnId: this.currentTurnId(), window: next });
           return text(`${previous ? 'Replaced' : 'Opened'} window ${windowId} (${next.width}x${next.height}).`);
@@ -201,12 +372,81 @@ export class Agent extends DurableObject<AgentEnv> {
       }),
       defineTool({
         name: 'window_read',
-        description: 'Read the current HTML of one of your windows, to edit it with window_open.',
+        description: 'Read the source of a window, open or saved: the scene JSON for scenes, the HTML for others. Use it to edit an old window instead of writing a new one.',
         parameters: Type.Object({ id: Type.String() }),
         replay: 'safe',
         execute: async ({ id }) => {
-          const found = this.windows().find((entry) => entry.id === id);
-          return text(found ? found.html : `No window ${id}.`);
+          const source = this.ctx.storage.kv.get<string>(`library:${id}:source`) ?? this.windows().find((entry) => entry.id === id)?.html;
+          return text(source ?? `No window ${id}.`);
+        },
+      }),
+      defineTool({
+        name: 'window_search',
+        description: 'Search every window you have ever made, open or closed, by words in the title, contents or the request that made it. Returns ids to reopen or edit.',
+        parameters: Type.Object({ query: Type.String() }),
+        replay: 'safe',
+        execute: async ({ query }) => {
+          const words = wordsOf(query);
+          const hits = this.library()
+            .map((entry) => ({ entry, score: relevance(entry, words) }))
+            .filter((candidate) => candidate.score > 0)
+            .sort((left, right) => right.score - left.score || right.entry.updatedAt - left.entry.updatedAt)
+            .slice(0, 10);
+          return text(hits.length === 0 ? `No saved window matches "${query}".` : hits.map(({ entry }) => describeEntry(entry)).join('\n'));
+        },
+      }),
+      defineTool({
+        name: 'window_reopen',
+        description: 'Open a saved window again exactly as it was. It costs almost nothing, so prefer it over making a new window when an old one answers the request.',
+        parameters: Type.Object({ id: Type.String() }),
+        replay: 'safe',
+        execute: async ({ id }) => {
+          const window = this.reopen(id);
+          Option.map(this.active, (active) => active.tools.push(`window_reopen:${id}`));
+          return text(window ? `Reopened window ${id}.` : `No saved window ${id}. Try window_search.`);
+        },
+      }),
+      defineTool({
+        name: 'scene_open',
+        description: 'Open an animated explainer window from a scene description. The kit renders boxes, wires, regions, a step list and captions, and loops the steps.',
+        parameters: Type.Object({
+          id: Type.String({ description: 'Short stable id such as "how-auth-works".' }),
+          scene: Type.Object({
+            palette: Type.Optional(Type.Union([Type.Literal('night'), Type.Literal('paper')])),
+            title: Type.String(),
+            subtitle: Type.Optional(Type.String()),
+            regions: Type.Optional(Type.Array(Type.Object({ label: Type.String(), x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() }))),
+            boxes: Type.Array(Type.Object({ id: Type.String(), label: Type.String(), kicker: Type.Optional(Type.String()), x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
+            wires: Type.Optional(Type.Array(Type.Object({ from: Type.String(), to: Type.String(), id: Type.Optional(Type.String()), label: Type.Optional(Type.String()), route: Type.Optional(Type.Literal('below')) }))),
+            steps: Type.Array(Type.Object({ label: Type.String(), caption: Type.Optional(Type.String()), lit: Type.Optional(Type.Array(Type.String())), flow: Type.Optional(Type.Array(Type.String())), ms: Type.Optional(Type.Number()) })),
+          }),
+        }),
+        replay: 'safe',
+        execute: async ({ id, scene }) => {
+          const html = `<!doctype html><html><head><meta charset="utf-8"><title>${scene.title}</title><style id="kit-css"></style></head><body><script>\n${KIT_SOURCE}\ndocument.getElementById('kit-css').textContent = css;\nplay(${JSON.stringify(scene).replace(/</g, '\\u003c')});\n</script></body></html>`;
+          const entry = { id, title: scene.title, html, width: 1200, height: 760, updatedAt: Date.now() };
+          this.saveWindows([...this.windows().filter((existing) => existing.id !== id), entry]);
+          this.remember(entry, 'scene', sceneSummary(scene), JSON.stringify(scene));
+          this.broadcast({ type: 'window', turnId: this.currentTurnId(), window: entry });
+          const total = scene.steps.reduce((sum, step, index) => sum + (step.ms ?? (index === scene.steps.length - 1 ? 3600 : 2200)), 0);
+          return text(`Opened scene ${id}. One loop is ${Math.ceil(total / 1000)}s.`);
+        },
+      }),
+      defineTool({
+        name: 'window_record',
+        description:
+          'Record one of your windows to an mp4 on the user Mac. The window reloads first, so the recording starts at the beginning of your animation. Use it after window_open when the user asks for a demo, a video or a clip. Recording runs in the background; say where the file will be.',
+        parameters: Type.Object({
+          id: Type.String(),
+          seconds: Type.Number({ description: 'Length in seconds, 2 to 30. Match one full loop of the animation.' }),
+        }),
+        replay: 'unsafe',
+        execute: async ({ id, seconds }) => {
+          if (!this.windows().some((entry) => entry.id === id)) return text(`No window ${id}. Open it with window_open first.`);
+          const length = Math.min(30, Math.max(2, Math.round(seconds)));
+          const path = `~/Movies/t2t/${id}-${Date.now()}.mp4`;
+          this.broadcast({ type: 'window_record', turnId: this.currentTurnId(), id, seconds: length, path });
+          return text(`Recording ${id} for ${length}s to ${path}.`);
         },
       }),
       defineTool({
@@ -219,7 +459,7 @@ export class Agent extends DurableObject<AgentEnv> {
           if (!existing.some((entry) => entry.id === id)) return text(`No window ${id}.`);
           this.saveWindows(existing.filter((entry) => entry.id !== id));
           this.broadcast({ type: 'window_close', turnId: this.currentTurnId(), id });
-          return text(`Closed window ${id}.`);
+          return text(`Closed window ${id}. It stays saved; window_reopen brings it back.`);
         },
       }),
     ];
@@ -304,7 +544,7 @@ export class Agent extends DurableObject<AgentEnv> {
           const conversation = yield* pi('root', () =>
             harness.root(CONTEXT, { agent: { model: { provider: provider.id, modelId: this.env.MODEL } } }),
           );
-          yield* pi('configure', () => conversation.configure({ model: { provider: provider.id, modelId: this.env.MODEL } }, CONTEXT));
+          yield* pi('configure', () => conversation.configure({ model: { provider: provider.id, modelId: this.env.MODEL }, thinkingLevel: 'low' }, CONTEXT));
           harness.resume();
           return { harness, conversation };
         }),
@@ -320,25 +560,40 @@ export class Agent extends DurableObject<AgentEnv> {
   private runTurn(request: TurnRequest) {
     return Effect.gen({ self: this }, function* () {
       const started = Date.now();
-      const active: Active = { turnId: request.turnId, draws: [], tools: [] };
+      const active: Active = { turnId: request.turnId, ask: request.text, draws: [], tools: [] };
       this.active = Option.some(active);
       this.saveRecord({ turnId: request.turnId, startedAt: started, input: request.text, status: 'running', tools: [], draws: [], usd: 0 });
       const { harness, conversation } = yield* pi('open', () => this.open());
       const seen: AgentEvent[] = [];
       let streamedSoFar = '';
       let broadcastLength = 0;
+      let thoughtLength = 0;
+      let lastBeat = 0;
       const stream = yield* pi('watch', () => watchEvents(harness, conversation.id, CONTEXT));
       stream.start(async (events) => {
         seen.push(...events);
         for (const event of events) {
           if (event.type === 'tool_execution_start') {
+            lastBeat = Date.now();
             active.tools.push(event.toolName);
             this.broadcast({ type: 'tool', turnId: request.turnId, name: event.toolName });
+            this.broadcast({ type: 'trace', turnId: request.turnId, kind: 'tool', text: `${event.toolName} ${traceArgs(event)}` });
+          }
+          if (event.type === 'tool_execution_end') {
+            this.broadcast({ type: 'trace', turnId: request.turnId, kind: 'result', text: traceResult(event) });
           }
           if (event.type === 'message_end') {
+            const finalThinking = (event.entry.model ?? []).flatMap((message) => (message.role === 'assistant' ? [thinkingOfMessage(message) ?? ''] : [])).join('');
+            if (finalThinking.length > thoughtLength) this.broadcast({ type: 'trace', turnId: request.turnId, kind: 'thinking', text: finalThinking.slice(thoughtLength) });
             streamedSoFar = '';
             broadcastLength = 0;
+            thoughtLength = 0;
             continue;
+          }
+          const thinking = thinkingOf(event);
+          if (thinking !== undefined && thinking.length > thoughtLength) {
+            this.broadcast({ type: 'trace', turnId: request.turnId, kind: 'thinking', text: thinking.slice(thoughtLength) });
+            thoughtLength = thinking.length;
           }
           const known = streamedTextOf(event);
           if (known !== undefined && known.length > broadcastLength && known.startsWith(streamedSoFar.slice(0, broadcastLength))) {
@@ -346,6 +601,11 @@ export class Agent extends DurableObject<AgentEnv> {
             streamedSoFar = known;
             broadcastLength = known.length;
           } else if (event.type === 'message_update') {
+            const writingTool = event.changes.some((change) => change.type.startsWith('toolcall'));
+            if (writingTool && Date.now() - lastBeat > 3000) {
+              lastBeat = Date.now();
+              this.broadcast({ type: 'tool', turnId: request.turnId, name: 'writing' });
+            }
             const deltas = event.changes.flatMap((change) =>
               change.type === 'text_delta' ? [change.delta] : change.type === 'text_start' && change.block.type === 'text' ? [change.block.text] : [],
             );
@@ -365,15 +625,17 @@ export class Agent extends DurableObject<AgentEnv> {
         this.catalog.length === 0
           ? ''
           : `\n\n(Local MCP tools: ${this.catalog.map((entry) => `${entry.server}.${entry.name} — ${firstSentence(entry.description)}`).join('; ')})`;
+      const recalled = this.recall(request.text);
       const submission = yield* pi('submit', () =>
-        conversation.submit({ type: 'input', content: `${request.text}${screen}${toolList}`, requestId: request.turnId }, CONTEXT),
+        conversation.submit({ type: 'input', content: `${request.text}${screen}${toolList}${recalled}`, requestId: request.turnId }, CONTEXT),
       );
-      const settled = yield* pi('wait', () => submission.wait(CONTEXT));
+      const heartbeat = setInterval(() => this.broadcast({ type: 'tool', turnId: request.turnId, name: 'writing' }), 5000);
+      const settled = yield* pi('wait', () => submission.wait(CONTEXT)).pipe(Effect.ensuring(Effect.sync(() => clearInterval(heartbeat))));
       yield* Effect.promise(() => stream.stop());
       const usd = costOf(seen);
       const reply = Option.getOrElse(replyOf(seen), () => '');
       if (settled.status !== 'done') {
-        return yield* Effect.fail(new HarnessFailed({ step: 'settle', reason: `submission ${settled.status}` }));
+        return yield* Effect.fail(new HarnessFailed({ step: 'settle', reason: unansweredReason(settled) }));
       }
       this.saveRecord({
         turnId: request.turnId,
@@ -434,6 +696,13 @@ export class Agent extends DurableObject<AgentEnv> {
         if (expires > (tokenExpiry(this.gatewayToken()) ?? 0)) this.ctx.storage.kv.put('gatewayToken', token);
       }
       return Response.json({ ok: true, ...this.gatewayStatus() });
+    }
+    if (url.pathname.endsWith('/library')) {
+      const id = url.searchParams.get('id') ?? '';
+      if (request.method === 'POST') return Response.json({ ok: this.reopen(id) !== undefined });
+      if (request.method === 'DELETE') return Response.json({ ok: this.forget(id) });
+      const open = new Set(this.windows().map((window) => window.id));
+      return Response.json({ windows: this.library().map((entry) => ({ ...entry, open: open.has(entry.id) })) });
     }
     if (url.pathname.endsWith('/turns')) {
       return new Response(encodeRecords(this.records().slice().reverse()), { headers: { 'content-type': 'application/json' } });

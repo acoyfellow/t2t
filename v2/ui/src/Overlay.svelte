@@ -82,11 +82,29 @@
       class="pointer-events-auto absolute bottom-8 left-1/2 flex max-w-xl -translate-x-1/2 items-start gap-3 rounded-2xl bg-black/85 py-2.5 pl-4 pr-2 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur"
     >
       <Mark spinning={overlay.phase === 'thinking'} class="mt-0.5 h-5 w-5 shrink-0 text-[#c27aff]" />
-      <span class="max-h-48 overflow-y-auto pt-0.5 text-sm leading-relaxed" class:text-red-300={overlay.lastError}>
-        {#if overlay.lastError}{overlay.lastError}
-        {:else if overlay.phase === 'thinking' && !overlay.reply}{overlay.activity ? `Using ${overlay.activity}…` : 'Thinking…'}
-        {:else}{overlay.reply}{/if}
-      </span>
+      <div class="flex min-w-0 flex-col gap-2">
+        <button
+          type="button"
+          class="max-h-48 overflow-y-auto pt-0.5 text-left text-sm leading-relaxed"
+          class:text-red-300={overlay.lastError}
+          title={overlay.trace.length > 0 ? (overlay.traceOpen ? 'Hide trace' : 'Show trace') : ''}
+          onclick={() => (overlay.traceOpen = !overlay.traceOpen)}
+        >
+          {#if overlay.lastError}{overlay.lastError}
+          {:else if overlay.phase === 'thinking' && !overlay.reply}{overlay.activity ? `Using ${overlay.activity}…` : 'Thinking…'}
+          {:else}{overlay.reply}{/if}
+          {#if overlay.trace.length > 0}<span class="ml-1 text-xs text-white/40">{overlay.traceOpen ? '▾' : '▸'} trace</span>{/if}
+        </button>
+        {#if overlay.traceOpen && overlay.trace.length > 0}
+          <ol class="max-h-72 overflow-y-auto border-t border-white/10 pt-2 font-mono text-[11px] leading-snug">
+            {#each overlay.trace as line, index (index)}
+              <li
+                class="whitespace-pre-wrap py-0.5 {line.kind === 'thinking' ? 'italic text-white/55' : line.kind === 'tool' ? 'text-[#c27aff]' : 'text-white/40'}"
+              >{line.kind === 'tool' ? '→ ' : line.kind === 'result' ? '← ' : ''}{line.text}</li>
+            {/each}
+          </ol>
+        {/if}
+      </div>
       {#if overlay.talking}
         <button
           type="button"

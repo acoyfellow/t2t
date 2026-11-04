@@ -75,7 +75,7 @@ const connect = async (name) => {
   const pending = (async () => {
     const client = new Client({ name: 't2t', version: '2.0.0' });
     client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
-      if (notification.params.logger === 'do.action' && typeof notification.params.data === 'object') rememberAction(name, notification.params.data);
+      if (['hand.action', 'do.action'].includes(notification.params.logger) && typeof notification.params.data === 'object') rememberAction(name, notification.params.data);
     });
     const transport = transportFor(definition);
     transport.onclose = () => {

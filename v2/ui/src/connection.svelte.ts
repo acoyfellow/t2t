@@ -14,7 +14,26 @@ type ShellEvent =
   | { type: 'windowClosed'; id: string }
   | { type: 'section'; value: string }
   | { type: 'confirmAnswer'; callId: string; allow: boolean }
+  | { type: 'jobs'; value: JobsState }
+  | { type: 'jobRun'; name: string; error: string }
+  | { type: 'jobLog'; name: string; text: string }
   | { type: 'escape' };
+
+export type Job = {
+  name: string;
+  defined: boolean;
+  run: string;
+  schedule: string;
+  cwd: string;
+  running: boolean;
+  abandoned: boolean;
+  recent: number[];
+  startedAt?: string;
+  finishedAt?: string;
+  exitCode?: number;
+};
+export type JobsState = { file: string; watcher: boolean; jobs: Job[] };
+export const jobs = $state<{ state?: JobsState; logs: Record<string, string>; error: string }>({ logs: {}, error: '' });
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -22,6 +41,8 @@ export type McpServer = { name: string; transport: 'http' | 'stdio'; target: str
 export type Settings = {
   speak: boolean;
   streamDictation: boolean;
+  pastePauseSeconds: number;
+  muteWhileTalking: boolean;
   confirmMcp: boolean;
   voice: string;
   mcp: McpServer[];
@@ -85,6 +106,14 @@ const pollActions = async () => {
 };
 if (!location.pathname.startsWith('/settings')) setInterval(() => void pollActions(), 100);
 
+export type TraceLine = { kind: 'thinking' | 'tool' | 'result'; text: string };
+
+const appendTrace = (kind: TraceLine['kind'], text: string) => {
+  const last = overlay.trace.at(-1);
+  if (kind === 'thinking' && last?.kind === 'thinking') last.text += text;
+  else overlay.trace.push({ kind, text });
+};
+
 export const overlay = $state({
   phase: 'idle' as Phase,
   mode: 'dictate' as 'dictate' | 'agent',
@@ -101,6 +130,8 @@ export const overlay = $state({
   confirm: undefined as { callId: string; server: string; tool: string; arguments: unknown } | undefined,
   section: '',
   transcript: [] as TranscriptLine[],
+  trace: [] as TraceLine[],
+  traceOpen: false,
 });
 
 const transcriptKey = 't2t.transcript';
@@ -163,6 +194,18 @@ const connect = () => {
     }
     if (value.type === 'window') {
       shell({ command: 'window', window: value.window });
+      return;
+    }
+    if (value.type === 'trace') {
+      if (value.turnId === overlay.turnId) appendTrace(value.kind, value.text);
+      return;
+    }
+    if (value.type === 'tool') {
+      if (value.turnId === overlay.turnId) overlay.activity = value.name === 'writing' ? 'building…' : value.name;
+      return;
+    }
+    if (value.type === 'window_record') {
+      shell({ command: 'windowRecord', id: value.id, seconds: value.seconds, path: value.path });
       return;
     }
     if (value.type === 'window_close') {
@@ -237,6 +280,7 @@ const sendTurn = async (text: string, screen: { width: number; height: number })
   const turnId = crypto.randomUUID();
   overlay.turnId = turnId;
   overlay.reply = '';
+  overlay.trace = [];
   overlay.lastError = '';
   overlay.activity = '';
   overlay.phase = 'thinking';
@@ -286,6 +330,18 @@ const receive = (event: ShellEvent) => {
   }
   if (event.type === 'speaking') {
     overlay.talking = event.value;
+    return;
+  }
+  if (event.type === 'jobs') {
+    jobs.state = event.value;
+    return;
+  }
+  if (event.type === 'jobRun') {
+    jobs.error = event.error;
+    return;
+  }
+  if (event.type === 'jobLog') {
+    jobs.logs[event.name] = event.text;
     return;
   }
   if (event.type === 'settings') {
@@ -344,3 +400,30 @@ export type McpStatus = { server: string; state: McpState; error?: string; tools
 
 export const mcpStatus = (servers: string[], warm: boolean) => mcpPost<{ servers: McpStatus[] }>('/status', { servers, warm });
 export const mcpAction = (action: 'refresh' | 'disconnect' | 'connect', server: string) => mcpPost<McpStatus>(`/${action}`, { server });
+
+export type SavedWindow = {
+  id: string;
+  title: string;
+  kind: 'scene' | 'html';
+  summary: string;
+  ask: string;
+  width: number;
+  height: number;
+  createdAt: number;
+  updatedAt: number;
+  opens: number;
+  bytes: number;
+  open: boolean;
+};
+
+const libraryURL = (id?: string) => `${agentBase.replace(/^ws/, 'http')}/agent/library${id === undefined ? '' : `?id=${encodeURIComponent(id)}`}`;
+
+const libraryRequest = async <T,>(method: 'GET' | 'POST' | 'DELETE', id?: string): Promise<T> => {
+  const response = await fetch(libraryURL(id), { method, headers: { authorization: `Bearer ${agentKey}` } });
+  if (!response.ok) throw new Error(`library ${method} ${response.status}`);
+  return response.json() as Promise<T>;
+};
+
+export const loadLibrary = () => libraryRequest<{ windows: SavedWindow[] }>('GET').then((body) => body.windows);
+export const reopenWindow = (id: string) => libraryRequest<{ ok: boolean }>('POST', id);
+export const forgetWindow = (id: string) => libraryRequest<{ ok: boolean }>('DELETE', id);

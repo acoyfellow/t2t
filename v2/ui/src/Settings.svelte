@@ -2,12 +2,16 @@
   import { loadTranscript, overlay, setSetting, type TranscriptLine } from './connection.svelte';
   import Mark from './lib/Mark.svelte';
   import McpPanel from './McpPanel.svelte';
+  import WindowsPanel from './WindowsPanel.svelte';
+  import JobsPanel from './JobsPanel.svelte';
 
-  type Section = 'general' | 'tools' | 'transcript';
+  type Section = 'general' | 'tools' | 'windows' | 'jobs' | 'transcript';
+  const sections: readonly string[] = ['general', 'tools', 'windows', 'jobs', 'transcript'];
+  const isSection = (value: unknown): value is Section => typeof value === 'string' && sections.includes(value);
   const initialSection = new URLSearchParams(location.search).get('section');
-  let section: Section = $state(initialSection === 'tools' || initialSection === 'transcript' ? initialSection : 'general');
+  let section: Section = $state(isSection(initialSection) ? initialSection : 'general');
   $effect(() => {
-    if (overlay.section === 'general' || overlay.section === 'tools' || overlay.section === 'transcript') section = overlay.section;
+    if (isSection(overlay.section)) section = overlay.section;
   });
   let transcript: TranscriptLine[] = $state(loadTranscript());
 
@@ -31,6 +35,8 @@
   const nav: { id: Section; label: string }[] = [
     { id: 'general', label: 'General' },
     { id: 'tools', label: 'Agent tools' },
+    { id: 'windows', label: 'Windows' },
+    { id: 'jobs', label: 'Jobs' },
     { id: 'transcript', label: 'Transcript' },
   ];
 
@@ -64,7 +70,11 @@
   </aside>
 
   <main class="flex-1 overflow-y-auto p-8">
-    {#if !settings}
+    {#if section === 'windows'}
+      <WindowsPanel />
+    {:else if section === 'jobs'}
+      <JobsPanel />
+    {:else if !settings}
       <div class="flex items-center gap-3 text-sm text-white/60"><Mark spinning class="h-5 w-5 text-[#c27aff]" /> Loading…</div>
     {:else if section === 'general'}
       <h1 class="mb-6 text-xl font-semibold">General</h1>
@@ -83,6 +93,30 @@
         <label class="flex items-center justify-between text-sm">
           <span>Type as I talk <span class="text-white/40">(paste each phrase at a pause, not only at the end)</span></span>
           <input type="checkbox" class="h-4 w-4 accent-[#c27aff]" checked={settings.streamDictation} onchange={(event) => setSetting('streamDictation', event.currentTarget.checked)} />
+        </label>
+        {#if settings.streamDictation}
+          <div class="text-sm">
+            <div class="flex items-center justify-between">
+              <span>Paste after a pause of <span class="font-mono text-[#c27aff]">{settings.pastePauseSeconds.toFixed(2)}s</span></span>
+              <input
+                type="range"
+                min="0.2"
+                max="2.5"
+                step="0.05"
+                class="w-48 accent-[#c27aff]"
+                value={settings.pastePauseSeconds}
+                oninput={(event) => setSetting('pastePauseSeconds', Number(event.currentTarget.value))}
+              />
+            </div>
+            <div class="mt-1 flex justify-between text-xs text-white/40">
+              <span>quicker, shorter pieces</span>
+              <span>fewer, more accurate pieces</span>
+            </div>
+          </div>
+        {/if}
+        <label class="flex items-center justify-between text-sm">
+          <span>Mute while talking <span class="text-white/40">(silence your Mac's sound while you hold fn)</span></span>
+          <input type="checkbox" class="h-4 w-4 accent-[#c27aff]" checked={settings.muteWhileTalking} onchange={(event) => setSetting('muteWhileTalking', event.currentTarget.checked)} />
         </label>
       </section>
 

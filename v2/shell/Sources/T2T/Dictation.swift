@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 final class Dictation {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private let meter = AudioMeter()
     private let recorder = PCMRecorder()
     var log: (String) -> Void = { _ in }
@@ -18,8 +18,11 @@ final class Dictation {
     private var pieces: [String] = []
     private var session = 0
 
-    private let pauseSeconds = 0.55
-    private let minimumSegmentSeconds = 1.2
+    var pauseSeconds: Double {
+        let saved = UserDefaults.standard.object(forKey: "pastePauseSeconds") as? Double ?? 0.55
+        return min(max(saved, 0.2), 3.0)
+    }
+    private var minimumSegmentSeconds: Double { max(0.6, pauseSeconds * 2) }
     private let maximumSegmentSeconds = 12.0
 
     private let whisper = ProcessInfo.processInfo.environment["T2T_WHISPER"] ?? "/opt/homebrew/bin/whisper-cli"
@@ -27,6 +30,9 @@ final class Dictation {
         ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/whisper/ggml-base.en.bin").path
 
     func start() throws {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         session += 1

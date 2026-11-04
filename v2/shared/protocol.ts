@@ -51,6 +51,7 @@ export const ServerFrame = Schema.Union([
   Schema.Struct({ type: Schema.Literal('draw'), turnId: Schema.String, shape: DrawShape }),
   Schema.Struct({ type: Schema.Literal('clear'), turnId: Schema.String }),
   Schema.Struct({ type: Schema.Literal('tool'), turnId: Schema.String, name: Schema.String }),
+  Schema.Struct({ type: Schema.Literal('trace'), turnId: Schema.String, kind: Schema.Literals(['thinking', 'tool', 'result']), text: Schema.String }),
   Schema.Struct({
     type: Schema.Literal('mcp_call'),
     turnId: Schema.String,
@@ -61,6 +62,7 @@ export const ServerFrame = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal('window'), turnId: Schema.String, window: AgentWindow }),
   Schema.Struct({ type: Schema.Literal('window_close'), turnId: Schema.String, id: Schema.String }),
+  Schema.Struct({ type: Schema.Literal('window_record'), turnId: Schema.String, id: Schema.String, seconds: Schema.Number, path: Schema.String }),
   Schema.Struct({ type: Schema.Literal('windows'), turnId: Schema.String, windows: Schema.Array(AgentWindow) }),
   Schema.Struct({ type: Schema.Literal('done'), turnId: Schema.String, reply: Schema.String, usd: Schema.Number }),
   Schema.Struct({ type: Schema.Literal('failed'), turnId: Schema.String, step: Schema.String, reason: Schema.String }),

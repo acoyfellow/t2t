@@ -1,0 +1,180 @@
+{
+  "palette": "night",
+  "title": "t2t: hold a key, talk to your mac",
+  "subtitle": "fn dictates on your mac. fn+ctrl asks an agent that can see your screen and use your tools.",
+  "width": 1100,
+  "height": 470,
+  "regions": [
+    {
+      "label": "your mac",
+      "x": 10,
+      "y": 10,
+      "w": 700,
+      "h": 450
+    },
+    {
+      "label": "cloudflare",
+      "x": 750,
+      "y": 10,
+      "w": 340,
+      "h": 450
+    }
+  ],
+  "boxes": [
+    {
+      "id": "key",
+      "kicker": "hold",
+      "label": "fn",
+      "x": 40,
+      "y": 70,
+      "w": 160,
+      "h": 76
+    },
+    {
+      "id": "whisper",
+      "kicker": "on device",
+      "label": "whisper",
+      "x": 270,
+      "y": 70,
+      "w": 180,
+      "h": 76
+    },
+    {
+      "id": "app",
+      "kicker": "front app",
+      "label": "your text",
+      "x": 510,
+      "y": 70,
+      "w": 170,
+      "h": 76
+    },
+    {
+      "id": "keys2",
+      "kicker": "hold",
+      "label": "fn + ctrl",
+      "x": 40,
+      "y": 250,
+      "w": 160,
+      "h": 76
+    },
+    {
+      "id": "mcp",
+      "kicker": "local mcp",
+      "label": "your tools",
+      "x": 510,
+      "y": 340,
+      "w": 170,
+      "h": 76
+    },
+    {
+      "id": "screen",
+      "kicker": "overlay",
+      "label": "draw + speak",
+      "x": 270,
+      "y": 340,
+      "w": 180,
+      "h": 76
+    },
+    {
+      "id": "agent",
+      "kicker": "durable object",
+      "label": "agent",
+      "x": 830,
+      "y": 200,
+      "w": 190,
+      "h": 96
+    }
+  ],
+  "wires": [
+    {
+      "from": "key",
+      "to": "whisper",
+      "label": "audio"
+    },
+    {
+      "from": "whisper",
+      "to": "app",
+      "label": "paste"
+    },
+    {
+      "from": "keys2",
+      "to": "agent",
+      "label": "words + screenshot"
+    },
+    {
+      "from": "agent",
+      "to": "mcp",
+      "label": "tool call"
+    },
+    {
+      "from": "mcp",
+      "to": "agent",
+      "id": "back"
+    },
+    {
+      "from": "agent",
+      "to": "screen",
+      "label": "answer",
+      "route": "below"
+    }
+  ],
+  "steps": [
+    {
+      "label": "hold fn and talk",
+      "caption": "hold fn in any text field and speak.",
+      "lit": [
+        "key"
+      ],
+      "flow": [
+        "key>whisper"
+      ]
+    },
+    {
+      "label": "whisper types it",
+      "caption": "whisper transcribes on your mac. the text lands where your cursor is.",
+      "lit": [
+        "whisper",
+        "app"
+      ],
+      "flow": [
+        "key>whisper",
+        "whisper>app"
+      ]
+    },
+    {
+      "label": "hold fn+ctrl to ask",
+      "caption": "hold fn+ctrl and ask. your words and a screenshot go to the agent.",
+      "lit": [
+        "keys2",
+        "agent"
+      ],
+      "flow": [
+        "keys2>agent"
+      ]
+    },
+    {
+      "label": "it uses your tools",
+      "caption": "the agent calls mcp tools that run on your mac, then reads the result.",
+      "lit": [
+        "agent",
+        "mcp"
+      ],
+      "flow": [
+        "agent>mcp",
+        "back"
+      ]
+    },
+    {
+      "label": "it answers out loud",
+      "caption": "it answers out loud and draws on your screen to point at things.",
+      "lit": [
+        "agent",
+        "screen"
+      ],
+      "flow": [
+        "agent>screen"
+      ],
+      "ms": 4200
+    }
+  ]
+}

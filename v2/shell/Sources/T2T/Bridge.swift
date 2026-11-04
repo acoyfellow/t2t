@@ -13,9 +13,13 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     var onOpenSettings: () -> Void = {}
     var onWindow: ([String: Any]) -> Void = { _ in }
     var onWindowClose: (String) -> Void = { _ in }
+    var onWindowRecord: (String, Double, String) -> Void = { _, _, _ in }
     var onWindows: ([[String: Any]]) -> Void = { _ in }
     var settingsState: () -> [String: Any] = { [:] }
     var onSetting: (String, Any) -> Void = { _, _ in }
+    var jobsState: () -> [String: Any] = { [:] }
+    var onJobRun: (String) -> String? = { _ in nil }
+    var jobLog: (String, Int) -> String = { _, _ in "" }
     var log: (String) -> Void = { _ in }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -33,6 +37,10 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             onHitRegions((body["rects"] as? [[String: Double]]) ?? [])
         case "window":
             if let window = body["window"] as? [String: Any] { onWindow(window) }
+        case "windowRecord":
+            if let id = body["id"] as? String, let path = body["path"] as? String {
+                onWindowRecord(id, body["seconds"] as? Double ?? 8, path)
+            }
         case "windowClose":
             if let id = body["id"] as? String { onWindowClose(id) }
         case "windows":
@@ -45,6 +53,18 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             if let key = body["key"] as? String, let value = body["value"] {
                 onSetting(key, value)
                 broadcastSettings()
+            }
+        case "jobs":
+            send(["type": "jobs", "value": jobsState()], to: message.webView)
+        case "jobRun":
+            if let name = body["name"] as? String {
+                let error = onJobRun(name)
+                send(["type": "jobRun", "name": name, "error": error ?? ""], to: message.webView)
+                send(["type": "jobs", "value": jobsState()], to: message.webView)
+            }
+        case "jobLog":
+            if let name = body["name"] as? String {
+                send(["type": "jobLog", "name": name, "text": jobLog(name, body["lines"] as? Int ?? 80)], to: message.webView)
             }
         case "log":
             if let line = body["line"] as? String { log("ui: \(line)") }

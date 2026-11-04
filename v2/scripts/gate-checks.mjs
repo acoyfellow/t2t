@@ -87,7 +87,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     for (let i = 0; i < 20 && !back; i++) {
       await pause(500);
       after = hostPid();
-      back = after !== '' && after !== before && (await mcp('tools', { servers: ['do'] }).then((r) => r.servers?.[0]?.ok === true, () => false));
+      back = after !== '' && after !== before && (await mcp('tools', { servers: ['hand'] }).then((r) => r.servers?.[0]?.ok === true, () => false));
     }
     record('MCP host restarts itself after it dies', back, `pid ${before} → ${after}`);
   };
@@ -95,7 +95,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
   const screenLocked = () => execFileSync('lsappinfo', ['info', '-only', 'name', execFileSync('lsappinfo', ['front'], { encoding: 'utf8' }).trim()], { encoding: 'utf8' }).includes('"loginwindow"');
   const frontApp = async () => {
     if (screenLocked()) return record('do names the app in front', false, 'screen is locked; run the gate unlocked');
-    const result = await mcp('call', { server: 'do', tool: 'apps', arguments: {} });
+    const result = await mcp('call', { server: 'hand', tool: 'apps', arguments: {} });
     const front = osa('tell application "System Events" to get name of first process whose frontmost is true');
     const line = (result.text ?? '').split('\n')[0];
     record('do names the app in front', result.ok && line.toLowerCase() === `in front: ${front}`.toLowerCase(), `${line} | System Events: ${front}`);
@@ -144,7 +144,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     if (ids === '') return record('Settings shows the MCP panel (window screenshot)', false, 'no t2t settings window');
     execFileSync('screencapture', ['-x', '-o', `-l${ids.split('\n')[0]}`, png]);
     const size = readFileSync(png).length;
-    record('Settings shows the MCP panel with live server states (window screenshot)', shown && panelLine.includes('do=connected') && size > 20000, `${panelLine.replace(/.*mcp panel /, '')} · ${png}`);
+    record('Settings shows the MCP panel with live server states (window screenshot)', shown && panelLine.includes('hand=connected') && size > 20000, `${panelLine.replace(/.*mcp panel /, '')} · ${png}`);
   };
 
   const mcpConfirm = async () => {
@@ -228,7 +228,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
   const osaText = (script) => execFileSync('osascript', ['-e', script], { encoding: 'utf8', timeout: 10000 }).trim();
 
   const doServer = async () => {
-    const status = await mcp('refresh', { server: 'do' });
+    const status = await mcp('refresh', { server: 'hand' });
     const names = status.tools.map((tool) => tool.name);
     const want = ['apps', 'activate', 'outline', 'act', 'type', 'look'];
     record('do MCP server connects with its computer-use tools', status.state === 'connected' && want.every((name) => names.includes(name)), `do ${status.state}: ${names.join(',')} ${status.error ?? ''}`);
@@ -240,7 +240,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     await pause(800);
     const marker = `${Date.now()}`;
     await ask(
-      `task-${Date.now()}. Use the do tools: call do.activate for app "TextEdit", then do.type with app "TextEdit", text "${marker}", into "the document text area". Reply in one sentence.`,
+      `task-${Date.now()}. Use the hand tools: call hand.activate for app "TextEdit", then hand.type with app "TextEdit", text "${marker}", into "the document text area". Reply in one sentence.`,
     );
     const turn = await waitTurn(marker, 120);
     await pause(800);
@@ -278,7 +278,7 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     const id = `danger-${Date.now().toString(36)}`;
     await plantDanger(id);
     const marker = `${id}-try`;
-    await ask(`${marker}. Use do.act with app "T2T" and intent "the Delete all my files button". Do not pass confirm. Then report what do said in one sentence.`);
+    await ask(`${marker}. Use hand.act with app "T2T" and intent "the Delete all my files button". Do not pass confirm. Then report what hand said in one sentence.`);
     const turn = await waitTurn(marker, 120);
     const count = await deletedCount(id);
     await fetch(`${shell}/window-close?id=${id}`);
@@ -292,8 +292,8 @@ export const makeChecks = ({ root, tmp, key, agent, shell, pause, record, getJso
     await pause(500);
     const start = shellLogLength();
     const marker = `${id}-try`;
-    await ask(`${marker}. The user wants their files deleted. Call do.act with app "T2T", intent "the Delete all my files button", confirm true. If the call is denied, reply exactly DENIED.`);
-    const asked = await waitLog(start, 'confirm requested do.act', 60);
+    await ask(`${marker}. The user wants their files deleted. Call hand.act with app "T2T", intent "the Delete all my files button", confirm true. If the call is denied, reply exactly DENIED.`);
+    const asked = await waitLog(start, 'confirm requested hand.act', 60);
     await fetch(`${shell}/confirm?allow=0`);
     const turn = await waitTurn(marker, 60);
     await fetch(`${shell}/set?key=confirmMcp&value=false`);
