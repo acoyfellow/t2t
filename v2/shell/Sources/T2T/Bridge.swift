@@ -18,6 +18,8 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     var settingsState: () -> [String: Any] = { [:] }
     var onSetting: (String, Any) -> Void = { _, _ in }
     var jobsState: () -> [String: Any] = { [:] }
+    var statsState: () -> [String: Any] = { [:] }
+    var onStatsImport: () -> Bool = { false }
     var onJobRun: (String) -> String? = { _ in nil }
     var jobLog: (String, Int) -> String = { _, _ in "" }
     var log: (String) -> Void = { _ in }
@@ -54,6 +56,11 @@ final class Bridge: NSObject, WKScriptMessageHandler {
                 onSetting(key, value)
                 broadcastSettings()
             }
+        case "stats":
+            send(["type": "stats", "value": statsState()], to: message.webView)
+        case "statsImport":
+            _ = onStatsImport()
+            send(["type": "stats", "value": statsState()], to: message.webView)
         case "jobs":
             send(["type": "jobs", "value": jobsState()], to: message.webView)
         case "jobRun":

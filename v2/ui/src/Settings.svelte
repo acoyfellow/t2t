@@ -4,9 +4,10 @@
   import McpPanel from './McpPanel.svelte';
   import WindowsPanel from './WindowsPanel.svelte';
   import JobsPanel from './JobsPanel.svelte';
+  import StatsPanel from './StatsPanel.svelte';
 
-  type Section = 'general' | 'tools' | 'windows' | 'jobs' | 'transcript';
-  const sections: readonly string[] = ['general', 'tools', 'windows', 'jobs', 'transcript'];
+  type Section = 'general' | 'tools' | 'stats' | 'windows' | 'jobs' | 'transcript';
+  const sections: readonly string[] = ['general', 'stats', 'tools', 'windows', 'jobs', 'transcript'];
   const isSection = (value: unknown): value is Section => typeof value === 'string' && sections.includes(value);
   const initialSection = new URLSearchParams(location.search).get('section');
   let section: Section = $state(isSection(initialSection) ? initialSection : 'general');
@@ -34,6 +35,7 @@
 
   const nav: { id: Section; label: string }[] = [
     { id: 'general', label: 'General' },
+    { id: 'stats', label: 'Stats' },
     { id: 'tools', label: 'Agent tools' },
     { id: 'windows', label: 'Windows' },
     { id: 'jobs', label: 'Jobs' },
@@ -72,6 +74,8 @@
   <main class="flex-1 overflow-y-auto p-8">
     {#if section === 'windows'}
       <WindowsPanel />
+    {:else if section === 'stats'}
+      <StatsPanel />
     {:else if section === 'jobs'}
       <JobsPanel />
     {:else if !settings}

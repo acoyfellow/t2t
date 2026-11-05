@@ -7,6 +7,8 @@ final class App: NSObject, NSApplicationDelegate {
     private var status: NSStatusItem?
     private let bridge = Bridge()
     private let jobs = Jobs()
+    private let stats = Stats()
+    private var holdStartedAt = Date()
     private var overlay: Overlay?
     private let keys = Keys()
     private let dictation = Dictation()
@@ -82,6 +84,9 @@ final class App: NSObject, NSApplicationDelegate {
         bridge.settingsState = { [weak self] in self?.settingsState() ?? [:] }
         bridge.onSetting = { [weak self] key, value in self?.applySetting(key, value) }
         jobs.log = { [weak self] line in self?.log(line) }
+        stats.log = { [weak self] line in self?.log(line) }
+        bridge.statsState = { [weak self] in self?.stats.summary() ?? [:] }
+        bridge.onStatsImport = { [weak self] in self?.stats.importLegacy() ?? false }
         bridge.jobsState = { [weak self] in self?.jobs.list() ?? [:] }
         bridge.jobLog = { [weak self] name, lines in self?.jobs.tail(name, lines: lines) ?? "" }
         bridge.onJobRun = { [weak self] name in
@@ -145,6 +150,7 @@ final class App: NSObject, NSApplicationDelegate {
 
     private func holdStarted(_ mode: HoldMode) {
         holdMode = mode
+        holdStartedAt = Date()
         streamedPaste = false
         lastPasted = ""
         log("hold start \(mode.rawValue)")
@@ -158,10 +164,12 @@ final class App: NSObject, NSApplicationDelegate {
     private func holdStopped(_ mode: HoldMode) {
         outputMute.end()
         bridge.emit(["type": "release", "mode": mode.rawValue])
+        let spoken = forcedTranscript == nil
         let deliver: (String) -> Void = { [weak self] text in
             guard let self else { return }
             self.lastTranscript = text
             self.log("transcript (\(mode.rawValue)): \(text)")
+            if spoken { self.stats.record(text: text, seconds: Date().timeIntervalSince(self.holdStartedAt)) }
             let screen = NSScreen.main?.frame.size ?? .zero
             self.bridge.emit([
                 "type": "transcript", "mode": mode.rawValue, "text": text, "streamed": self.streamedPaste,
@@ -259,6 +267,8 @@ final class App: NSObject, NSApplicationDelegate {
                 self.log("replay transcript: \(text) segments=\(self.segmentTimes.map { String(format: "%.1f", $0.timeIntervalSince(started)) })")
             }
             return json(["ok": true])
+        case "/stats":
+            return json(stats.summary())
         case "/jobs":
             return json(jobs.list())
         case "/job-log":

@@ -14,6 +14,7 @@ type ShellEvent =
   | { type: 'windowClosed'; id: string }
   | { type: 'section'; value: string }
   | { type: 'confirmAnswer'; callId: string; allow: boolean }
+  | { type: 'stats'; value: StatsState }
   | { type: 'jobs'; value: JobsState }
   | { type: 'jobRun'; name: string; error: string }
   | { type: 'jobLog'; name: string; text: string }
@@ -32,6 +33,18 @@ export type Job = {
   finishedAt?: string;
   exitCode?: number;
 };
+export type StatsState = {
+  totalWords: number;
+  sessions: number;
+  hoursActive: number;
+  lifetimeWpm: number;
+  sessionAvgWpm: number;
+  recent: number[];
+  legacyAvailable: boolean;
+  importedFrom?: string;
+  importedAt?: string;
+};
+export const stats = $state<{ value?: StatsState }>({});
 export type JobsState = { file: string; watcher: boolean; jobs: Job[] };
 export const jobs = $state<{ state?: JobsState; logs: Record<string, string>; error: string }>({ logs: {}, error: '' });
 
@@ -330,6 +343,10 @@ const receive = (event: ShellEvent) => {
   }
   if (event.type === 'speaking') {
     overlay.talking = event.value;
+    return;
+  }
+  if (event.type === 'stats') {
+    stats.value = event.value;
     return;
   }
   if (event.type === 'jobs') {
