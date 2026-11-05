@@ -1,7 +1,7 @@
 <script lang="ts">
   import { answerConfirm, dismiss, overlay, shell } from './connection.svelte';
   import AgentCursors from './lib/AgentCursors.svelte';
-  import Indicator from './lib/Indicator.svelte';
+  import Indicator, { isIndicatorStyle } from './lib/Indicator.svelte';
   import Mark from './lib/Mark.svelte';
 
   let bubble: HTMLElement | undefined = $state();
@@ -26,7 +26,7 @@
     return 'bg-transparent';
   });
 
-  const indicatorStyle = $derived(overlay.settings?.indicatorStyle ?? 'classic');
+  const indicatorStyle = $derived(isIndicatorStyle(overlay.settings?.indicatorStyle) ? overlay.settings.indicatorStyle : 'classic');
 
   const glowColor = $derived(overlay.phase === 'listening' && overlay.mode === 'dictate' ? '0,255,163' : '194,122,255');
   const barHeight = $derived(overlay.phase === 'listening' ? 6 + overlay.level * 30 : 6);

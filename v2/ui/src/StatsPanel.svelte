@@ -46,9 +46,7 @@
     </div>
   </section>
 
-  {#if value.importedFrom}
-    <p class="font-mono text-[11px] text-white/30">Includes t2t v1 history from {value.importedFrom} · imported {new Date(value.importedAt ?? '').toLocaleString()}</p>
-  {:else if value.legacyAvailable}
+  {#if !value.importedFrom && value.legacyAvailable}
     <button type="button" class="rounded-md bg-[#c27aff]/20 px-3 py-1.5 text-xs text-[#e2c2ff] hover:bg-[#c27aff]/30" onclick={() => shell({ command: 'statsImport' })}>Bring in t2t v1 stats</button>
   {/if}
 {/if}

@@ -2,16 +2,18 @@
   export const indicatorStyles = [
     { id: 'classic', label: 'Classic bar' },
     { id: 'soundbars', label: 'Sound bars' },
-    { id: 'ripples', label: 'Ripples' },
     { id: 'wave', label: 'Waveform' },
     { id: 'aurora', label: 'Aurora' },
     { id: 'orb', label: 'Orb' },
   ] as const;
   export type IndicatorStyle = (typeof indicatorStyles)[number]['id'];
+  export const isIndicatorStyle = (value: unknown): value is IndicatorStyle => indicatorStyles.some((option) => option.id === value);
   export type IndicatorPhase = 'idle' | 'listening' | 'thinking' | 'speaking';
 </script>
 
 <script lang="ts">
+  import { auroraShader, orbShader, vertexShader } from './shaders';
+
   type Props = {
     style: IndicatorStyle;
     phase: IndicatorPhase;
@@ -44,8 +46,90 @@
     },
   };
 
+  const shaderFor: Partial<Record<IndicatorStyle, string>> = { aurora: auroraShader, orb: orbShader };
+
+  function targetEnergy(current: IndicatorPhase, currentLevel: number, time: number) {
+    if (current === 'listening') return Math.min(1, currentLevel * 1.4);
+    if (current === 'speaking') return 0.3 + 0.45 * Math.abs(Math.sin(time * 7.3)) * (0.6 + 0.4 * Math.sin(time * 2.1));
+    if (current === 'thinking') return 0.18 + 0.08 * Math.sin(time * 3);
+    return 0;
+  }
+
+  const compile = (gl: WebGLRenderingContext, type: number, source: string) => {
+    const shader = gl.createShader(type);
+    if (!shader) throw new Error('createShader failed');
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) ?? 'shader compile failed');
+    return shader;
+  };
+
+  const runShader = (element: HTMLCanvasElement, source: string) => {
+    const gl = element.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false });
+    if (!gl) return () => {};
+    const program = gl.createProgram();
+    if (!program) return () => {};
+    gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertexShader));
+    gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, source));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'link failed');
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    const resolution = gl.getUniformLocation(program, 'u_res');
+    const timeUniform = gl.getUniformLocation(program, 'u_time');
+    const energyUniform = gl.getUniformLocation(program, 'u_energy');
+    const visibleUniform = gl.getUniformLocation(program, 'u_visible');
+    const colorUniform = gl.getUniformLocation(program, 'u_color');
+    gl.clearColor(0, 0, 0, 0);
+
+    const resize = () => {
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      element.width = Math.round(element.clientWidth * ratio);
+      element.height = Math.round(element.clientHeight * ratio);
+      gl.viewport(0, 0, element.width, element.height);
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+
+    let frame = 0;
+    let visible = 0;
+    let energy = 0;
+    let color: [number, number, number] = colorFor(live.phase, live.mode);
+    const start = performance.now();
+    const draw = (now: number) => {
+      const time = (now - start) / 1000;
+      visible += ((live.phase === 'idle' ? 0 : 1) - visible) * 0.08;
+      energy += (targetEnergy(live.phase, live.level, time) - energy) * (live.phase === 'listening' ? 0.3 : 0.08);
+      const target = colorFor(live.phase, live.mode);
+      color = color.map((channel, index) => channel + (target[index] - channel) * 0.06) as [number, number, number];
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (visible > 0.005) {
+        gl.uniform2f(resolution, element.width, element.height);
+        gl.uniform1f(timeUniform, time);
+        gl.uniform1f(energyUniform, energy);
+        gl.uniform1f(visibleUniform, visible);
+        gl.uniform3f(colorUniform, color[0] / 255, color[1] / 255, color[2] / 255);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      frame = requestAnimationFrame(draw);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    };
+  };
+
   $effect(() => {
     if (!canvas) return;
+    const shader = shaderFor[style];
+    if (shader) return runShader(canvas, shader);
     const context = canvas.getContext('2d');
     if (!context) return;
     const element = canvas;
@@ -54,8 +138,6 @@
     let energy = 0;
     let color: [number, number, number] = [194, 122, 255];
     const bars = Array.from({ length: 72 }, () => 0);
-    const ripples: { born: number; strength: number }[] = [];
-    let lastRipple = 0;
 
     const resize = () => {
       const ratio = window.devicePixelRatio || 1;
@@ -67,12 +149,6 @@
     const observer = new ResizeObserver(resize);
     observer.observe(element);
 
-    const targetEnergy = (time: number) => {
-      if (live.phase === 'listening') return Math.min(1, live.level * 1.4);
-      if (live.phase === 'speaking') return 0.3 + 0.45 * Math.abs(Math.sin(time * 7.3)) * (0.6 + 0.4 * Math.sin(time * 2.1));
-      if (live.phase === 'thinking') return 0.18 + 0.08 * Math.sin(time * 3);
-      return 0;
-    };
 
     const rgba = (alpha: number) => `rgba(${color[0]},${color[1]},${color[2]},${alpha * visible})`;
 
@@ -95,30 +171,6 @@
         context.roundRect(x, base - barHeight, barWidth, barHeight, Math.min(3, barWidth / 2));
         context.fill();
       }
-    };
-
-    const drawRipples = (width: number, base: number, time: number) => {
-      const interval = live.phase === 'thinking' ? 0.9 : 0.22 + (1 - energy) * 0.5;
-      if (visible > 0.05 && time - lastRipple > interval && (energy > 0.08 || live.phase === 'thinking')) {
-        ripples.push({ born: time, strength: Math.max(0.3, energy) });
-        lastRipple = time;
-      }
-      const life = 1.8;
-      while (ripples.length && time - ripples[0].born > life) ripples.shift();
-      context.lineWidth = 2;
-      for (const ripple of ripples) {
-        const age = (time - ripple.born) / life;
-        const radius = 20 + age * Math.max(width * 0.45, base * 3) * ripple.strength;
-        context.strokeStyle = rgba((1 - age) * 0.8 * ripple.strength);
-        context.beginPath();
-        context.ellipse(width / 2, base, radius, radius * 0.32, 0, Math.PI, Math.PI * 2);
-        context.stroke();
-      }
-      const glow = context.createRadialGradient(width / 2, base, 0, width / 2, base, 60 + energy * 80);
-      glow.addColorStop(0, rgba(0.7));
-      glow.addColorStop(1, rgba(0));
-      context.fillStyle = glow;
-      context.fillRect(0, 0, width, base);
     };
 
     const drawWave = (width: number, base: number, time: number) => {
@@ -146,69 +198,18 @@
       context.shadowBlur = 0;
     };
 
-    const drawAurora = (width: number, base: number, time: number) => {
-      const reach = 10 + energy * base * 0.95;
-      for (let index = 0; index < 4; index++) {
-        const center = width * (0.5 + 0.35 * Math.sin(time * (0.4 + index * 0.17) + index * 2));
-        const spread = width * (0.25 + 0.1 * Math.sin(time * 0.7 + index));
-        const gradient = context.createRadialGradient(center, base, 0, center, base, spread);
-        const shift = index * 18;
-        gradient.addColorStop(0, `rgba(${Math.min(255, color[0] + shift)},${color[1]},${Math.max(0, color[2] - shift)},${0.55 * visible})`);
-        gradient.addColorStop(1, 'rgba(0,0,0,0)');
-        context.save();
-        context.translate(0, base);
-        context.scale(1, reach / spread);
-        context.translate(0, -base);
-        context.fillStyle = gradient;
-        context.fillRect(0, base - spread, width, spread);
-        context.restore();
-      }
-      context.fillStyle = rgba(0.9);
-      context.fillRect(0, base - 2, width, 2);
-    };
-
-    const drawOrb = (width: number, base: number, time: number) => {
-      const center = width / 2;
-      const middle = base * 0.55;
-      const radius = 14 + energy * Math.min(base * 0.38, 46);
-      const halo = context.createRadialGradient(center, middle, radius * 0.4, center, middle, radius * 2.6);
-      halo.addColorStop(0, rgba(0.55));
-      halo.addColorStop(1, rgba(0));
-      context.fillStyle = halo;
-      context.fillRect(center - radius * 3, middle - radius * 3, radius * 6, radius * 6);
-      context.beginPath();
-      const points = 48;
-      for (let index = 0; index <= points; index++) {
-        const angle = (index / points) * Math.PI * 2;
-        const wobble = 1 + (0.06 + energy * 0.12) * Math.sin(angle * 3 + time * 3) * Math.sin(angle * 5 - time * 2);
-        const x = center + Math.cos(angle) * radius * wobble;
-        const y = middle + Math.sin(angle) * radius * wobble;
-        if (index === 0) context.moveTo(x, y);
-        else context.lineTo(x, y);
-      }
-      const body = context.createRadialGradient(center - radius * 0.3, middle - radius * 0.3, 1, center, middle, radius);
-      body.addColorStop(0, `rgba(255,255,255,${0.9 * visible})`);
-      body.addColorStop(0.35, rgba(0.95));
-      body.addColorStop(1, rgba(0.6));
-      context.fillStyle = body;
-      context.fill();
-    };
-
     const draw = (now: number) => {
       const time = now / 1000;
       const width = element.clientWidth;
       const base = element.clientHeight;
       visible += ((live.phase === 'idle' ? 0 : 1) - visible) * 0.12;
-      energy += (targetEnergy(time) - energy) * (live.phase === 'listening' ? 0.45 : 0.12);
+      energy += (targetEnergy(live.phase, live.level, time) - energy) * (live.phase === 'listening' ? 0.45 : 0.12);
       const target = colorFor(live.phase, live.mode);
       color = color.map((channel, index) => channel + (target[index] - channel) * 0.1) as [number, number, number];
       context.clearRect(0, 0, width, base);
       if (visible > 0.01) {
         if (live.style === 'soundbars') drawSoundbars(width, base, time);
-        else if (live.style === 'ripples') drawRipples(width, base, time);
         else if (live.style === 'wave') drawWave(width, base, time);
-        else if (live.style === 'aurora') drawAurora(width, base, time);
-        else if (live.style === 'orb') drawOrb(width, base, time);
       }
       frame = requestAnimationFrame(draw);
     };
