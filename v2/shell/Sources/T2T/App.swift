@@ -314,6 +314,7 @@ final class App: NSObject, NSApplicationDelegate {
             "muteWhileTalking": outputMute.enabled,
             "confirmMcp": UserDefaults.standard.bool(forKey: "confirmMcp"),
             "voice": speaker.voice ?? "",
+            "indicatorStyle": UserDefaults.standard.string(forKey: "indicatorStyle") ?? "classic",
             "mcp": McpConfig.servers(),
             "mcpPath": McpConfig.path.path,
             "gateway": gateway.status,
@@ -343,6 +344,8 @@ final class App: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(value as? Bool ?? true, forKey: "streamDictation")
         case "refreshGateway":
             gateway.refresh(interactive: value as? Bool ?? false)
+        case "indicatorStyle":
+            UserDefaults.standard.set(value as? String ?? "classic", forKey: "indicatorStyle")
         case "voice":
             let voice = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
             speaker.voice = voice

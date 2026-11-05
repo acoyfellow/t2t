@@ -58,6 +58,7 @@ export type Settings = {
   muteWhileTalking: boolean;
   confirmMcp: boolean;
   voice: string;
+  indicatorStyle: import('./lib/Indicator.svelte').IndicatorStyle;
   mcp: McpServer[];
   mcpPath: string;
   gateway: { state: 'unknown' | 'refreshing' | 'ok' | 'login-needed' | 'push-failed'; hoursLeft?: number; error?: string; host?: string };

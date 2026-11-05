@@ -1,6 +1,7 @@
 <script lang="ts">
   import { answerConfirm, dismiss, overlay, shell } from './connection.svelte';
   import AgentCursors from './lib/AgentCursors.svelte';
+  import Indicator from './lib/Indicator.svelte';
   import Mark from './lib/Mark.svelte';
 
   let bubble: HTMLElement | undefined = $state();
@@ -24,6 +25,8 @@
     if (overlay.phase === 'thinking') return overlay.mode === 'agent' ? 'bg-[#c27aff]/80 t2t-agent-thinking' : 'bg-amber-500/80';
     return 'bg-transparent';
   });
+
+  const indicatorStyle = $derived(overlay.settings?.indicatorStyle ?? 'classic');
 
   const glowColor = $derived(overlay.phase === 'listening' && overlay.mode === 'dictate' ? '0,255,163' : '194,122,255');
   const barHeight = $derived(overlay.phase === 'listening' ? 6 + overlay.level * 30 : 6);
@@ -63,11 +66,17 @@
     {/if}
   {/each}
 
-  <div
-    data-indicator
-    class="absolute bottom-0 left-0 w-full transition-[background-color] duration-300 ease-out {bar}"
-    style="height:{barHeight}px;box-shadow:0 0 {glowSize}px rgba({glowColor},{overlay.phase === 'idle' ? 0 : glowAlpha});transition-property:background-color,height,box-shadow;transition-duration:300ms,60ms,60ms"
-  ></div>
+  {#if indicatorStyle === 'classic'}
+    <div
+      data-indicator
+      class="absolute bottom-0 left-0 w-full transition-[background-color] duration-300 ease-out {bar}"
+      style="height:{barHeight}px;box-shadow:0 0 {glowSize}px rgba({glowColor},{overlay.phase === 'idle' ? 0 : glowAlpha});transition-property:background-color,height,box-shadow;transition-duration:300ms,60ms,60ms"
+    ></div>
+  {:else}
+    <div data-indicator class="absolute bottom-0 left-0 w-full">
+      {#key indicatorStyle}<Indicator style={indicatorStyle} phase={overlay.phase} mode={overlay.mode} level={overlay.level} />{/key}
+    </div>
+  {/if}
 
   {#if overlay.phase === 'listening' && overlay.mode === 'agent' && overlay.heard}
     <div class="absolute bottom-10 left-1/2 max-w-xl -translate-x-1/2 rounded-xl bg-black/70 px-4 py-2 text-sm text-white/80 shadow-xl">

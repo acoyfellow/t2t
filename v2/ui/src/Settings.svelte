@@ -1,5 +1,6 @@
 <script lang="ts">
   import { loadTranscript, overlay, setSetting, type TranscriptLine } from './connection.svelte';
+  import Indicator, { indicatorStyles, type IndicatorPhase } from './lib/Indicator.svelte';
   import Mark from './lib/Mark.svelte';
   import McpPanel from './McpPanel.svelte';
   import WindowsPanel from './WindowsPanel.svelte';
@@ -30,6 +31,26 @@
   });
 
   const settings = $derived(overlay.settings);
+  const previewPhases: { phase: IndicatorPhase; mode: 'dictate' | 'agent'; label: string }[] = [
+    { phase: 'listening', mode: 'dictate', label: 'Dictating' },
+    { phase: 'listening', mode: 'agent', label: 'Asking the agent' },
+    { phase: 'thinking', mode: 'agent', label: 'Thinking' },
+    { phase: 'speaking', mode: 'agent', label: 'Speaking' },
+  ];
+  let previewIndex = $state(0);
+  let previewLevel = $state(0);
+  $effect(() => {
+    const step = setInterval(() => (previewIndex = (previewIndex + 1) % previewPhases.length), 2600);
+    const voice = setInterval(() => {
+      const t = performance.now() / 1000;
+      previewLevel = Math.max(0, 0.35 + 0.35 * Math.sin(t * 6.1) * Math.sin(t * 1.7) + 0.2 * Math.sin(t * 13));
+    }, 50);
+    return () => {
+      clearInterval(step);
+      clearInterval(voice);
+    };
+  });
+  const preview = $derived(previewPhases[previewIndex]);
   const enabledTools = $derived(settings?.mcp.filter((server) => server.enabledInT2T).length ?? 0);
   const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -82,6 +103,34 @@
       <div class="flex items-center gap-3 text-sm text-white/60"><Mark spinning class="h-5 w-5 text-[#c27aff]" /> Loading…</div>
     {:else if section === 'general'}
       <h1 class="mb-6 text-xl font-semibold">General</h1>
+
+      <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
+        <h2 class="mb-4 text-sm font-medium text-white/80">Look</h2>
+        <label class="mb-4 flex items-center justify-between gap-4 text-sm">
+          <span>Voice indicator <span class="text-white/40">(the strip at the bottom of the screen)</span></span>
+          <select
+            class="w-48 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-sm"
+            value={settings.indicatorStyle}
+            onchange={(event) => setSetting('indicatorStyle', event.currentTarget.value)}
+          >
+            {#each indicatorStyles as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
+          </select>
+        </label>
+        <div data-indicator-preview class="relative overflow-hidden rounded-lg border border-white/5 bg-black/60" style="height:140px">
+          <span class="absolute left-3 top-2 font-mono text-[11px] text-white/40">{preview.label}</span>
+          <div class="absolute inset-x-0 bottom-0">
+            {#if settings.indicatorStyle === 'classic'}
+              <div
+                class="w-full transition-all duration-300 {preview.phase === 'thinking' ? 't2t-agent-thinking' : preview.phase === 'speaking' ? 't2t-agent-speaking' : ''}"
+                style="height:{preview.phase === 'listening' ? 6 + previewLevel * 30 : 6}px;background:{preview.phase === 'listening' && preview.mode === 'dictate' ? '#00ffa3cc' : preview.phase === 'speaking' ? '#a855f7e6' : '#c27affcc'}"
+              ></div>
+            {:else}
+              {#key settings.indicatorStyle}<Indicator style={settings.indicatorStyle} phase={preview.phase} mode={preview.mode} level={previewLevel} height={130} />{/key}
+            {/if}
+          </div>
+        </div>
+      </section>
+
 
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Shortcuts</h2>
