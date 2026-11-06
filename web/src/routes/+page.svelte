@@ -5,7 +5,7 @@
   import Mail from "@lucide/svelte/icons/mail";
   import Twitter from "@lucide/svelte/icons/twitter";
   import SignalThread from "$lib/components/Signal.svelte";
-  const GITHUB_RELEASES_URL = "https://github.com/acoyfellow/t2t/releases";
+  const GITHUB_RELEASES_URL = "https://github.com/acoyfellow/t2t/blob/v2/README.md#install";
 
   let mousePosition = $state({ x: 0, y: 0 });
   let heroRef: HTMLDivElement;
@@ -122,7 +122,7 @@
       <p
         class="text-xl md:text-3xl text-zinc-400 max-w-3xl mx-auto font-light tracking-wide text-balance"
       >
-        Voice becomes text. Talk to any MCP server. Cross-platform.
+        Voice becomes text. Hold fn to dictate, fn+ctrl to ask an agent that sees your screen and uses your tools.
       </p>
 
       <!-- CTA -->
@@ -134,7 +134,7 @@
           class="group relative px-10 py-5 bg-[#00FFA3] text-black text-lg font-bold rounded-none hover:bg-[#00FF8F] transition-all duration-200 hover:scale-105 hover:shadow-[0_0_40px_rgba(0,255,163,0.4)] w-full"
         >
           <Download class="inline-block mr-2 h-5 w-5" />
-          Download for macOS
+          Get t2t v2
         </a>
         <a
           href="https://github.com/acoyfellow/t2t"
@@ -211,7 +211,7 @@
             >
               fn+ctrl
             </kbd>{" "}
-            to send the transcript to the local <code class="font-mono text-purple-300">pi</code> CLI. Configure the provider, model, voice output, and MCP servers in Settings; the agent runs on your Mac.
+            to ask an agent on Cloudflare (Claude in a Durable Object). Your words and a screenshot go to the agent; it streams back answers, draws scenes and windows, and speaks them aloud. Dictation itself never leaves your Mac.
           </p>
         </div>
       </div>

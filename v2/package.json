@@ -1,0 +1,35 @@
+{
+  "name": "t2t-v2",
+  "private": true,
+  "type": "module",
+  "workspaces": [],
+  "scripts": {
+    "deploy": "alchemy deploy --stage prod --yes --no-input",
+    "destroy": "alchemy destroy --stage prod --yes --no-input",
+    "ui": "vite --config ui/vite.config.ts",
+    "typecheck": "tsc -p .",
+    "gate": "node scripts/gate.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0",
+    "@effect/platform-node": "4.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261007.1",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "svelte": "^5.40.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.3"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0",
+    "effect": "4.0.0"
+  }
+}

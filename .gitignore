@@ -31,3 +31,9 @@ worker-configuration.d.ts
 Thumbs.db
 *.swp
 *~
+v2/.secrets/
+v2/node_modules/
+v2/.alchemy/
+v2/dist/
+v2/.tmp/
+v2/shell/.build/
