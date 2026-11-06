@@ -267,6 +267,14 @@ final class App: NSObject, NSApplicationDelegate {
                 self.log("replay transcript: \(text) segments=\(self.segmentTimes.map { String(format: "%.1f", $0.timeIntervalSince(started)) })")
             }
             return json(["ok": true])
+        case "/overlay-phase":
+            let mode = query["mode"] ?? "agent"
+            switch query["phase"] ?? "idle" {
+            case "listening": bridge.emit(["type": "hold", "mode": mode])
+            case "level": bridge.emit(["type": "level", "value": Double(query["value"] ?? "0.5") ?? 0.5])
+            default: bridge.emit(["type": "escape"])
+            }
+            return json(["ok": true])
         case "/stats":
             return json(stats.summary())
         case "/jobs":

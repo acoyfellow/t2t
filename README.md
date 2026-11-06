@@ -39,19 +39,41 @@ Dictation never leaves your Mac. Agent questions do.
 
 There is no signed download for v2 yet. Build it on a Mac with Apple silicon.
 
-Requirements: macOS 15+, Swift 6, Node 22, `brew install whisper-cpp`, the model at `~/.cache/whisper/ggml-base.en.bin`, and a Cloudflare account.
+Requirements: macOS 15+, Swift 6 (Xcode Command Line Tools), Node 22, `brew install whisper-cpp`, and a Cloudflare account with Workers AI and an AI Gateway.
 
 ```sh
 git clone https://github.com/acoyfellow/t2t
 cd t2t && git checkout v2 && cd v2
-npm install
-npm run deploy          # the agent Worker
-npm run ui &            # overlay and settings UI on :5197
-./scripts/build-shell.sh
-open dist/T2T.app
+./scripts/install.sh --check   # reports what is missing, changes nothing
+./scripts/install.sh           # downloads the Whisper model, installs deps, signs the app, starts the UI, opens t2t
 ```
 
-`build-shell.sh` signs the app with a local certificate in `.secrets/`, so macOS keeps your permissions across rebuilds. Grant Input Monitoring, Accessibility, Screen Recording and Microphone; Settings → General shows which are missing.
+### One-time setup
+
+`install.sh` creates most of this for you. Three files in `v2/.secrets/` (gitignored, never commit them) are yours to fill in:
+
+| File | What it is |
+| --- | --- |
+| `key` | Shared secret for the shell, UI, and Worker. `install.sh` generates it. |
+| `gateway.url` | Your AI Gateway URL, e.g. `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic` |
+| `opencode.token` | Your gateway API token |
+
+`install.sh` also creates a local code-signing certificate and keychain in `.secrets/`, so macOS keeps your permissions across rebuilds, and installs a LaunchAgent (`dev.coey.t2t-ui`) that serves the overlay and settings UI on `:5197` at login. Do not run `npm run ui` by hand in a terminal — after a reboot the UI would be dead. Check it with `curl localhost:5197` and read logs at `v2/.tmp/logs/ui.log`.
+
+Once `gateway.url` and `opencode.token` exist, deploy the agent Worker with `./scripts/deploy.sh` (not `npm run deploy`, which skips the profile refresh).
+
+Grant Input Monitoring, Accessibility, Screen Recording and Microphone when macOS asks; Settings → General shows which are missing.
+
+### MCP sign-in
+
+HTTP MCP servers that require sign-in show a **Sign in** button in Settings → Agent tools. Each server's tokens live in `~/Library/Application Support/dev.coey.t2t/mcp-auth/`, readable only by you, and are refreshed automatically. Servers that set an `Authorization` header in `~/.pi/agent/mcp.json` are not affected.
+
+### Troubleshooting
+
+- **Overlay blank after a reboot:** the UI server is not running. `launchctl kickstart -k gui/$(id -u)/dev.coey.t2t-ui`, then `curl localhost:5197`.
+- **Permissions lost after a rebuild:** stop t2t, run `tccutil reset Accessibility dev.coey.t2t` (and `Microphone`, `ListenEvent`), reopen the app, and grant again.
+- **"Sign in needed" on an MCP server:** open Settings → Agent tools and press Sign in; approve the page that opens in your browser.
+- **Verify your install:** `./scripts/verify-install.sh` checks the install script, README, and that no secrets are tracked.
 
 ## Scene kit
 

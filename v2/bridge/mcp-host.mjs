@@ -1,12 +1,14 @@
 import { createServer } from 'node:http';
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFile, execSync } from 'node:child_process';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { randomUUID } from 'node:crypto';
 
 const port = Number(process.env.T2T_MCP_PORT ?? 5196);
 const key = process.env.T2T_KEY ?? '';
@@ -15,6 +17,7 @@ const connectTimeoutMs = 20000;
 const callTimeoutMs = 60000;
 
 const clients = new Map();
+const pendingTransports = new Map();
 const actionEvents = [];
 let actionSequence = 0;
 const rememberAction = (server, data) => {
@@ -52,10 +55,67 @@ const resolveValue = (value) =>
   typeof value === 'string' && value.startsWith('!') ? execSync(value.slice(1), { encoding: 'utf8', timeout: 10000 }).trim() : value;
 const resolveHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, resolveValue(value)]));
 
-const transportFor = (definition) => {
+const authDirectory = process.env.T2T_MCP_AUTH_DIR ?? join(homedir(), 'Library/Application Support/dev.coey.t2t/mcp-auth');
+const authFile = (name) => join(authDirectory, `${encodeURIComponent(name)}.json`);
+const readAuth = (name) => {
+  try {
+    return JSON.parse(readFileSync(authFile(name), 'utf8'));
+  } catch {
+    return {};
+  }
+};
+const writeAuth = (name, patch) => {
+  mkdirSync(authDirectory, { recursive: true, mode: 0o700 });
+  const next = { ...readAuth(name), ...patch };
+  const temporary = `${authFile(name)}.${process.pid}`;
+  writeFileSync(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
+  renameSync(temporary, authFile(name));
+};
+const signInLinks = new Map();
+const signInStates = new Map();
+const callbackUrl = `http://127.0.0.1:${port}/oauth/callback`;
+
+const authProviderFor = (name) => ({
+  get redirectUrl() {
+    return callbackUrl;
+  },
+  get clientMetadata() {
+    return { client_name: 't2t', redirect_uris: [callbackUrl], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' };
+  },
+  state: () => {
+    const value = randomUUID();
+    signInStates.set(value, name);
+    return value;
+  },
+  clientInformation: () => readAuth(name).client,
+  saveClientInformation: (client) => writeAuth(name, { client }),
+  tokens: () => readAuth(name).tokens,
+  saveTokens: (tokens) => writeAuth(name, { tokens }),
+  codeVerifier: () => readAuth(name).verifier ?? '',
+  saveCodeVerifier: (verifier) => writeAuth(name, { verifier }),
+  discoveryState: () => readAuth(name).discovery,
+  saveDiscoveryState: (discovery) => writeAuth(name, { discovery }),
+  invalidateCredentials: (scope) => {
+    const current = readAuth(name);
+    if (scope === 'all') return rmSync(authFile(name), { force: true });
+    const drop = { client: ['client'], tokens: ['tokens'], verifier: ['verifier'], discovery: ['discovery'] }[scope] ?? [];
+    for (const key of drop) delete current[key];
+    mkdirSync(authDirectory, { recursive: true, mode: 0o700 });
+    writeFileSync(authFile(name), JSON.stringify(current, null, 2), { mode: 0o600 });
+  },
+  redirectToAuthorization: (url) => {
+    signInLinks.set(name, url.toString());
+  },
+});
+
+const transportFor = (definition, name) => {
   if (definition.url) {
     const headers = resolveHeaders(definition.headers ?? {});
-    return new StreamableHTTPClientTransport(new URL(definition.url), { requestInit: { headers } });
+    const hasOwnAuthorization = Object.keys(headers).some((header) => header.toLowerCase() === 'authorization');
+    return new StreamableHTTPClientTransport(new URL(definition.url), {
+      requestInit: { headers },
+      ...(hasOwnAuthorization ? {} : { authProvider: authProviderFor(name) }),
+    });
   }
   return new StdioClientTransport({
     command: definition.command,
@@ -77,7 +137,8 @@ const connect = async (name) => {
     client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
       if (['hand.action', 'do.action'].includes(notification.params.logger) && typeof notification.params.data === 'object') rememberAction(name, notification.params.data);
     });
-    const transport = transportFor(definition);
+    const transport = transportFor(definition, name);
+    pendingTransports.set(name, transport);
     transport.onclose = () => {
       clients.delete(name);
       if (status.get(name)?.state === 'connected') setStatus(name, { state: 'error', error: 'connection closed' });
@@ -92,7 +153,8 @@ const connect = async (name) => {
     ({ tools }) => setStatus(name, { state: 'connected', error: undefined, tools: tools.map((tool) => ({ name: tool.name, description: tool.description ?? '' })) }),
     (error) => {
       clients.delete(name);
-      setStatus(name, { state: 'error', error: String(error?.message ?? error), tools: [] });
+      if (error instanceof UnauthorizedError || signInLinks.has(name)) setStatus(name, { state: 'login-needed', error: undefined, tools: [] });
+      else setStatus(name, { state: 'error', error: String(error?.message ?? error), tools: [] });
     },
   );
   return pending;
@@ -120,10 +182,52 @@ const disconnect = async (name) => {
 
 const refresh = async (name) => {
   parked.delete(name);
+  signInLinks.delete(name);
   await disconnect(name);
   status.delete(name);
   await connect(name).catch(() => undefined);
   return summary(name);
+};
+
+const signIn = async (name) => {
+  parked.delete(name);
+  await disconnect(name);
+  if (!signInLinks.has(name)) await connect(name).catch(() => undefined);
+  const link = signInLinks.get(name);
+  if (link) execFile('open', ['-g', link]);
+  return { ...summary(name), signInOpened: Boolean(link) };
+};
+
+const signOut = async (name) => {
+  await disconnect(name);
+  rmSync(authFile(name), { force: true });
+  signInLinks.delete(name);
+  status.delete(name);
+  await connect(name).catch(() => undefined);
+  return summary(name);
+};
+
+const page = (response, title, message) => {
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  response.end(`<!doctype html><meta charset="utf-8"><title>t2t</title><body style="font:16px system-ui;background:#0b0b0f;color:#eee;display:grid;place-items:center;height:100vh;margin:0"><div><h2>${title}</h2><p>${message}</p></div>`);
+};
+
+const finishSignIn = async (request, response) => {
+  const query = new URL(request.url, callbackUrl).searchParams;
+  const name = signInStates.get(query.get('state') ?? '');
+  const transport = name && pendingTransports.get(name);
+  if (!name || !transport) return page(response, 'Sign-in link expired', 'Go back to t2t and press Sign in again.');
+  if (query.get('error')) return page(response, 'Sign-in was cancelled', String(query.get('error_description') ?? query.get('error')));
+  signInStates.delete(query.get('state'));
+  try {
+    await transport.finishAuth(query.get('code') ?? '');
+    signInLinks.delete(name);
+    await refresh(name);
+    page(response, `Signed in to ${name}`, 'You can close this tab.');
+  } catch (error) {
+    setStatus(name, { state: 'error', error: `sign-in failed: ${error?.message ?? error}` });
+    page(response, 'Sign-in failed', String(error?.message ?? error));
+  }
 };
 
 const park = async (name) => {
@@ -134,7 +238,7 @@ const park = async (name) => {
 };
 
 const statusFor = (names, warm) => {
-  if (warm) for (const name of names) if (!parked.has(name) && !clients.has(name) && status.get(name)?.state !== 'error') connect(name).catch(() => undefined);
+  if (warm) for (const name of names) if (!parked.has(name) && !clients.has(name) && !['error', 'login-needed'].includes(status.get(name)?.state)) connect(name).catch(() => undefined);
   return names.map(summary);
 };
 
@@ -164,6 +268,7 @@ const reply = (response, status, body) => {
 
 createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return reply(response, 204, {});
+  if (request.method === 'GET' && request.url?.startsWith('/oauth/callback')) return finishSignIn(request, response);
   if (request.headers.authorization !== `Bearer ${key}`) return reply(response, 401, { error: 'unauthorized' });
   try {
     const body = request.method === 'POST' ? JSON.parse((await readBody(request)) || '{}') : {};
@@ -176,6 +281,8 @@ createServer(async (request, response) => {
     if (request.url === '/status') return reply(response, 200, { servers: statusFor(body.servers ?? [], body.warm === true) });
     if (request.url === '/refresh') return reply(response, 200, await refresh(body.server));
     if (request.url === '/disconnect') return reply(response, 200, await park(body.server));
+    if (request.url === '/signin') return reply(response, 200, await signIn(body.server));
+    if (request.url === '/signout') return reply(response, 200, await signOut(body.server));
     if (request.url === '/connect') return reply(response, 200, await refresh(body.server));
     if (request.url === '/call') return reply(response, 200, await call(body.server, body.tool, body.arguments));
     return reply(response, 404, { error: 'not found' });

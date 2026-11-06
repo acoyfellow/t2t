@@ -33,7 +33,7 @@
     return () => clearInterval(timer);
   });
 
-  const act = async (action: 'refresh' | 'disconnect' | 'connect', server: string) => {
+  const act = async (action: 'refresh' | 'disconnect' | 'connect' | 'signin' | 'signout', server: string) => {
     busy[server] = true;
     statuses[server] = { ...(statuses[server] ?? { server, tools: [] }), state: action === 'disconnect' ? 'disconnected' : 'connecting', error: undefined };
     try {
@@ -49,6 +49,7 @@
     connecting: 'bg-[#c27aff]/15 text-[#c27aff]',
     error: 'bg-red-500/15 text-red-300',
     disconnected: 'bg-white/10 text-white/50',
+    'login-needed': 'bg-amber-400/15 text-amber-200',
     idle: 'bg-white/10 text-white/50',
   };
 </script>
@@ -86,12 +87,14 @@
         {#if server.enabledInT2T}
           <span class="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs {badge[state]}" data-testid="mcp-state">
             {#if state === 'connecting'}<Mark spinning class="h-3 w-3" />{/if}
-            {state === 'connected' ? `${status?.tools.length ?? 0} tools` : state}
+            {state === 'connected' ? `${status?.tools.length ?? 0} tools` : state === 'login-needed' ? 'sign in needed' : state}
           </span>
           {#if state === 'connected'}
             <button type="button" class="text-xs text-white/60 hover:text-white" onclick={() => (open[server.name] = !open[server.name])}>{open[server.name] ? 'Hide tools' : 'Tools'}</button>
           {/if}
-          {#if state === 'disconnected'}
+          {#if state === 'login-needed'}
+            <button type="button" disabled={busy[server.name]} class="rounded-md bg-[#c27aff] px-2.5 py-1 text-xs font-medium text-black hover:bg-[#d49bff]" onclick={() => act('signin', server.name)} data-testid="mcp-signin">Sign in</button>
+          {:else if state === 'disconnected'}
             <button type="button" disabled={busy[server.name]} class="rounded-md border border-white/10 px-2.5 py-1 text-xs hover:bg-white/10" onclick={() => act('connect', server.name)}>Reconnect</button>
           {:else}
             <button type="button" disabled={busy[server.name]} class="rounded-md border border-white/10 px-2.5 py-1 text-xs hover:bg-white/10" onclick={() => act('refresh', server.name)}>Refresh</button>

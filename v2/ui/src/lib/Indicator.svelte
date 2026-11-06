@@ -65,8 +65,11 @@
   };
 
   const runShader = (element: HTMLCanvasElement, source: string) => {
-    const gl = element.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false });
-    if (!gl) return () => {};
+    const visibleContext = element.getContext('2d');
+    if (!visibleContext) throw new Error('no 2d context');
+    const offscreen = document.createElement('canvas');
+    const gl = offscreen.getContext('webgl', { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
+    if (!gl) throw new Error('no webgl context');
     const program = gl.createProgram();
     if (!program) return () => {};
     gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertexShader));
@@ -90,7 +93,9 @@
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       element.width = Math.round(element.clientWidth * ratio);
       element.height = Math.round(element.clientHeight * ratio);
-      gl.viewport(0, 0, element.width, element.height);
+      offscreen.width = element.width;
+      offscreen.height = element.height;
+      gl.viewport(0, 0, offscreen.width, offscreen.height);
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -116,6 +121,8 @@
         gl.uniform3f(colorUniform, color[0] / 255, color[1] / 255, color[2] / 255);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
+      visibleContext.clearRect(0, 0, element.width, element.height);
+      if (visible > 0.005) visibleContext.drawImage(offscreen, 0, 0);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
@@ -129,7 +136,14 @@
   $effect(() => {
     if (!canvas) return;
     const shader = shaderFor[style];
-    if (shader) return runShader(canvas, shader);
+    if (shader) {
+      try {
+        return runShader(canvas, shader);
+      } catch (error) {
+        window.webkit?.messageHandlers?.t2t?.postMessage({ command: 'log', line: `indicator ${style} failed: ${error}` });
+        return;
+      }
+    }
     const context = canvas.getContext('2d');
     if (!context) return;
     const element = canvas;

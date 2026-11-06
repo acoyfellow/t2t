@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [svelte(), tailwindcss()],
-  server: { host: '127.0.0.1', port: 5197, strictPort: true },
+  server: { host: '127.0.0.1', port: 5197, strictPort: true, hmr: { overlay: false } },
   build: {
     outDir: '../dist/ui',
     emptyOutDir: true,

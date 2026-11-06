@@ -413,11 +413,11 @@ window.t2t = { receive };
 shell({ command: 'settings' });
 if (!location.pathname.startsWith('/settings')) connect();
 
-export type McpState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected';
+export type McpState = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected' | 'login-needed';
 export type McpStatus = { server: string; state: McpState; error?: string; tools: { name: string; description: string }[]; at?: string };
 
 export const mcpStatus = (servers: string[], warm: boolean) => mcpPost<{ servers: McpStatus[] }>('/status', { servers, warm });
-export const mcpAction = (action: 'refresh' | 'disconnect' | 'connect', server: string) => mcpPost<McpStatus>(`/${action}`, { server });
+export const mcpAction = (action: 'refresh' | 'disconnect' | 'connect' | 'signin' | 'signout', server: string) => mcpPost<McpStatus>(`/${action}`, { server });
 
 export type SavedWindow = {
   id: string;
