@@ -9,6 +9,9 @@ fail() { printf 'FAIL %s\n' "$*"; FAIL=1; }
 [ -x "$ROOT/scripts/install.sh" ] && pass "install.sh is executable" || fail "install.sh missing or not executable"
 [ -x "$ROOT/scripts/verify-install.sh" ] && pass "verify-install.sh is executable" || fail "verify-install.sh missing"
 bash -n "$ROOT/scripts/install.sh" && pass "install.sh syntax ok" || fail "install.sh syntax"
+bash -n "$ROOT/scripts/install-bundle.sh" && bash -n "$ROOT/scripts/make-bundle.sh" && pass "bundle scripts syntax ok" || fail "bundle scripts syntax"
+node --check "$ROOT/scripts/serve-ui.mjs" && pass "serve-ui.mjs syntax ok" || fail "serve-ui.mjs syntax"
+grep -q "t2t-v2.zip" "$REPO_ROOT/README.md" && pass "README documents bundle download" || fail "README missing bundle"
 
 grep -q "One-time setup" "$REPO_ROOT/README.md" && pass "README documents .secrets setup" || fail "README missing .secrets setup"
 grep -q "scripts/deploy.sh" "$REPO_ROOT/README.md" && pass "README uses scripts/deploy.sh" || fail "README deploy step wrong"

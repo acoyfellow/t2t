@@ -37,7 +37,19 @@ Dictation never leaves your Mac. Agent questions do.
 
 ## Install
 
-There is no signed download for v2 yet. Build it on a Mac with Apple silicon.
+### Bundle (fastest)
+
+Download `t2t-v2.zip` from [GitHub Releases](https://github.com/acoyfellow/t2t/releases), unzip, and run:
+
+```sh
+./scripts/install-bundle.sh
+```
+
+That starts the UI on `:5197` (static files, no vite), points the MCP host at the bundled bridge, downloads the Whisper model, and opens the app. Dictation works immediately. The bundle is ad-hoc signed, so macOS may ask you to approve it once; `install-bundle.sh` clears the quarantine flag for you.
+
+Agent mode in the bundle needs either your own Worker deploy from source (below) or a maintainer key from the repo owner. The Worker URL and gateway token are configured in Settings.
+
+### From source
 
 Requirements: macOS 15+, Swift 6 (Xcode Command Line Tools), Node 22, `brew install whisper-cpp`, and a Cloudflare account with Workers AI and an AI Gateway.
 
