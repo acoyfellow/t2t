@@ -106,12 +106,13 @@ const localTools = async (): Promise<McpToolEntry[]> => {
   }
 };
 
+const DRAWS_OWN_CURSOR = new Set(['hand']);
 let actionSeq = -1;
 const pollActions = async () => {
   try {
     const response = await fetch(`${mcpHost}/actions?since=${Math.max(actionSeq, 0)}`, { headers: { authorization: `Bearer ${agentKey}` } });
     const body = (await response.json()) as { seq: number; events: ActionEvent[] };
-    if (actionSeq >= 0) for (const event of body.events) applyAction(event);
+    if (actionSeq >= 0) for (const event of body.events.filter((entry) => !DRAWS_OWN_CURSOR.has(entry.server))) applyAction(event);
     actionSeq = body.seq;
   } catch {
     return;
