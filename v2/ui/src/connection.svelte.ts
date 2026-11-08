@@ -1,6 +1,7 @@
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import { type DrawShape, ServerFrameJson } from '../../shared/protocol';
+import { overlayMachine } from '../../shared/fsm.mjs';
 import { type ActionEvent, applyAction, hideIdle } from './cursors.svelte';
 
 type ShellEvent =
@@ -233,7 +234,7 @@ const connect = () => {
     }
     if (value.turnId !== overlay.turnId && value.turnId !== 'none') return;
     if (value.type === 'text') {
-      overlay.phase = 'speaking';
+      applyPhase('TEXT');
       overlay.reply += value.text;
       speakReadySentences(false);
     }
@@ -243,16 +244,22 @@ const connect = () => {
       overlay.activity = '';
       if (!value.reply.startsWith(overlay.reply)) spokenUpTo = Math.min(spokenUpTo, value.reply.length);
       overlay.reply = value.reply;
-      overlay.phase = 'idle';
+      applyPhase('DONE');
       remember({ mode: 'agent', role: 'agent', text: value.reply });
       speakReadySentences(true);
     }
     if (value.type === 'failed') {
       overlay.lastError = gatewayHint(`${value.step}: ${value.reason}`);
-      overlay.phase = 'idle';
+      applyPhase('FAILED');
       remember({ mode: 'agent', role: 'error', text: overlay.lastError });
     }
   };
+};
+
+const applyPhase = (event: string) => {
+  const next = overlayMachine.send(overlay.phase, event);
+  if (next) overlay.phase = next;
+  else shell({ command: 'log', line: `illegal overlay transition ${overlay.phase}+${event}` });
 };
 
 const pendingConfirms = new Map<string, () => void>();
@@ -298,7 +305,7 @@ const sendTurn = async (text: string, screen: { width: number; height: number })
   overlay.trace = [];
   overlay.lastError = '';
   overlay.activity = '';
-  overlay.phase = 'thinking';
+  applyPhase('RELEASE_AGENT');
   spokenUpTo = 0;
   shell({ command: 'stopSpeaking' });
   const tools = await localTools();
@@ -331,7 +338,7 @@ const watchTurn = (turnId: string) => {
   turnWatch = setTimeout(() => {
     if (overlay.turnId !== turnId || overlay.phase !== 'thinking' || lastFrameAt > sentAt) return;
     shell({ command: 'log', line: `turn ${turnId.slice(0, 8)}: no answer in ${FIRST_FRAME_MS / 1000}s` });
-    overlay.phase = 'idle';
+    applyPhase('TIMEOUT');
     overlay.lastError = 'The agent did not answer. Try again.';
     freshSocket();
   }, FIRST_FRAME_MS);
@@ -374,18 +381,18 @@ const receive = (event: ShellEvent) => {
   if (event.type === 'hold') {
     overlay.heard = '';
     overlay.mode = event.mode;
-    overlay.phase = 'listening';
+    applyPhase('HOLD');
   }
   if (event.type === 'release') overlay.level = 0;
-  if (event.type === 'release') overlay.phase = event.mode === 'agent' ? 'thinking' : 'idle';
+  if (event.type === 'release') applyPhase(event.mode === 'agent' ? 'RELEASE_AGENT' : 'RELEASE_DICTATE');
   if (event.type === 'transcript') {
     if (event.text.trim() === '') {
-      overlay.phase = 'idle';
+      applyPhase('TRANSCRIPT_EMPTY');
       return;
     }
     remember({ mode: event.mode, role: 'you', text: event.text });
     if (event.mode === 'dictate') {
-      overlay.phase = 'idle';
+      applyPhase('RELEASE_DICTATE');
       overlay.heard = '';
       if (!event.streamed) shell({ command: 'paste', text: event.text });
     } else sendTurn(event.text, event.screen);
@@ -405,7 +412,7 @@ export const dismiss = () => {
   overlay.shapes = [];
   overlay.reply = '';
   overlay.lastError = '';
-  overlay.phase = 'idle';
+  if (overlay.phase !== 'idle') applyPhase('ESCAPE');
 };
 
 export const setSetting = (key: string, value: unknown) => shell({ command: 'set', key, value });

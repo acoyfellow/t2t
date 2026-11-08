@@ -26,6 +26,7 @@ final class App: NSObject, NSApplicationDelegate {
     private var query_streamPieces: [String] = []
     private var keysListening = false
     private var holdMode: HoldMode = .dictate
+    private var holdState = "none"
     private var streamedPaste = false
     private var segmentTimes: [Date] = []
     private let logURL: URL = {
@@ -149,6 +150,9 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     private func holdStarted(_ mode: HoldMode) {
+        let event = mode == .agent ? "START_AGENT" : "START_DICTATE"
+        if FSM.holdNext(holdState, event) == nil { log("illegal hold transition \(holdState)+\(event)") }
+        holdState = FSM.holdNext(holdState, event) ?? holdState
         holdMode = mode
         holdStartedAt = Date()
         streamedPaste = false
@@ -162,6 +166,8 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     private func holdStopped(_ mode: HoldMode) {
+        if FSM.holdNext(holdState, "STOP") == nil { log("illegal hold transition \(holdState)+STOP") }
+        holdState = FSM.holdNext(holdState, "STOP") ?? holdState
         outputMute.end()
         bridge.emit(["type": "release", "mode": mode.rawValue])
         let spoken = forcedTranscript == nil

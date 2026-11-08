@@ -9,6 +9,7 @@ import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotoc
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { randomUUID } from 'node:crypto';
+import { mcpMachine } from '../shared/fsm.mjs';
 
 const port = Number(process.env.T2T_MCP_PORT ?? 5196);
 const key = process.env.T2T_KEY ?? '';
@@ -28,7 +29,13 @@ const rememberAction = (server, data) => {
 const status = new Map();
 const parked = new Set();
 
-const setStatus = (name, next) => status.set(name, { ...(status.get(name) ?? {}), ...next, at: new Date().toISOString() });
+const stateEvent = { connecting: 'CONNECT', connected: 'CONNECTED', 'login-needed': 'NEED_LOGIN', error: 'ERROR', disconnected: 'DISCONNECT' };
+const setStatus = (name, next) => {
+  const current = summary(name).state;
+  const event = stateEvent[next.state];
+  if (event && current !== next.state && !mcpMachine.can(current, event)) console.log(`t2t mcp host: illegal mcp transition ${current}+${event} for ${name}`);
+  status.set(name, { ...(status.get(name) ?? {}), ...next, at: new Date().toISOString() });
+};
 
 const summary = (name) => {
   const entry = status.get(name) ?? { state: 'idle' };

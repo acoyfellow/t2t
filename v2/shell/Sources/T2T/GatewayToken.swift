@@ -56,6 +56,10 @@ final class GatewayToken {
     }
 
     private func setStatus(_ value: [String: Any]) {
+        let current = status["state"] as? String ?? "unknown"
+        let next = value["state"] as? String ?? ""
+        let event: [String: String] = ["refreshing": "REFRESH", "ok": "OK", "login-needed": "NEED_LOGIN", "push-failed": "PUSH_FAILED"]
+        if let event = event[next], FSM.gatewayNext(current, event) == nil { log("illegal gateway transition \(current)+\(event)") }
         var value = value
         value["host"] = URL(string: app)?.host ?? ""
         status = value

@@ -18,6 +18,7 @@ import { DurableObject } from 'cloudflare:workers';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
+import { turnNext } from './turnMachine.ts';
 import {
   ClientFrameJson,
   type DrawShape,
@@ -642,7 +643,7 @@ export class Agent extends DurableObject<AgentEnv> {
         startedAt: started,
         endedAt: Date.now(),
         input: request.text,
-        status: 'done',
+        status: turnNext('running', 'DONE') ?? 'done',
         reply,
         tools: active.tools,
         draws: active.draws,
@@ -658,7 +659,7 @@ export class Agent extends DurableObject<AgentEnv> {
             startedAt: Date.now(),
             endedAt: Date.now(),
             input: request.text,
-            status: 'failed',
+            status: turnNext('running', 'FAILED') ?? 'failed',
             tools: active?.tools ?? [],
             draws: active?.draws ?? [],
             usd: 0,
@@ -679,7 +680,7 @@ export class Agent extends DurableObject<AgentEnv> {
       Effect.tap(() =>
         Effect.sync(() => {
           const record = this.records().find((existing) => existing.turnId === turnId);
-          if (record !== undefined) this.saveRecord({ ...record, status: 'cancelled', endedAt: Date.now() });
+          if (record !== undefined) this.saveRecord({ ...record, status: turnNext(record.status, 'CANCEL') ?? record.status, endedAt: Date.now() });
         }),
       ),
       Effect.ignore,
