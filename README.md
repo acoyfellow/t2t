@@ -37,6 +37,14 @@ Dictation never leaves your Mac. Agent questions do.
 
 ## Install
 
+### DMG or Homebrew (fastest)
+
+```sh
+brew install --cask https://raw.githubusercontent.com/acoyfellow/t2t/v2/v2/scripts/casks/t2t.rb
+```
+
+or download `t2t-v2.dmg` from [GitHub Releases](https://github.com/acoyfellow/t2t/releases) and drag T2T.app to Applications. Both are ad-hoc signed, not notarized, so the first launch may need right-click → Open, or run the bundle installer below (it clears the quarantine flag).
+
 ### Bundle (fastest)
 
 Download `t2t-v2.zip` from [GitHub Releases](https://github.com/acoyfellow/t2t/releases), unzip, and run:
