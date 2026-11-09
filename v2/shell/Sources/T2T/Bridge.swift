@@ -11,6 +11,7 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     var onStopSpeaking: () -> Void = {}
     var onHitRegions: ([[String: Double]]) -> Void = { _ in }
     var onOpenSettings: () -> Void = {}
+    var onOpenPane: (String) -> Void = { _ in }
     var onWindow: ([String: Any]) -> Void = { _ in }
     var onWindowClose: (String) -> Void = { _ in }
     var onWindowRecord: (String, Double, String) -> Void = { _, _, _ in }
@@ -49,6 +50,8 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             onWindows((body["windows"] as? [[String: Any]]) ?? [])
         case "openSettings":
             onOpenSettings()
+        case "openPane":
+            if let pane = body["pane"] as? String { onOpenPane(pane) }
         case "settings":
             send(["type": "settings", "value": settingsState()], to: message.webView)
         case "set":

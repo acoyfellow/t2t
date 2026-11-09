@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { loadTranscript, overlay, setSetting, type TranscriptLine } from './connection.svelte';
+  import { loadTranscript, overlay, setSetting, shell, type TranscriptLine } from './connection.svelte';
   import Indicator, { indicatorStyles, type IndicatorPhase } from './lib/Indicator.svelte';
   import Mark from './lib/Mark.svelte';
   import McpPanel from './McpPanel.svelte';
@@ -66,12 +66,18 @@
   const permissionRows = $derived(
     settings
       ? [
-          { label: 'Input Monitoring', ok: settings.permissions.inputMonitoring, why: 'Hear Fn and Fn+Ctrl' },
-          { label: 'Accessibility', ok: settings.permissions.accessibility, why: 'Paste into other apps' },
-          { label: 'Screen Recording', ok: settings.permissions.screenRecording, why: 'Let the agent see your screen' },
+          { label: 'Microphone', ok: settings.permissions.microphone, why: 'Lets t2t hear you while you hold Fn, so your words become text.', pane: 'Microphone' },
+          { label: 'Input Monitoring', ok: settings.permissions.inputMonitoring, why: 'Lets t2t hear the Fn key you hold to start and stop talking.', pane: 'InputMonitoring' },
+          { label: 'Accessibility', ok: settings.permissions.accessibility, why: 'Lets t2t type your words into the app you are in, at your cursor.', pane: 'Accessibility' },
+          { label: 'Screen Recording', ok: settings.permissions.screenRecording, why: 'Lets your agent see your screen when you ask it a question.', pane: 'ScreenRecording' },
         ]
       : [],
   );
+  $effect(() => {
+    if (section !== 'general') return;
+    const timer = setInterval(() => shell({ command: 'settings' }), 1500);
+    return () => clearInterval(timer);
+  });
 </script>
 
 <div class="flex min-h-screen">
@@ -222,9 +228,13 @@
         <h2 class="mb-4 text-sm font-medium text-white/80">Permissions</h2>
         <div class="grid gap-3">
           {#each permissionRows as row (row.label)}
-            <div class="flex items-center justify-between text-sm">
-              <span>{row.label} <span class="text-white/40">· {row.why}</span></span>
-              <span class="rounded-full px-2 py-0.5 text-xs {row.ok ? 'bg-[#00ffa3]/15 text-[#00ffa3]' : 'bg-amber-500/15 text-amber-300'}">{row.ok ? 'Granted' : 'Needed'}</span>
+            <div class="flex items-center justify-between gap-4 text-sm">
+              <span><span class="text-white/85">{row.label}</span> <span class="text-white/45">{row.why}</span></span>
+              {#if row.ok}
+                <span class="shrink-0 rounded-full bg-[#00ffa3]/15 px-2 py-0.5 text-xs text-[#00ffa3]" data-testid="permission-granted">Granted</span>
+              {:else}
+                <button type="button" class="shrink-0 rounded-md border border-white/15 px-2.5 py-1 text-xs hover:bg-white/10" onclick={() => shell({ command: 'openPane', pane: row.pane })} data-testid="permission-grant">Grant…</button>
+              {/if}
             </div>
           {/each}
         </div>

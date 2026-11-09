@@ -63,7 +63,7 @@ export type Settings = {
   mcp: McpServer[];
   mcpPath: string;
   gateway: { state: 'unknown' | 'refreshing' | 'ok' | 'login-needed' | 'push-failed'; hoursLeft?: number; error?: string; host?: string };
-  permissions: { inputMonitoring: boolean; accessibility: boolean; screenRecording: boolean; keys: boolean };
+  permissions: { microphone: boolean; inputMonitoring: boolean; accessibility: boolean; screenRecording: boolean; keys: boolean };
 };
 export type TranscriptLine = { at: number; mode: 'dictate' | 'agent'; role: 'you' | 'agent' | 'error'; text: string };
 

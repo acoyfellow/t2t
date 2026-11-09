@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import AVFoundation
 import CoreGraphics
 
 @MainActor
@@ -88,6 +89,7 @@ final class App: NSObject, NSApplicationDelegate {
         stats.log = { [weak self] line in self?.log(line) }
         bridge.statsState = { [weak self] in self?.stats.summary() ?? [:] }
         bridge.onStatsImport = { [weak self] in self?.stats.importLegacy() ?? false }
+        bridge.onOpenPane = { [weak self] pane in self?.openPane(pane) }
         bridge.jobsState = { [weak self] in self?.jobs.list() ?? [:] }
         bridge.jobLog = { [weak self] name, lines in self?.jobs.tail(name, lines: lines) ?? "" }
         bridge.onJobRun = { [weak self] name in
@@ -120,6 +122,10 @@ final class App: NSObject, NSApplicationDelegate {
         if !Paste.trusted(prompt: false) { _ = Paste.trusted(prompt: true) }
         requestSpeechAndMicAccess { granted in
             Task { @MainActor in self.log("speech+mic granted=\(granted)") }
+        }
+        if !UserDefaults.standard.bool(forKey: "onboardingSeen") {
+            UserDefaults.standard.set(true, forKey: "onboardingSeen")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.openSettingsSection("general") }
         }
 
         mcpHost.log = { [weak self] line in self?.log(line) }
@@ -333,6 +339,7 @@ final class App: NSObject, NSApplicationDelegate {
             "mcpPath": McpConfig.path.path,
             "gateway": gateway.status,
             "permissions": [
+                "microphone": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
                 "inputMonitoring": Keys.inputMonitoringGranted(prompt: false),
                 "accessibility": Paste.trusted(prompt: false),
                 "screenRecording": CGPreflightScreenCaptureAccess(),
@@ -371,6 +378,12 @@ final class App: NSObject, NSApplicationDelegate {
         default:
             log("unknown setting \(key)")
         }
+    }
+
+    private func openPane(_ pane: String) {
+        let allowed: Set<String> = ["Microphone", "Accessibility", "InputMonitoring", "ScreenRecording"]
+        guard allowed.contains(pane), let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_\(pane)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func openSettings() {
