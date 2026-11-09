@@ -68,7 +68,6 @@ CNF
   openssl pkcs12 -export -inkey "$SECRETS/signing.key" -in "$SECRETS/signing.crt" -out "$SECRETS/signing.p12" -passout "pass:$PASS" -name "t2t local signing" >/dev/null 2>&1
   security create-keychain -p "$PASS" "$SECRETS/t2t.keychain-db" >/dev/null
   security import "$SECRETS/signing.p12" -k "$SECRETS/t2t.keychain-db" -P "$PASS" -T /usr/bin/codesign >/dev/null
-  security add-trusted-cert -r trustRoot -k "$SECRETS/t2t.keychain-db" "$SECRETS/signing.crt" >/dev/null 2>&1 || true
   say "Signing certificate ready. macOS will keep permissions across rebuilds."
 fi
 
