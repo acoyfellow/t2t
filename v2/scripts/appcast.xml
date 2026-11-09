@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>t2t updates</title>
+    <link>https://github.com/acoyfellow/t2t/releases</link>
+    <description>Most recent t2t releases.</description>
+    <language>en-us</language>
+    <item>
+      <title>Version 2.0.0</title>
+      <sparkle:version>2.0.0</sparkle:version>
+      <pubDate>Mon, 09 Nov 2026 11:00:00 +0000</pubDate>
+      <enclosure url="https://github.com/acoyfellow/t2t/releases/download/v2.0.0/t2t-v2.zip" sparkle:version="2.0.0" length="0" type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
