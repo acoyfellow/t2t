@@ -392,7 +392,7 @@ const receive = (event: ShellEvent) => {
     }
     remember({ mode: event.mode, role: 'you', text: event.text });
     if (event.mode === 'dictate') {
-      applyPhase('RELEASE_DICTATE');
+      if (overlay.phase === 'listening') applyPhase('RELEASE_DICTATE');
       overlay.heard = '';
       if (!event.streamed) shell({ command: 'paste', text: event.text });
     } else sendTurn(event.text, event.screen);
