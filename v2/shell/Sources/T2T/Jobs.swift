@@ -179,6 +179,7 @@ final class Jobs {
         guard Jobs.safeName(name), definitions().contains(where: { $0.name == name }) else { return "No job named \(name) in loops.yaml" }
         guard let binary = loopsBinary, let file = loopsFile else { return "loops CLI or loops.yaml not found" }
         guard !running.contains(name) else { return "\(name) is already running" }
+        guard FSM.jobNext("idle", "START") == "running" else { return "\(name) is already running" }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = ["run", name]
