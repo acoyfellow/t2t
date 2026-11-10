@@ -140,27 +140,6 @@
 
 
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
-        <h2 class="mb-4 text-sm font-medium text-white/80">Agent model</h2>
-        <label class="flex items-center justify-between gap-4 text-sm">
-          <span>Model <span class="text-white/40">(the agent that answers Fn+Ctrl turns)</span></span>
-          <select
-            class="w-64 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-sm"
-            value={settings.model}
-            onchange={(event) => setSetting('model', event.currentTarget.value)}
-            data-testid="model-select"
-          >
-            {#each [...new Set(models.map((m) => m.family))].sort() as family (family)}
-              <optgroup label={family}>
-                {#each models.filter((m) => m.family === family) as model (model.id)}
-                  <option value={model.id}>{model.name} · ${model.cost?.input ?? '?'} / ${model.cost?.output ?? '?'} per M</option>
-                {/each}
-              </optgroup>
-            {/each}
-          </select>
-        </label>
-      </section>
-
-      <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Shortcuts</h2>
         <div class="grid gap-3 text-sm">
           <div class="flex items-center justify-between"><span>Dictate and paste</span><kbd class="rounded bg-white/10 px-2 py-0.5 text-xs">hold Fn</kbd></div>
@@ -220,8 +199,25 @@
 
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Model</h2>
+        <label class="mb-4 flex items-center justify-between gap-4 text-sm">
+          <span>Agent model <span class="text-white/40">(answers Fn+Ctrl turns)</span></span>
+          <select
+            class="w-64 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-sm"
+            value={settings.model}
+            onchange={(event) => setSetting('model', event.currentTarget.value)}
+            data-testid="model-select"
+          >
+            {#each [...new Set(models.map((m) => m.family))].sort() as family (family)}
+              <optgroup label={family}>
+                {#each models.filter((m) => m.family === family) as model (model.id)}
+                  <option value={model.id}>{model.name} · ${model.cost?.input ?? '?'} / ${model.cost?.output ?? '?'} per M</option>
+                {/each}
+              </optgroup>
+            {/each}
+          </select>
+        </label>
         <div class="flex items-center justify-between gap-4 text-sm">
-          <span>Claude Opus 5.5 {#if settings.gateway.host}<span class="text-white/40">· {settings.gateway.host}</span>{/if}</span>
+          <span>Gateway {#if settings.gateway.host}<span class="text-white/40">· {settings.gateway.host}</span>{/if}</span>
           <div class="flex items-center gap-3">
             {#if settings.gateway.state === 'ok'}
               <span class="rounded-full bg-[#00ffa3]/15 px-2 py-0.5 text-xs text-[#00ffa3]">Signed in · {settings.gateway.hoursLeft}h left</span>
