@@ -39,6 +39,7 @@ export const TurnRequest = Schema.Struct({
   turnId: Schema.String,
   text: Schema.String,
   screen: Schema.optional(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  model: Schema.optional(Schema.String),
   tools: Schema.optional(Schema.Array(McpTool)),
 });
 export type TurnRequest = typeof TurnRequest.Type;

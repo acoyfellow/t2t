@@ -1,6 +1,7 @@
 <script lang="ts">
   import { loadTranscript, overlay, setSetting, shell, type TranscriptLine } from './connection.svelte';
   import Indicator, { indicatorStyles, type IndicatorPhase } from './lib/Indicator.svelte';
+  import models from './lib/models.json';
   import Mark from './lib/Mark.svelte';
   import McpPanel from './McpPanel.svelte';
   import WindowsPanel from './WindowsPanel.svelte';
@@ -137,6 +138,27 @@
         </div>
       </section>
 
+
+      <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
+        <h2 class="mb-4 text-sm font-medium text-white/80">Agent model</h2>
+        <label class="flex items-center justify-between gap-4 text-sm">
+          <span>Model <span class="text-white/40">(the agent that answers Fn+Ctrl turns)</span></span>
+          <select
+            class="w-64 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-sm"
+            value={settings.model}
+            onchange={(event) => setSetting('model', event.currentTarget.value)}
+            data-testid="model-select"
+          >
+            {#each [...new Set(models.map((m) => m.family))].sort() as family (family)}
+              <optgroup label={family}>
+                {#each models.filter((m) => m.family === family) as model (model.id)}
+                  <option value={model.id}>{model.name} · ${model.cost?.input ?? '?'} / ${model.cost?.output ?? '?'} per M</option>
+                {/each}
+              </optgroup>
+            {/each}
+          </select>
+        </label>
+      </section>
 
       <section class="mb-6 rounded-xl border border-white/5 bg-white/[0.03] p-5">
         <h2 class="mb-4 text-sm font-medium text-white/80">Shortcuts</h2>

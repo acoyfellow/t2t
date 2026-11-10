@@ -60,6 +60,7 @@ export type Settings = {
   confirmMcp: boolean;
   voice: string;
   indicatorStyle: import('./lib/Indicator.svelte').IndicatorStyle;
+  model: string;
   mcp: McpServer[];
   mcpPath: string;
   gateway: { state: 'unknown' | 'refreshing' | 'ok' | 'login-needed' | 'push-failed'; hoursLeft?: number; error?: string; host?: string };
@@ -314,7 +315,7 @@ const sendTurn = async (text: string, screen: { width: number; height: number })
     shell({ command: 'log', line: 'socket idle, reconnecting before the turn' });
     freshSocket();
   }
-  send({ type: 'turn', turnId, text, screen, tools });
+  send({ type: 'turn', turnId, text, screen, model: overlay.settings?.model, tools });
   watchTurn(turnId);
 };
 

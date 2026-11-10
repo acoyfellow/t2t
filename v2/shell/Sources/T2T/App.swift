@@ -335,6 +335,7 @@ final class App: NSObject, NSApplicationDelegate {
             "confirmMcp": UserDefaults.standard.bool(forKey: "confirmMcp"),
             "voice": speaker.voice ?? "",
             "indicatorStyle": UserDefaults.standard.string(forKey: "indicatorStyle") ?? "classic",
+            "model": UserDefaults.standard.string(forKey: "model") ?? "claude-opus-5-5",
             "mcp": McpConfig.servers(),
             "mcpPath": McpConfig.path.path,
             "gateway": gateway.status,
@@ -367,6 +368,8 @@ final class App: NSObject, NSApplicationDelegate {
             gateway.refresh(interactive: value as? Bool ?? false)
         case "indicatorStyle":
             UserDefaults.standard.set(value as? String ?? "classic", forKey: "indicatorStyle")
+        case "model":
+            UserDefaults.standard.set(value as? String ?? "claude-opus-5-5", forKey: "model")
         case "voice":
             let voice = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
             speaker.voice = voice

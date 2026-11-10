@@ -105,7 +105,7 @@ const decodeClient = Schema.decodeUnknownOption(ClientFrameJson);
 const encodeRecords = Schema.encodeSync(TurnRecordsJson);
 const decodeRecords = Schema.decodeUnknownOption(TurnRecordsJson);
 
-type Live = { readonly harness: Harness; readonly conversation: Conversation };
+type Live = { readonly harness: Harness; readonly conversation: Conversation; readonly gateway: ReturnType<typeof gatewayProvider> };
 
 type Active = { turnId: string; ask: string; draws: DrawShape[]; tools: string[] };
 
@@ -534,7 +534,8 @@ export class Agent extends DurableObject<AgentEnv> {
           const models = createModels({ authContext: bindingAuthContext });
           const workersAI = cloudflareWorkersAIProvider();
           models.setProvider(workersAI);
-          models.setProvider(gatewayProvider(this.env, () => this.gatewayToken()));
+          const gateway = gatewayProvider(this.env, () => this.gatewayToken());
+          models.setProvider(gateway);
           const provider = this.env.MODEL.startsWith('claude-') ? { id: GATEWAY_PROVIDER } : workersAI;
           const registry = createRegistry();
           registry.install(
@@ -547,7 +548,7 @@ export class Agent extends DurableObject<AgentEnv> {
           );
           yield* pi('configure', () => conversation.configure({ model: { provider: provider.id, modelId: this.env.MODEL }, thinkingLevel: 'low' }, CONTEXT));
           harness.resume();
-          return { harness, conversation };
+          return { harness, conversation, gateway };
         }),
       );
       this.live = Option.some(opening);
@@ -564,7 +565,12 @@ export class Agent extends DurableObject<AgentEnv> {
       const active: Active = { turnId: request.turnId, ask: request.text, draws: [], tools: [] };
       this.active = Option.some(active);
       this.saveRecord({ turnId: request.turnId, startedAt: started, input: request.text, status: 'running', tools: [], draws: [], usd: 0 });
-      const { harness, conversation } = yield* pi('open', () => this.open());
+      const { harness, conversation, gateway } = yield* pi('open', () => this.open());
+      const requested = request.model;
+      if (requested !== undefined && requested !== this.env.MODEL) {
+        const known = gateway.getModels().some((model) => model.id === requested);
+        if (known) yield* pi('configure', () => conversation.configure({ model: { provider: GATEWAY_PROVIDER, modelId: requested }, thinkingLevel: 'low' }, CONTEXT));
+      }
       const seen: AgentEvent[] = [];
       let streamedSoFar = '';
       let broadcastLength = 0;

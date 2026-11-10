@@ -1,7 +1,10 @@
 import type { Provider } from '@earendil-works/pi-ai';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
+import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy';
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
 import { createProvider } from '@earendil-works/pi-ai/models';
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
+import { OPENCODE_MODELS } from '@earendil-works/pi-ai/providers/opencode.models';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -77,16 +80,17 @@ export const gatewayProvider = (env: GatewayEnv, currentToken: () => string): Pr
     const token = currentToken();
     return { 'cf-access-token': token, authorization: `Bearer ${token}`, 'X-Requested-With': 'xmlhttprequest' };
   };
-  const wanted = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
   return createProvider({
     id: GATEWAY_PROVIDER,
     name: 'OpenCode Cloudflare gateway',
     baseUrl,
     auth: { apiKey: { name: 'opencode gateway', resolve: async () => ({ auth: { headers: headers() }, source: 'gateway' }) } },
-    models: anthropicProvider()
-      .getModels()
-      .filter((model) => wanted.has(model.id))
-      .map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl, contextWindow: Math.min(model.contextWindow, VOICE_CONTEXT_TOKENS) })),
-    api: anthropicMessagesApi(),
+    models: Object.values(OPENCODE_MODELS).map((model) => ({ ...model, provider: GATEWAY_PROVIDER, baseUrl, contextWindow: Math.min(model.contextWindow, VOICE_CONTEXT_TOKENS) })),
+    api: {
+      'anthropic-messages': anthropicMessagesApi(),
+      'google-generative-ai': googleGenerativeAIApi(),
+      'openai-completions': openAICompletionsApi(),
+      'openai-responses': openAIResponsesApi(),
+    },
   });
 };
